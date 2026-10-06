@@ -142,3 +142,9 @@ describe('shortcut defaults', () => {
         expect(getEffectiveShortcutCombo('close_session_tab', { ghost_action: 'mod+z', close_session_tab: 'alt+q' } as Record<string, string>)).toBe('alt+q');
     });
 });
+
+test('removed web shell commands have no declared keyboard binding', () => {
+  const ids = SHORTCUT_SCHEMA.map(action => action.id);
+  expect(ids).not.toContain('toggle_terminal');
+  expect(ids).not.toContain('toggle_terminal_expanded');
+});

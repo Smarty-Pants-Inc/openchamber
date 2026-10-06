@@ -19,7 +19,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
-import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/opencode/client';
@@ -109,15 +108,11 @@ const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
 /** The fullscreen app-level surfaces, reachable from the sessions drawer
     footer. Exactly one can be open at a time — opening another replaces it,
     closing returns to the chat. The sessions drawer and the workspace drawer
-    (Changes / Files / Terminal / Notes / MCP) are separate layers. */
+    (Changes / Files / Notes / MCP) are separate layers. */
 type MobileSurface = 'instances' | 'settings' | 'update';
 
 const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onActiveConnectionDeleted }) => {
   const { t } = useI18n();
-  // The mobile root does not mount MainLayout, so it owns its own terminal
-  // keepalive: without it, background PTYs (running project actions included)
-  // are idle-reaped by the server while the workspace drawer is closed.
-  useTerminalSessionKeepalive();
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
   const inboxOpen = useInboxStore((state) => state.pageOpen);
@@ -491,7 +486,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {/* Tablet: the workspace lives inside an animated aside so landscape
             gets a real sidebar. The drawer element keeps its position in the
             tree across rotation — only its `variant` changes — so the mounted
-            panes (open diff, edited file, attached terminal) survive it. In
+            panes (open diff, edited file) survive it. In
             portrait the drawer portals itself out and this aside stays at 0. */}
         {isTabletLayout ? (
           <aside

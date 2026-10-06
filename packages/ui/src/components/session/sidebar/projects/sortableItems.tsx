@@ -1,4 +1,3 @@
-import { DirectoryActionIndicator } from '../sessions/DirectoryActionIndicator';
 import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -104,7 +103,6 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
 export interface SortableProjectItemProps extends ProjectIdentityProps {
   disabled?: boolean;
   projectDescription: string;
-  projectDirectory?: string;
   isCollapsed: boolean;
   isRepo: boolean;
   isDesktopShell: boolean;
@@ -135,7 +133,6 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   disabled = false,
   projectLabel,
   projectDescription,
-  projectDirectory,
   projectIcon,
   projectColor,
   projectIconImage,
@@ -301,7 +298,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                     >
                       <ProjectHeaderIdentity id={id} projectLabel={projectLabel} projectIcon={projectIcon} projectColor={projectColor} projectIconImage={projectIconImage} projectIconBackground={projectIconBackground} />
                       <Icon name="arrow-down-s" className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                      {projectDirectory ? <DirectoryActionIndicator directory={projectDirectory} className="ml-auto" /> : null}
+                      
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="max-h-[70vh] min-w-[220px] overflow-y-auto">
@@ -342,7 +339,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                     {statusIndicator ? (
                       <span className="ml-1 inline-flex flex-shrink-0 items-center">{statusIndicator}</span>
                     ) : null}
-                    {projectDirectory ? <DirectoryActionIndicator directory={projectDirectory} className="ml-auto" /> : null}
+                    
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={8}>

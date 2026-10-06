@@ -13,7 +13,7 @@ interface SidebarProps {
     isMobile: boolean;
     children: React.ReactNode;
     className?: string;
-    /** Fixed strip rendered above the scrollable content (e.g. toggle + project actions). */
+    /** Fixed strip rendered above the scrollable content (e.g. sidebar toggle). */
     topBar?: React.ReactNode;
 }
 

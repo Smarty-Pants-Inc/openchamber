@@ -11,12 +11,11 @@ import {
 } from '../../packages/web/server/lib/opencode/core-routes.js';
 import { registerFsRoutes } from '../../packages/web/server/lib/fs/routes.js';
 import { createMessageStreamWsRuntime } from '../../packages/web/server/lib/event-stream/runtime.js';
-import { createTerminalRuntime } from '../../packages/web/server/lib/terminal/runtime.js';
 import { createRequestSecurityRuntime } from '../../packages/web/server/lib/security/request-security.js';
 
 // smarty-code#391, in real Chromium, through the production bootstrap in the passwordless LOOPBACK mode (no human auth,
 // no UI password): a page in the same browser (here the Files view's sandboxed preview) sends a no-cors, url-encoded
-// POST to /api/fs/write and a POST to /api/system/shutdown, and opens the event-stream and terminal WebSockets (the
+// POST to /api/fs/write and a POST to /api/system/shutdown, and opens the event-stream WebSocket (the
 // production listeners). Nothing may change and no socket may open. The control is the same page from the application's
 // own origin: its write lands and its sockets open, which proves the checks would see a change.
 const probe = (target) => `(async () => {
@@ -30,7 +29,6 @@ const probe = (target) => `(async () => {
     ws.onerror = () => resolve('refused');
   });
   r.events = await socket('/api/global/event/ws');
-  r.terminal = await socket('/api/terminal/ws');
   parent.postMessage(r, '*');
 })();`;
 
@@ -63,10 +61,6 @@ test.beforeAll(async () => {
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade, buildOpenCodeUrl: (p) => `http://127.0.0.1:9${p}`,
     getOpenCodeAuthHeaders: () => ({}), processForwardedEventPayload() {}, wsClients: new Set(), upstreamReconnectDelayMs: 60_000,
     fetchImpl: () => new Promise(() => {}) });
-  createTerminalRuntime({ app: { get() {}, post() {}, delete() {} }, server, fs: {}, path: {}, uiAuthController: null,
-    buildAugmentedPath: () => '', searchPathFor: () => null, isExecutable: () => false,
-    isRequestOriginAllowed: security.isRequestOriginAllowed, rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
-    TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000, loadPtyProvider: async () => { throw new Error('unused'); } });
   registerFsRoutes(app, { os, path, fsPromises: fs, spawn: () => { throw new Error('unused'); }, crypto: { randomUUID: () => 'id-0' },
     normalizeDirectoryPath: (p) => p, resolveProjectDirectory: async () => ({ directory: site }),
     resolveGitBinaryForSpawn: () => 'git', openchamberUserConfigRoot: path.join(root, '.config') });
@@ -106,7 +100,6 @@ test('passwordless loopback: a sandboxed page\'s url-encoded write and shutdown 
   expect(await fs.readFile(target, 'utf8')).toBe('original');
   expect(shutdowns).toBe(0);
   expect(results.events).toBe('refused');
-  expect(results.terminal).toBe('refused');
 });
 
 test('control: the same page from the application origin writes the file, so a change would be seen', async ({ page }) => {
@@ -114,5 +107,4 @@ test('control: the same page from the application origin writes the file, so a c
   expect(results.origin).toBe(origin);
   expect(await fs.readFile(target, 'utf8')).toBe(`written by ${origin}`);
   expect(results.events).toBe('open');
-  expect(results.terminal).toBe('open');
 });

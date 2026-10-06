@@ -6,7 +6,7 @@
  *
  * URL Schema:
  * - `?session=<id>` - Navigate to specific session
- * - `?tab=<chat|git|diff|terminal|files>` - Legacy URL name for the active workspace surface
+ * - `?tab=<chat|git|diff|files>` - Legacy URL name for the active workspace surface
  * - `?settings=<section>` - Open settings to specific section
  * - `?file=<path>` - Diff view with file selected
  *

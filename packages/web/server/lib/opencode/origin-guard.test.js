@@ -94,11 +94,10 @@ test('passwordless reads need an application host: a rebound Host reads nothing,
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('passwordless WebSocket upgrades (event stream, terminal) refuse opaque, other and rebound origins', async () => {
+test('passwordless WebSocket upgrades (event stream) refuse opaque, other and rebound origins', async () => {
   const { createServer } = await import('node:http');
   const { WebSocket } = await import('ws');
   const { createMessageStreamWsRuntime } = await import('../event-stream/runtime.js');
-  const { createTerminalRuntime } = await import('../terminal/runtime.js');
   const { createRequestSecurityRuntime } = await import('../security/request-security.js');
   const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
   const server = createServer((_req, res) => res.end());
@@ -106,10 +105,6 @@ test('passwordless WebSocket upgrades (event stream, terminal) refuse opaque, ot
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade, buildOpenCodeUrl: (p) => `http://127.0.0.1:9${p}`, getOpenCodeAuthHeaders: () => ({}),
     processForwardedEventPayload() {}, wsClients: new Set(), upstreamReconnectDelayMs: 60_000,
     fetchImpl: () => new Promise(() => {}) });
-  const terminal = createTerminalRuntime({ app: { get() {}, post() {}, delete() {} }, server, fs: {}, path: {}, uiAuthController: null,
-    buildAugmentedPath: () => '', searchPathFor: () => null, isExecutable: () => false, isRequestOriginAllowed: security.isRequestOriginAllowed,
-    rejectWebSocketUpgrade: security.rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000,
-    loadPtyProvider: async () => { throw new Error('unused'); } });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
   const open = (path, headers) => new Promise((resolve) => {
@@ -119,7 +114,7 @@ test('passwordless WebSocket upgrades (event stream, terminal) refuse opaque, ot
     socket.once('error', () => resolve('error'));
   });
   try {
-    for (const path of ['/api/global/event/ws', '/api/terminal/ws']) {
+    for (const path of ['/api/global/event/ws']) {
       assert.equal(await open(path, { Origin: 'null' }), 403, path); // A sandboxed preview.
       assert.equal(await open(path, { Origin: 'https://attacker.test' }), 403, path);
       assert.equal(await open(path, { Host: 'attacker.test', Origin: 'http://attacker.test' }), 403, path); // Rebound.
@@ -128,7 +123,7 @@ test('passwordless WebSocket upgrades (event stream, terminal) refuse opaque, ot
       assert.equal(await open(path, {}), 'open', path); // Not a browser.
     }
   } finally {
-    await events.stop?.(); await terminal.shutdown?.(); await terminal.stop?.();
+    await events.close();
     server.closeAllConnections?.(); await new Promise((resolve) => server.close(resolve));
   }
 });

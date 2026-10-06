@@ -1,4 +1,3 @@
-import { DirectoryActionIndicator } from './DirectoryActionIndicator';
 import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { ContextMenu } from '@base-ui/react/context-menu';
@@ -1441,18 +1440,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                           would reflow the truncated title and cause a micro
                           horizontal shift when the status flips. */}
                       <div className={cn('block min-w-0 flex-1 truncate typography-ui-label font-normal', isActive ? 'text-primary' : needsAttention ? 'text-foreground' : 'text-foreground/80')}>{renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}</div>
-                      {!archivedBucket && sessionDirectory && (renderContext === 'recent'
-                        || (sessionGroupingMode === 'flat' && node.worktree
-                          && normalizePath(node.worktree.path) !== normalizePath(node.worktree.projectDirectory))) ? (
-                        <DirectoryActionIndicator
-                          directory={sessionDirectory}
-                          className={alwaysShowActions ? undefined : isSessionMenuOpen
-                            ? 'mr-1'
-                            : isVSCode
-                              ? 'group-hover:mr-1'
-                              : 'group-hover:mr-1 group-focus-within:mr-1'}
-                        />
-                      ) : null}
+                      
                       {/* While a turn runs (and until its result is read) the
                           elapsed counter takes over this slot from the usual
                           goal/branch/date metadata, which stays one hover or

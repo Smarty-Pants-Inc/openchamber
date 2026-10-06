@@ -223,16 +223,7 @@ export const CommandPalette: React.FC = () => {
           }
         }),
       },
-      {
-        id: 'toggle-terminal',
-        title: t('commandPalette.item.toggleTerminal'),
-        icon: <Icon name="terminal-box" className="mr-2 h-4 w-4" />,
-        shortcutId: 'toggle_terminal',
-        searchText: t('commandPalette.item.toggleTerminal'),
-        onSelect: run(() => {
-          if (currentDirectory) openContextSurface(currentDirectory, 'terminal');
-        }),
-      },
+
       {
         id: 'context-usage',
         title: t('commandPalette.item.showContextUsage'),

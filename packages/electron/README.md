@@ -27,7 +27,6 @@ The preload bridge exposes desktop-only APIs to the web UI through `window.__OPE
 | `scripts/build-web-assets.mjs` | Builds `packages/web` and stages UI assets into `resources/web-dist` |
 | `scripts/prepare-opencode-cli.mjs` | Downloads and stages the pinned OpenCode CLI into `resources/opencode-cli` |
 | `scripts/bundle-main.mjs` | Bundles Electron main code into `dist-bundle/main.mjs` for packaging |
-| `scripts/rebuild-native.mjs` | Rebuilds native modules against the Electron runtime |
 | `scripts/package.mjs` | Runs `electron-builder`, with unsigned Windows builds when signing env is missing |
 | `resources/` | Packaged web assets, icons, and macOS entitlements |
 
@@ -75,8 +74,7 @@ That runs, in order:
 1. `build:web-assets` to build the web UI and copy it into `packages/electron/resources/web-dist`.
 2. `prepare:opencode-cli` to download/cache the pinned OpenCode CLI and copy it into `packages/electron/resources/opencode-cli`.
 3. `bundle:main` to create `packages/electron/dist-bundle/main.mjs`.
-4. `rebuild:native` to rebuild native modules for Electron.
-5. `package.mjs` runs `electron-builder` with the shared PNG icon from `resources/icons/app-icon.png`.
+4. `package.mjs` runs `electron-builder` with the shared PNG icon from `resources/icons/app-icon.png`.
 
 Build output goes to `packages/electron/dist`.
 
@@ -94,7 +92,7 @@ After packaging, run `bun run --cwd packages/electron verify:linux-appimage`. Th
 
 Running a packaged Linux AppImage requires FUSE (`libfuse.so.2`, typically `libfuse2` / `libfuse2t64` on Debian/Ubuntu). Without FUSE, start with `APPIMAGE_EXTRACT_AND_RUN=1`. Keep the AppImage on a writable path so in-app updates can replace it.
 
-Desktop clears AppImage `ARGV0` from `process.env` before probing the login shell and starting the in-process server. Leaving it set makes zsh rewrite argv[0] for integrated-terminal and managed-OpenCode child commands to the AppImage path.
+Desktop clears AppImage `ARGV0` from `process.env` before probing the login shell and starting the in-process server. Leaving it set makes zsh rewrite argv[0] for managed-OpenCode child commands to the AppImage path.
 
 Linux updates are supported only when the packaged app is running from a writable AppImage. Update checks, downloads, and installation report an actionable error when `APPIMAGE` is missing, invalid, or read-only; a missing release feed (`latest-linux.yml` 404 before the first Linux publish) is treated as “no update available”. macOS and Windows updater behavior is unchanged. Release builds keep `latest-linux.yml` (x64) and `latest-linux-arm64.yml` separate and validate each manifest against its AppImage before upload. Linux AppImages download full updates (no `.blockmap` differential channel yet).
 
@@ -188,7 +186,7 @@ Development builds use a separate user data directory named `OpenChamber Dev`, s
 
 - Keep desktop-specific code in this package. Do not move OpenCode feature backend logic into Electron.
 - Use hidden Windows process launches for background helpers. Avoid visible console flashes.
-- Keep `@openchamber/web`, `bun-pty`, `node-pty`, and native modules external in `bundle-main.mjs`; bundling them can break Electron startup.
+- Keep `@openchamber/web` and native modules external in `bundle-main.mjs`; bundling them can break Electron startup.
 - Rebuild native modules after dependency or Electron version changes.
 - Test both HMR dev mode and bundled UI mode when changing startup, preload, routing, or packaged asset behavior.
 

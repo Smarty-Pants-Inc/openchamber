@@ -158,18 +158,6 @@ export const HelpDialog: React.FC = () => {
       categoryKey: "helpDialog.section.panels",
       items: [
         {
-          id: 'toggle_terminal',
-          descriptionKey: 'helpDialog.item.toggleTerminalDock',
-          icon: "window",
-          keys: '',
-        },
-        {
-          id: 'toggle_terminal_expanded',
-          descriptionKey: 'helpDialog.item.toggleTerminalExpanded',
-          icon: "window",
-          keys: '',
-        },
-        {
           keys: [`${formatShortcutForDisplay(getEffectiveShortcutPrefix('switch_context_surface', shortcutOverrides))} + 1...0`],
           descriptionKey: "helpDialog.item.switchContextSurface",
           icon: "layout-right",

@@ -25,7 +25,6 @@ import { useInputHistoryStore } from '@/stores/useInputHistoryStore';
 import { normalizeMobileKeyboardMode, setStoredMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isCapacitorApp } from '@/lib/platform';
-import { isTerminalShell } from '@/lib/terminalShell';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 import { saveProjectSettings } from '@/lib/projectSettingsMerge';
 import { toast } from 'sonner';
@@ -617,9 +616,7 @@ const materializeAuthoritativeUiSettings = (settings: DesktopSettings): DesktopS
     draftStartersVisible: defaults.draftStartersVisible,
     reportUsage: defaults.reportUsage,
     fontSize: defaults.fontSize,
-    terminalFontSize: defaults.terminalFontSize,
-    terminalShell: defaults.terminalShell,
-    terminalLoginShells: defaults.terminalLoginShells,
+
     editorFontSize: defaults.editorFontSize,
     uiFont: defaults.uiFont,
     monoFont: defaults.monoFont,
@@ -959,21 +956,6 @@ const applyDesktopUiPreferences = (settings: DesktopSettings) => {
   }
   if (typeof settings.draftStartersVisible === 'boolean' && settings.draftStartersVisible !== store.draftStartersVisible) {
     store.setDraftStartersVisible(settings.draftStartersVisible);
-  }
-  if (typeof settings.terminalFontSize === 'number' && Number.isFinite(settings.terminalFontSize) && settings.terminalFontSize !== store.terminalFontSize) {
-    store.setTerminalFontSize(settings.terminalFontSize);
-  }
-  if (isTerminalShell(settings.terminalShell) && settings.terminalShell !== store.terminalShell) {
-    store.setTerminalShell(settings.terminalShell);
-  }
-  if (
-    Array.isArray(settings.terminalLoginShells)
-    && (
-      settings.terminalLoginShells.length !== store.terminalLoginShells.length
-      || settings.terminalLoginShells.some((shell, index) => shell !== store.terminalLoginShells[index])
-    )
-  ) {
-    store.setTerminalLoginShells(settings.terminalLoginShells);
   }
   if (typeof settings.editorFontSize === 'number' && Number.isFinite(settings.editorFontSize) && settings.editorFontSize !== store.editorFontSize) {
     store.setEditorFontSize(settings.editorFontSize);
@@ -1606,15 +1588,6 @@ const sanitizeWebSettings = (payload: unknown): DesktopSettings | null => {
   }
   if (typeof candidate.fontSize === 'number' && Number.isFinite(candidate.fontSize)) {
     result.fontSize = candidate.fontSize;
-  }
-  if (typeof candidate.terminalFontSize === 'number' && Number.isFinite(candidate.terminalFontSize)) {
-    result.terminalFontSize = candidate.terminalFontSize;
-  }
-  if (isTerminalShell(candidate.terminalShell)) {
-    result.terminalShell = candidate.terminalShell;
-  }
-  if (Array.isArray(candidate.terminalLoginShells)) {
-    result.terminalLoginShells = [...new Set(candidate.terminalLoginShells.filter(isTerminalShell))];
   }
   if (typeof candidate.editorFontSize === 'number' && Number.isFinite(candidate.editorFontSize)) {
     result.editorFontSize = candidate.editorFontSize;

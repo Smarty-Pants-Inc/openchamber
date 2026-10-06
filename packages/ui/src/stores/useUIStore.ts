@@ -7,16 +7,15 @@ import type { ShortcutCombo } from '@/lib/shortcuts';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import { DEFAULT_MONO_FONT, DEFAULT_UI_FONT, type MonoFontOption, type UiFontOption } from '@/lib/fontOptions';
 import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
-import type { LinearIssueListAssignee, LinearIssueListPriority, LinearIssueListStatus, TerminalShell } from '@/lib/api/types';
+import type { LinearIssueListAssignee, LinearIssueListPriority, LinearIssueListStatus } from '@/lib/api/types';
 import type { ProjectRef } from '@/lib/projectContextApi';
-import { directoryMayHaveActiveProjectAction, useTerminalStore } from '@/stores/useTerminalStore';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import { isWindowsArm64 } from '@/lib/platform';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { getRuntimeKey, isTransientRuntimeKey } from '@/lib/runtime-switch';
 
 export type PendingDiffScope = 'working' | 'staged' | 'turn' | 'branch';
-export type ContextPanelMode = 'diff' | 'walkthrough' | 'file' | 'context' | 'plan' | 'chat' | 'browser' | 'git' | 'pr' | 'linear' | 'notes' | 'terminal';
+export type ContextPanelMode = 'diff' | 'walkthrough' | 'file' | 'context' | 'plan' | 'chat' | 'browser' | 'git' | 'pr' | 'linear' | 'notes';
 export type MermaidRenderingMode = 'svg' | 'ascii';
 export type UserMessageRenderingMode = 'markdown' | 'plain';
 export type ChatRenderMode = 'sorted' | 'live';
@@ -109,7 +108,6 @@ type ContextPanelTab = {
   id: string;
   mode: ContextPanelMode;
   targetPath: string | null;
-  targetDirectory: string | null;
   /** Saved project plan this tab shows, for `plan` tabs opened from the notes
       panel. Project plans are addressed by id because their markdown is
       server-owned and has no client-visible path. */
@@ -130,7 +128,6 @@ type ContextPanelTab = {
 type ContextPanelTabDescriptor = {
   mode: ContextPanelMode;
   targetPath?: string | null;
-  targetDirectory?: string | null;
   projectPlanId?: string | null;
   projectPlanRef?: ProjectRef | null;
   dedupeKey?: string | null;
@@ -255,15 +252,6 @@ const normalizeContextTargetPath = (value: string | null | undefined): string | 
   return trimmed.replace(/\\/g, '/');
 };
 
-const normalizeContextTargetDirectory = (value: string | null | undefined): string | null => {
-  const normalizedPath = normalizeContextTargetPath(value);
-  if (!normalizedPath) {
-    return null;
-  }
-
-  return normalizeContextPanelDirectoryKey(normalizedPath) || null;
-};
-
 const normalizeContextTabLabel = (value: string | null | undefined): string | null => {
   if (typeof value !== 'string') {
     return null;
@@ -332,9 +320,6 @@ const buildContextPanelTabID = (mode: ContextPanelMode, dedupeKey: string): stri
 
 const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): ContextPanelTab => {
   const normalizedTargetPath = normalizeContextTargetPath(descriptor.targetPath);
-  const normalizedTargetDirectory = descriptor.mode === 'terminal'
-    ? normalizeContextTargetDirectory(descriptor.targetDirectory)
-    : null;
   const dedupeKey = normalizeContextPanelTabDedupeKey(
     descriptor.mode,
     normalizedTargetPath,
@@ -344,7 +329,6 @@ const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): ContextPa
     id: buildContextPanelTabID(descriptor.mode, dedupeKey),
     mode: descriptor.mode,
     targetPath: normalizedTargetPath,
-    targetDirectory: normalizedTargetDirectory,
     projectPlanId: typeof descriptor.projectPlanId === 'string' && descriptor.projectPlanId.trim()
       ? descriptor.projectPlanId.trim()
       : null,
@@ -408,7 +392,6 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
     const candidate = entry as {
       mode?: unknown;
       targetPath?: unknown;
-      targetDirectory?: string | null;
       projectPlanId?: unknown;
       projectPlanRef?: unknown;
       dedupeKey?: unknown;
@@ -423,7 +406,7 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
     // Legacy 'preview' tabs are converted to 'browser' by the v14 migration;
     // anything still carrying an unknown mode here is discarded rather than
     // resurrected into a tab the panel cannot render.
-    if (candidate.mode !== 'diff' && candidate.mode !== 'walkthrough' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'plan' && candidate.mode !== 'chat' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'pr' && candidate.mode !== 'linear' && candidate.mode !== 'notes' && candidate.mode !== 'terminal') {
+    if (candidate.mode !== 'diff' && candidate.mode !== 'walkthrough' && candidate.mode !== 'file' && candidate.mode !== 'context' && candidate.mode !== 'plan' && candidate.mode !== 'chat' && candidate.mode !== 'browser' && candidate.mode !== 'git' && candidate.mode !== 'pr' && candidate.mode !== 'linear' && candidate.mode !== 'notes') {
       continue;
     }
 
@@ -434,9 +417,6 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
     }
 
     const targetPath = normalizeContextTargetPath(typeof candidate.targetPath === 'string' ? candidate.targetPath : null);
-    const targetDirectory = candidate.mode === 'terminal'
-      ? normalizeContextTargetDirectory(candidate.targetDirectory)
-      : null;
     const projectPlanId = typeof candidate.projectPlanId === 'string' && candidate.projectPlanId.trim()
       ? candidate.projectPlanId.trim()
       : null;
@@ -465,7 +445,6 @@ const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       id,
       mode: candidate.mode,
       targetPath,
-      targetDirectory,
       projectPlanId,
       projectPlanRef,
       dedupeKey,
@@ -537,7 +516,6 @@ const upsertContextPanelTab = (
           ...tab,
           mode: nextTab.mode,
           targetPath: nextTab.targetPath || tab.targetPath,
-          targetDirectory: nextTab.targetDirectory,
           projectPlanId: nextTab.projectPlanId ?? tab.projectPlanId,
           projectPlanRef: nextTab.projectPlanRef ?? tab.projectPlanRef,
           dedupeKey: nextTab.dedupeKey,
@@ -674,7 +652,6 @@ const sanitizeContextPanelByDirectory = (
       touchedAt?: unknown;
       mode?: unknown;
       targetPath?: unknown;
-      targetDirectory?: string | null;
       dedupeKey?: unknown;
       label?: unknown;
     };
@@ -686,11 +663,10 @@ const sanitizeContextPanelByDirectory = (
     // no owner and cannot be migrated into an openable saved-plan tab — that
     // combination is dropped by sanitize above. A generic filesystem plan tab
     // (no plan id) revives fine from the descriptor alone.
-    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'plan' || candidate.mode === 'chat' || candidate.mode === 'terminal')) {
+    if (tabs.length === 0 && (candidate.mode === 'diff' || candidate.mode === 'file' || candidate.mode === 'context' || candidate.mode === 'plan' || candidate.mode === 'chat')) {
       tabs = [createContextPanelTab({
         mode: candidate.mode,
         targetPath: typeof candidate.targetPath === 'string' ? candidate.targetPath : null,
-        targetDirectory: candidate.targetDirectory,
         dedupeKey: typeof candidate.dedupeKey === 'string' ? candidate.dedupeKey : null,
         label: typeof candidate.label === 'string' ? candidate.label : null,
       })];
@@ -706,7 +682,7 @@ const sanitizeContextPanelByDirectory = (
     if (candidate.widthByMode && typeof candidate.widthByMode === 'object') {
       for (const [mode, value] of Object.entries(candidate.widthByMode as Record<string, unknown>)) {
         if (
-          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'plan' || mode === 'chat' || mode === 'browser' || mode === 'git' || mode === 'pr' || mode === 'linear' || mode === 'notes' || mode === 'terminal')
+          (mode === 'diff' || mode === 'file' || mode === 'context' || mode === 'plan' || mode === 'chat' || mode === 'browser' || mode === 'git' || mode === 'pr' || mode === 'linear' || mode === 'notes')
           && typeof value === 'number'
           && Number.isFinite(value)
         ) {
@@ -716,7 +692,7 @@ const sanitizeContextPanelByDirectory = (
     }
 
     next[directory] = {
-      isOpen: candidate.isOpen === true,
+      isOpen: candidate.isOpen === true && clampedTabs.length > 0,
       expanded: candidate.expanded === true,
       tabs: clampedTabs,
       activeTabId: resolveActiveContextPanelTabID(clampedTabs, resolvedActiveTabId),
@@ -852,9 +828,6 @@ interface UIStore {
   // Global draft welcome starters; null = unset (use the default built-in set).
   globalDraftStarters: DraftStarterRef[] | null;
   draftStartersVisible: boolean;
-  terminalFontSize: number;
-  terminalShell: TerminalShell;
-  terminalLoginShells: TerminalShell[];
   editorFontSize: number;
   uiFont: UiFontOption;
   monoFont: MonoFontOption;
@@ -919,9 +892,7 @@ interface UIStore {
   summarizeLastMessage: boolean;
   summaryThreshold: number;   // chars — messages longer than this get summarized
   summaryLength: number;      // chars — target length for summary
-  maxLastMessageLength: number; // chars — truncate {last_message} when summarization is off
-
-  showTerminalQuickKeysOnDesktop: boolean;
+  maxLastMessageLength: number;
   /** Header session tabs (web/desktop), opt-in. Off keeps the plain session title. */
   sessionTabsEnabled: boolean;
   persistChatDraft: boolean;
@@ -1056,9 +1027,6 @@ interface UIStore {
   setFontSize: (size: number) => void;
   setGlobalDraftStarters: (refs: DraftStarterRef[]) => void;
   setDraftStartersVisible: (value: boolean) => void;
-  setTerminalFontSize: (size: number) => void;
-  setTerminalShell: (shell: TerminalShell) => void;
-  setTerminalLoginShells: (shells: TerminalShell[]) => void;
   setEditorFontSize: (size: number) => void;
   setUiFont: (font: UiFontOption) => void;
   setMonoFont: (font: MonoFontOption) => void;
@@ -1107,7 +1075,6 @@ interface UIStore {
   setImagePreviewOpen: (open: boolean) => void;
   setNativeNotificationsEnabled: (value: boolean) => void;
   setNotificationMode: (mode: 'always' | 'hidden-only') => void;
-  setShowTerminalQuickKeysOnDesktop: (value: boolean) => void;
   setSessionTabsEnabled: (value: boolean) => void;
   setNotifyOnSubtasks: (value: boolean) => void;
   setDockBadgeEnabled: (value: boolean) => void;
@@ -1163,7 +1130,6 @@ interface UIStore {
   resetAllShortcutOverrides: () => void;
   setFileEditorKeymap: (value: FileEditorKeymap) => void;
 }
-
 
 export const useUIStore = create<UIStore>()(
   devtools(
@@ -1238,9 +1204,7 @@ export const useUIStore = create<UIStore>()(
         messageLimit: 200,
         fontSize: 100,
         globalDraftStarters: null,
-        terminalFontSize: 14,
-        terminalShell: 'auto',
-        terminalLoginShells: [],
+
         editorFontSize: 13,
         uiFont: DEFAULT_UI_FONT,
         monoFont: DEFAULT_MONO_FONT,
@@ -1292,7 +1256,6 @@ export const useUIStore = create<UIStore>()(
         summaryLength: 100,
         maxLastMessageLength: 250,
 
-        showTerminalQuickKeysOnDesktop: false,
         sessionTabsEnabled: false,
         persistChatDraft: true,
         showOpenCodeUpdateNotifications: !isWindowsArm64(),
@@ -1408,29 +1371,14 @@ export const useUIStore = create<UIStore>()(
           const panelState = state.contextPanelByDirectory[normalizedDirectory];
           const tabs = panelState?.tabs ?? [];
           const activeTab = tabs.find((tab) => tab.id === panelState?.activeTabId) ?? null;
-          const clearTerminalTarget = () => {
-            if (mode === 'terminal') {
-              const terminalTab = tabs.find((tab) => tab.mode === 'terminal') ?? null;
-              const targetDirectory = terminalTab?.targetDirectory ?? null;
-              if (targetDirectory) {
-                const targetState = useTerminalStore.getState().getDirectoryState(targetDirectory);
-                if (directoryMayHaveActiveProjectAction(targetState)) {
-                  return;
-                }
-              }
-              state.openContextPanelTab(normalizedDirectory, { mode: 'terminal', targetDirectory: null }, { reveal: false });
-            }
-          };
 
           if (panelState?.isOpen && activeTab?.mode === mode) {
-            clearTerminalTarget();
             state.closeContextPanel(normalizedDirectory);
             return;
           }
 
           const tabsOfMode = tabs.filter((tab) => tab.mode === mode);
           if (tabsOfMode.length > 0) {
-            clearTerminalTarget();
             // `>=` so equal timestamps (same-millisecond opens) resolve to the
             // later tab in insertion order.
             const mostRecent = tabsOfMode.reduce((best, tab) => (tab.touchedAt >= best.touchedAt ? tab : best));
@@ -1454,21 +1402,12 @@ export const useUIStore = create<UIStore>()(
             return;
           }
 
-          const nextTab = tab.mode === 'terminal'
-            ? {
-                ...tab,
-                targetDirectory: normalizeContextTargetDirectory(tab.targetDirectory) === normalizedDirectory
-                  ? null
-                  : normalizeContextTargetDirectory(tab.targetDirectory),
-              }
-            : tab;
-
           set((state) => {
             const prev = state.contextPanelByDirectory[normalizedDirectory];
             const current = touchContextPanelState(prev);
             const byDirectory = {
               ...state.contextPanelByDirectory,
-              [normalizedDirectory]: upsertContextPanelTab(current, nextTab, options),
+              [normalizedDirectory]: upsertContextPanelTab(current, tab, options),
             };
 
             return { contextPanelByDirectory: clampContextPanelRoots(byDirectory, 20) };
@@ -1841,7 +1780,6 @@ export const useUIStore = create<UIStore>()(
           set({ contextRailHiddenSurfaces: [...new Set(surfaceIds)] });
         },
 
-
         setSessionSwitcherOpen: (open) => {
           if (get().isSessionSwitcherOpen === open) {
             return;
@@ -2089,20 +2027,6 @@ export const useUIStore = create<UIStore>()(
           set({ draftStartersVisible: value });
         },
 
-        setTerminalFontSize: (size) => {
-          const rounded = Math.round(size);
-          const clamped = Math.max(9, Math.min(52, rounded));
-          set({ terminalFontSize: clamped });
-        },
-
-        setTerminalShell: (shell) => {
-          set({ terminalShell: shell });
-        },
-
-        setTerminalLoginShells: (shells) => {
-          set({ terminalLoginShells: [...new Set(shells)] });
-        },
-
         setEditorFontSize: (size) => {
           const rounded = Math.round(size);
           const clamped = Math.max(9, Math.min(32, rounded));
@@ -2274,7 +2198,7 @@ export const useUIStore = create<UIStore>()(
             const exists = state.favoriteModels.some(
               (fav) => fav.providerID === providerID && fav.modelID === modelID
             );
-            
+
             if (exists) {
               // Remove from favorites
               return {
@@ -2541,10 +2465,6 @@ export const useUIStore = create<UIStore>()(
           set({ notificationMode: mode });
         },
 
-        setShowTerminalQuickKeysOnDesktop: (value) => {
-          set({ showTerminalQuickKeysOnDesktop: value });
-        },
-
         setSessionTabsEnabled: (value) => {
           set({ sessionTabsEnabled: value });
         },
@@ -2714,7 +2634,7 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 20,
+        version: 21,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
@@ -2834,11 +2754,6 @@ export const useUIStore = create<UIStore>()(
             if (state.desktopWindowControlsPosition === 'auto' || state.desktopWindowControlsPosition == null) {
               state.desktopWindowControlsPosition = 'right';
             }
-          }
-
-          // v10 -> v11: move the previous terminal font default forward.
-          if (version < 11 && state.terminalFontSize === 13) {
-            state.terminalFontSize = 14;
           }
 
           // v9 -> v10: remove obsolete single-file diff view mode setting
@@ -3009,9 +2924,7 @@ export const useUIStore = create<UIStore>()(
           messageLimit: state.messageLimit,
           fontSize: state.fontSize,
           globalDraftStarters: state.globalDraftStarters,
-          terminalFontSize: state.terminalFontSize,
-          terminalShell: state.terminalShell,
-          terminalLoginShells: state.terminalLoginShells,
+
           editorFontSize: state.editorFontSize,
           uiFont: state.uiFont,
           monoFont: state.monoFont,
@@ -3035,7 +2948,7 @@ export const useUIStore = create<UIStore>()(
           linearIssueListPriority: state.linearIssueListPriority,
           nativeNotificationsEnabled: state.nativeNotificationsEnabled,
           notificationMode: state.notificationMode,
-          showTerminalQuickKeysOnDesktop: state.showTerminalQuickKeysOnDesktop,
+
           sessionTabsEnabled: state.sessionTabsEnabled,
           notifyOnSubtasks: state.notifyOnSubtasks,
           dockBadgeEnabled: state.dockBadgeEnabled,

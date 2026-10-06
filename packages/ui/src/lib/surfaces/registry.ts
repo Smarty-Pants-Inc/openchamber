@@ -9,7 +9,6 @@ export type ContextSurfaceId =
   | 'linear'
   | 'diff'
   | 'walkthrough'
-  | 'terminal'
   | 'plan'
   | 'notes'
   | 'context'
@@ -102,15 +101,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     labelKey: 'contextPanel.mode.files',
     availability: 'always',
   },
-  {
-    id: 'terminal',
-    descriptionKey: 'contextRail.surface.terminal.description',
-    defaultWidthFraction: 3 / 5,
-    mode: 'terminal',
-    icon: 'terminal-box',
-    labelKey: 'layout.mainTab.terminal',
-    availability: 'always',
-  },
+
   {
     id: 'notes',
     descriptionKey: 'contextRail.surface.notes.description',

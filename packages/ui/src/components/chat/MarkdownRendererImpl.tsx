@@ -778,8 +778,8 @@ const useDecorateContext = (
     zoomInDiagram: t('markdownRenderer.mermaid.actions.zoomInTitle'),
     zoomOutDiagram: t('markdownRenderer.mermaid.actions.zoomOutTitle'),
     resetDiagramView: t('markdownRenderer.mermaid.actions.resetViewTitle'),
-    previewLabel: t('terminalView.preview.open'),
-    previewTitle: t('terminalView.preview.openTitle'),
+    previewLabel: t('chat.messageBody.actions.openPreview'),
+    previewTitle: t('chat.messageBody.actions.openPreviewAria'),
   }), [t]);
 
   const codeBlockLineWrap = useUIStore((state) => state.codeBlockLineWrap);

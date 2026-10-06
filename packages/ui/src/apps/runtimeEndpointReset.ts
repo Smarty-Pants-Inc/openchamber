@@ -1,7 +1,6 @@
 import { opencodeClient } from '@/lib/opencode/client';
 import { resetRuntimeAuthSession } from '@/lib/runtime-auth-expiry';
 import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
-import { disposeTerminalInputTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useProjectContextStore } from '@/stores/useProjectContextStore';
@@ -21,7 +20,6 @@ import { useSkillsStore } from '@/stores/useSkillsStore';
 import { useAgentMemoryStore } from '@/stores/useAgentMemoryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
-import { useTerminalStore } from '@/stores/useTerminalStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { resetStreamingState } from '@/sync/streaming';
 import { replaceGlobalSessionStatusById } from '@/sync/global-session-status';
@@ -39,7 +37,6 @@ import { syncDesktopSettings } from '@/lib/persistence';
 // no bounce back to the draft.
 export const reconnectAppForTransportSwitch = (): void => {
   resetRuntimeAuthSession();
-  disposeTerminalInputTransport();
   opencodeClient.reconnectToRuntimeBaseUrl();
   resetStreamingState();
 };
@@ -50,8 +47,6 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   if (detail.previousRuntimeKey) {
     useAutoReviewStore.getState().stopRunningRunsForRuntime(detail.previousRuntimeKey);
   }
-  disposeTerminalInputTransport();
-  useTerminalStore.getState().clearAll();
   opencodeClient.reconnectToRuntimeBaseUrl();
   useConfigStore.setState({
     providers: [],

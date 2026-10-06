@@ -9,13 +9,13 @@ The managed Chats root (`~/.config/openchamber/chats`) is also one context owner
 
 | Path | Owner | Contents |
 |---|---|---|
-| `<projectsDir>/<projectId>.json` | shared UI (`packages/ui/src/lib/openchamberConfig.ts`), plus server-owned `version` / `scheduledTasks` | worktree setup, draft starters, project actions |
+| `<projectsDir>/<projectId>.json` | shared UI (`packages/ui/src/lib/openchamberConfig.ts`), plus server-owned `version` / `scheduledTasks` | worktree setup, draft starters |
 | `<projectsDir>/<projectId>/context.json` | **this module, exclusively** | notes, todos, plan manifest |
 | `<projectsDir>/<projectId>/plans/*.md` | **this module, exclusively** | plan bodies |
 
 The split is the point. Both files were previously one, written by the client
 with a whole-file read-modify-write. Adding a server writer to that file would
-have made unrelated features (project actions, draft starters) clobber notes
+have made unrelated features (worktree setup, draft starters) clobber notes
 across processes, with no lock able to span both sides. Separate files remove
 the shared resource instead of trying to coordinate access to it.
 

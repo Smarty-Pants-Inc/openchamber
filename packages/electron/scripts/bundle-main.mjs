@@ -4,13 +4,6 @@
  * (@openchamber/web) and native modules — stays external so it resolves
  * from node_modules at runtime inside the packaged app.
  *
- * Why external matters: packages/web/server pulls in bun-pty, which has
- * a top-level `import { dlopen } from "bun:ffi"`. If we inline it here,
- * Node's ESM loader sees `bun:ffi` at package load time and crashes with
- * ERR_UNSUPPORTED_ESM_URL_SCHEME before any runtime guard can skip it.
- * Leaving @openchamber/web external means the conditional
- * `if (isBunRuntime) await import('bun-pty')` stays dynamic and is never
- * reached under Electron.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,8 +21,6 @@ const result = await Bun.build({
     'electron',
     '@openchamber/web',
     '@openchamber/web/*',
-    'bun-pty',
-    'node-pty',
   ],
   minify: false,
   sourcemap: 'none',

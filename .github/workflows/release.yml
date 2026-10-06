@@ -178,19 +178,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # rebuild-native.mjs reads this to target the right arch when
-          # cross-building (runner is arm64; x64 matrix needs the hint).
           ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
         run: |
           bun run build:web-assets
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
           bun run bundle:main
-          # npmRebuild=false in package.json, so electron-builder won't
-          # recompile native deps on its own — we must rebuild against the
-          # target Electron ABI before packaging, otherwise node-pty/bun-pty
-          # crash on require inside the packaged app.
-          bun run rebuild:native
           bunx electron-builder --mac --${{ matrix.arch }} --publish=never
           bun run verify:opencode-cli:packaged
 
@@ -316,17 +309,6 @@ jobs:
         working-directory: packages/electron
         run: bun run bundle:main
 
-      - name: Rebuild native modules
-        working-directory: packages/electron
-        shell: bash
-        env:
-          # Cross-compile for ARM64 target from x64 runner.
-          ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
-        # npmRebuild=false in package.json, so electron-builder won't
-        # recompile native deps on its own — we must rebuild against the
-        # target Electron ABI before packaging.
-        run: node ./scripts/rebuild-native.mjs
-
       - name: Build Windows app
         working-directory: packages/electron
         shell: bash
@@ -423,7 +405,6 @@ jobs:
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
           bun run bundle:main
-          bun run rebuild:native
           node ./scripts/package.mjs --linux --${{ matrix.arch }} --publish=never
           bun run verify:opencode-cli:packaged
           bun run verify:linux-appimage

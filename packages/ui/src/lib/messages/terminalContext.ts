@@ -1,4 +1,4 @@
-export type TerminalContext = {
+type TerminalContext = {
   terminalId: string;
   terminalLabel: string;
   startLine: number;
@@ -6,11 +6,11 @@ export type TerminalContext = {
   text: string;
 };
 
-export type ParsedTerminalContext = Omit<TerminalContext, 'terminalId'>;
+type ParsedTerminalContext = Omit<TerminalContext, 'terminalId'>;
 
 const BLOCK = /\n*<terminal_context>\n([\s\S]*?)\n<\/terminal_context>\s*$/;
 
-export const normalizeTerminalContext = (context: TerminalContext): TerminalContext | null => {
+const normalizeTerminalContext = (context: TerminalContext): TerminalContext | null => {
   const terminalId = context.terminalId.trim();
   const terminalLabel = context.terminalLabel.trim();
   const text = context.text.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '');
@@ -18,9 +18,6 @@ export const normalizeTerminalContext = (context: TerminalContext): TerminalCont
   const startLine = Math.max(1, Math.floor(context.startLine));
   return { terminalId, terminalLabel, startLine, endLine: Math.max(startLine, Math.floor(context.endLine)), text };
 };
-
-export const terminalContextKey = (context: TerminalContext): string =>
-  `${context.terminalId}:${context.startLine}:${context.endLine}:${context.text}`;
 
 export const appendTerminalContexts = (prompt: string, contexts: readonly TerminalContext[]): string => {
   const normalized = contexts.map(normalizeTerminalContext).filter((value): value is TerminalContext => value !== null);

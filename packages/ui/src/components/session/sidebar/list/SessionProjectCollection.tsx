@@ -1,4 +1,3 @@
-import { SidebarTerminalActivity } from './SidebarTerminalActivity';
 import { SessionRevealEffect } from './sessionReveal';
 import React from 'react';
 import type { Session } from '@opencode-ai/sdk/v2';
@@ -634,7 +633,7 @@ const VisibleSessionProjects: React.FC<SessionProjectCollectionProps> = ({ topol
     setSingleProjectId,
   ]);
   return <>
-    <SidebarTerminalActivity />
+    
     {!topology.isVSCode && <SessionRevealEffect sections={view.useGroupedSections ? projectSections : flatSectionsForRender} />}
     <ProjectSessionSelectionEffect
       projectSections={projectSections}

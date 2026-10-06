@@ -76,8 +76,6 @@ type MenuAction =
   | 'toggle-right-sidebar'
   | 'open-right-sidebar-git'
   | 'open-right-sidebar-files'
-  | 'toggle-terminal'
-  | 'toggle-terminal-expanded'
   | 'copy'
   | 'add-selection-to-chat'
   | 'theme-light'
@@ -241,27 +239,6 @@ export const useMenuActions = (
           const directory = useDirectoryStore.getState().currentDirectory;
           if (!directory) break;
           useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(directory), 'file');
-          break;
-        }
-
-        case 'toggle-terminal': {
-          const directory = useDirectoryStore.getState().currentDirectory;
-          if (!directory) break;
-          useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(directory), 'terminal');
-          break;
-        }
-
-        case 'toggle-terminal-expanded': {
-          const directory = useDirectoryStore.getState().currentDirectory;
-          if (!directory) break;
-          const key = normalizeContextPanelDirectoryKey(directory);
-          const uiState = useUIStore.getState();
-          const panel = uiState.contextPanelByDirectory[key];
-          const activeMode = panel?.isOpen ? panel.tabs.find((tab) => tab.id === panel.activeTabId)?.mode : null;
-          if (activeMode !== 'terminal') {
-            uiState.openContextSurface(key, 'terminal');
-          }
-          uiState.toggleContextPanelExpanded(key);
           break;
         }
 

@@ -5,7 +5,7 @@ export const createRequestSecurityRuntime = (deps) => {
   // (capacitor://localhost), and the Android Capacitor WebView, which uses
   // androidScheme 'https' and therefore reports 'https://localhost'. Missing
   // the Android origin 403'd every WebSocket upgrade from the Android app
-  // (message stream, terminal, dictation) while SSE kept working.
+  // (message stream, dictation) while SSE kept working.
   const packagedClientOrigins = new Set([
     'openchamber-ui://app',
     'capacitor://localhost',

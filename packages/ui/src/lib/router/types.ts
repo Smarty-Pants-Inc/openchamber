@@ -19,8 +19,8 @@ export interface RouteState {
  * Valid values for the legacy `tab` URL parameter. Non-chat tabs open the
  * matching context-panel surface; the chat always owns the main area.
  */
-export type RouteTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files';
-export const VALID_TABS: readonly RouteTab[] = ['chat', 'git', 'diff', 'terminal', 'files'] as const;
+export type RouteTab = 'chat' | 'git' | 'diff' | 'files';
+export const VALID_TABS: readonly RouteTab[] = ['chat', 'git', 'diff',  'files'] as const;
 
 /**
  * Valid settings section values for URL routing.

@@ -6,7 +6,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { getReportedChatsRoot } from '@/lib/chatDirectories';
 
 /**
- * Hook that resolves the effective working directory for tabs (Git, Diff, Files, Terminal).
+ * Hook that resolves the effective working directory for tabs (Git, Diff, Files).
  *
  * Priority order:
  * 1. Worktree metadata path (for worktree sessions)

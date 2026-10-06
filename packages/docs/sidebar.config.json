@@ -209,22 +209,6 @@
           }
         },
         {
-          "label": "Project Actions",
-          "link": "/project-actions/",
-          "translations": {
-            "uk": "Дії проєкту",
-            "zh-CN": "项目操作",
-            "es": "Acciones del proyecto",
-            "pt-BR": "Ações do projeto",
-            "ko": "프로젝트 작업",
-            "pl": "Akcje projektu",
-            "fr": "Actions de projet",
-            "ja": "プロジェクトアクション",
-            "de": "Projektaktionen",
-            "tr": "Proje işlemleri"
-          }
-        },
-        {
           "label": "Preview & Dev Servers",
           "link": "/preview/",
           "translations": {

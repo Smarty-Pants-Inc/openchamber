@@ -1,5 +1,4 @@
 import React from 'react';
-import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { activateAdjacentSessionTab, activateSessionTabByIndex, closeSessionTabAndActivateNeighbour } from '@/lib/sessionTabs';
 import { navigateSessionHistory } from '@/lib/sessionNavigationHistory';
@@ -107,22 +106,6 @@ export const useKeyboardShortcuts = () => {
     abortPrimedUntilRef.current = null;
     clearAbortPrompt();
   }, [clearAbortPrompt]);
-
-  const toggleTerminalSurface = () => {
-    if (!currentDirectory) return;
-    useUIStore.getState().openContextSurface(normalizeContextPanelDirectoryKey(currentDirectory), 'terminal');
-  };
-
-  const toggleTerminalSurfaceExpanded = () => {
-    if (!currentDirectory) return;
-    const key = normalizeContextPanelDirectoryKey(currentDirectory);
-    const state = useUIStore.getState();
-    const panel = state.contextPanelByDirectory[key];
-    if (panel?.isOpen ? panel.tabs.find((tab) => tab.id === panel.activeTabId)?.mode !== 'terminal' : true) {
-      state.openContextSurface(key, 'terminal');
-    }
-    state.toggleContextPanelExpanded(key);
-  };
 
   useKeybinds({
     open_command_palette: () => {
@@ -255,14 +238,7 @@ export const useKeyboardShortcuts = () => {
         useSelectionStore.getState().saveSessionAgentSelection(sessionId, next);
       }
     },
-    toggle_terminal: () => {
-      if (useUIStore.getState().isMobile) return false;
-      return toggleTerminalSurface();
-    },
-    toggle_terminal_expanded: () => {
-      if (useUIStore.getState().isMobile) return false;
-      return toggleTerminalSurfaceExpanded();
-    },
+
     open_model_selector: () => {
       const state = useUIStore.getState();
       const hasOverlay = state.isCommandPaletteOpen
@@ -349,19 +325,6 @@ export const useKeyboardShortcuts = () => {
       const handler = shortcutRegistry.get(actionId);
       return handler ? handler(event) !== false : false;
     };
-    const handleTerminalShortcutCapture = (event: KeyboardEvent) => {
-      if (!isTerminalEventTarget(event.target)) return;
-      const getBinding = (actionId: ShortcutActionId) => getEffectiveShortcutCombo(
-        actionId,
-        useUIStore.getState().shortcutOverrides,
-      );
-      const actionId = eventMatchesShortcut(event, getBinding('toggle_terminal')) ? 'toggle_terminal'
-        : eventMatchesShortcut(event, getBinding('toggle_terminal_expanded')) ? 'toggle_terminal_expanded' : null;
-      if (actionId && invokeRegistered(actionId, event)) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
     const handleSelectionToolbarKeyDownCapture = (event: KeyboardEvent) => {
       const version = getActiveSelectionToolbarVersion();
       if (selectionToolbarVersionRef.current !== version) {
@@ -409,7 +372,6 @@ export const useKeyboardShortcuts = () => {
       }
       if (
         target?.closest('[role="dialog"]')
-        || isTerminalEventTarget(target)
         || dropdownOpen
       ) {
         resetAbortPriming();
@@ -462,7 +424,6 @@ export const useKeyboardShortcuts = () => {
       }, Math.max(expiresAt - now, 0));
     };
     const handleActivePrefixKeyDownCapture = (event: KeyboardEvent) => {
-      if (isTerminalEventTarget(event.target)) return;
       if (!dispatcher.hasActivePrefix()) return;
       // An unmodified completion key typed into an editable target is only a
       // deliberate sequence when the prefix was armed from that same target;
@@ -482,7 +443,7 @@ export const useKeyboardShortcuts = () => {
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (dispatcher.consumeCapturedPrefixEvent(event)) return;
-      if (event.key === 'Escape' || isTerminalEventTarget(event.target)) return;
+      if (event.key === 'Escape') return;
       if (shortcutRegistry.isSuspended() || hasActiveSelectionToolbar()) return;
       const combo = getEffectiveShortcutCombo('cycle_agent', useUIStore.getState().shortcutOverrides);
       const backward = combo && !combo.includes('shift') ? normalizeCombo(`shift+${combo}`) : '';
@@ -567,7 +528,6 @@ export const useKeyboardShortcuts = () => {
     window.addEventListener('keydown', handleKeyHoldDown, true);
     window.addEventListener('keydown', handleSelectionToolbarKeyDownCapture, true);
     window.addEventListener('keyup', handleKeyUp, true);
-    window.addEventListener('keydown', handleTerminalShortcutCapture, true);
     window.addEventListener('keydown', handleEscapeKeyDownCapture, true);
     window.addEventListener('keydown', handleActivePrefixKeyDownCapture, true);
     window.addEventListener('keydown', handleKeyDown);
@@ -576,8 +536,7 @@ export const useKeyboardShortcuts = () => {
       window.removeEventListener('keydown', handleKeyHoldDown, true);
       window.removeEventListener('keydown', handleSelectionToolbarKeyDownCapture, true);
       window.removeEventListener('keyup', handleKeyUp, true);
-      window.removeEventListener('keydown', handleTerminalShortcutCapture, true);
-      window.removeEventListener('keydown', handleEscapeKeyDownCapture, true);
+        window.removeEventListener('keydown', handleEscapeKeyDownCapture, true);
       window.removeEventListener('keydown', handleActivePrefixKeyDownCapture, true);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('blur', handleBlur);

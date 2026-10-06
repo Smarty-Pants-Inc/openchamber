@@ -42,7 +42,6 @@ import {
 import { prepareNotificationLastMessage } from './lib/notifications/index.js';
 import { registerTtsRoutes } from './lib/tts/routes.js';
 import { detectSayTtsCapability } from './lib/tts/capability-runtime.js';
-import { createTerminalRuntime } from './lib/terminal/runtime.js';
 import { createDictationRuntime } from './lib/dictation/runtime.js';
 import {
   createGlobalUiEventBroadcaster,
@@ -283,7 +282,6 @@ const OPENCHAMBER_CHATS_DIR = process.env.OPENCHAMBER_CHATS_DIR && process.env.O
 
 const MAX_THEME_JSON_BYTES = 512 * 1024;
 
-
 const themeRuntime = createThemeRuntime({
   fsPromises,
   path,
@@ -443,12 +441,7 @@ const addOrUpdateApnsToken = (...args) => apnsRuntime.addOrUpdateApnsToken(...ar
 const removeApnsToken = (...args) => apnsRuntime.removeApnsToken(...args);
 const sendApnsToAllUiSessions = (...args) => apnsRuntime.sendApnsToAllUiSessions(...args);
 
-const TERMINAL_INPUT_WS_MAX_REBINDS_PER_WINDOW = 128;
-const TERMINAL_INPUT_WS_REBIND_WINDOW_MS = 60 * 1000;
-const TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS = 15 * 1000;
-
 const rejectWebSocketUpgrade = (...args) => requestSecurityRuntime.rejectWebSocketUpgrade(...args);
-
 
 const isRequestOriginAllowed = (...args) => requestSecurityRuntime.isRequestOriginAllowed(...args);
 
@@ -557,7 +550,6 @@ tunnelProviderRegistry.seal();
 const tunnelAuthController = createTunnelAuth();
 let runtimeManagedRemoteTunnelToken = '';
 let runtimeManagedRemoteTunnelHostname = '';
-let terminalRuntime = null;
 let dictationRuntime = null;
 let messageStreamRuntime = null;
 const userProvidedOpenCodePassword = hmrStateRuntime.getUserProvidedOpenCodePassword(hmrState);
@@ -980,7 +972,6 @@ const processForwardedEventPayload = (payload, emitSyntheticEvent) => {
   });
 };
 
-
 const serverUtilsRuntime = createServerUtilsRuntime({
   fs,
   os,
@@ -1103,7 +1094,7 @@ const tunnelWiringRuntime = createTunnelWiringRuntime({
   },
 });
 const startupPipelineRuntime = createStartupPipelineRuntime({
-  createTerminalRuntime,
+
   createDictationRuntime,
   createMessageStreamWsRuntime,
   createServerStartupRuntime,
@@ -1455,10 +1446,7 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
   sessionRuntime,
   getHealthCheckInterval: () => healthCheckInterval,
   clearHealthCheckInterval: (value) => clearInterval(value),
-  getTerminalRuntime: () => terminalRuntime,
-  setTerminalRuntime: (value) => {
-    terminalRuntime = value;
-  },
+
   getMessageStreamRuntime: () => messageStreamRuntime,
   setMessageStreamRuntime: (value) => {
     messageStreamRuntime = value;
@@ -2012,9 +2000,7 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     processForwardedEventPayload,
     messageStreamWsClients: uiNotificationWsClients,
     upstreamStallTimeoutMs: getUpstreamStallTimeoutMs,
-    terminalHeartbeatIntervalMs: TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
-    terminalRebindWindowMs: TERMINAL_INPUT_WS_REBIND_WINDOW_MS,
-    terminalMaxRebindsPerWindow: TERMINAL_INPUT_WS_MAX_REBINDS_PER_WINDOW,
+
     setupProxy,
     scheduleOpenCodeApiDetection,
     bootstrapOpenCodeAtStartup,
@@ -2044,7 +2030,6 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     apiOnly,
     dictationModelsDir: path.join(OPENCHAMBER_USER_CONFIG_ROOT, 'speech-models'),
   });
-  terminalRuntime = startupPipelineResult.terminalRuntime;
   dictationRuntime = startupPipelineResult.dictationRuntime;
   messageStreamRuntime = startupPipelineResult.messageStreamRuntime;
 

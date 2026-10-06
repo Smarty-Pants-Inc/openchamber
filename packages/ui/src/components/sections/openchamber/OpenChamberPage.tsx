@@ -152,9 +152,6 @@ const GeneralSectionContent: React.FC = () => {
                 'fileEditorKeymap',
                 ...(!isVSCode ? ['sessionTabs' as const] : []),
                 'autoSaveEnabled',
-                ...(!isVSCode ? ['terminalQuickKeys' as const] : []),
-                ...(!isVSCode ? ['terminalShell' as const] : []),
-                ...(!isVSCode ? ['terminalLoginShell' as const] : []),
                 'messageTransport',
                 'reportUsage',
             ]} />
@@ -174,7 +171,6 @@ const VisualSectionContent: React.FC = () => {
         'timeFormat',
         ...(!isVSCode ? ['weekStart' as const] : []),
         'fontSize',
-        'terminalFontSize',
         'editorFontSize',
         'spacing',
         'inputBarOffset',

@@ -63,7 +63,7 @@ Start a session from a GitHub issue or pull request with its context attached. S
 
 ### Continue on another device
 
-Open the same projects and sessions from Desktop, Web/PWA, VS Code, iOS, or Android. Check progress, answer questions, review changes, and reattach to a running terminal.
+Open the same projects and sessions from Desktop, Web/PWA, VS Code, iOS, or Android. Check progress, answer questions, and review changes.
 
 ### Private remote access
 
@@ -71,7 +71,7 @@ Pair a device with a one-time QR code and connect through **Private Relay** with
 
 ### Track work across projects
 
-See which sessions are working, waiting, finished, or failed, along with approvals, scheduled tasks, provider limits, token use, and costs. Organize sessions into folders and keep notes, todos, and reusable project actions nearby.
+See which sessions are working, waiting, finished, or failed, along with approvals, scheduled tasks, provider limits, token use, and costs. Organize sessions into folders and keep notes and todos nearby.
 
 ### Schedule recurring work
 
@@ -84,7 +84,7 @@ Run a prompt once, daily, weekly, or on a cron schedule. Scheduled tasks can use
 | **Desktop** | The complete workspace for macOS, Windows, and Linux, with multiple windows, Mini Chat, remote machines, SSH, and native notifications |
 | **Web / PWA** | Open your workspace in a browser, install it as an app, and stay up to date through background notifications |
 | **VS Code** | Keep sessions beside your code, send selections to the agent, open results in the editor, and compare parallel runs |
-| **iOS / Android** | Review and steer work away from your desk, receive completion alerts, and use the terminal with touch controls |
+| **iOS / Android** | Review and steer work away from your desk and receive completion alerts |
 | **CLI / Server** | Run Smarty Code on a workstation or server, schedule work, manage remote access, and keep it available after login |
 
 ## Quick start
@@ -166,7 +166,6 @@ Special thanks to:
 
 - [OpenCode](https://opencode.ai) for the API and open-source architecture Smarty Code builds on
 - [Pierre](https://pierrejs-docs.vercel.app/) for the diff viewer and syntax highlighting
-- [Ghostty-web](https://github.com/coder/ghostty-web) for its Ghostty web renderer
 - [Yulia Ivashko](https://github.com/yulia-ivashko), who built the firework celebration that plays on every successful push
 - Everyone who contributed code, reported bugs, or shared ideas
 

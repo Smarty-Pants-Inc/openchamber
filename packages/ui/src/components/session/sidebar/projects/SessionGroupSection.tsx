@@ -1,4 +1,3 @@
-import { DirectoryActionIndicator } from '../sessions/DirectoryActionIndicator';
 import { useRevealSessionPagination } from '../list/sessionReveal';
 import React from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -1229,7 +1228,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               </span>
             ) : null}
           </div>
-          {!group.isArchivedBucket && group.directory ? <DirectoryActionIndicator directory={group.directory} className="self-center" /> : null}
+          
         </div>
         {group.isArchivedBucket && allGroupSessions.length > 0 ? (
           <div className={cn('absolute right-0.5 top-1/2 -translate-y-1/2 z-10 transition-opacity', alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover/gh:opacity-100 group-focus-within/gh:opacity-100')}>

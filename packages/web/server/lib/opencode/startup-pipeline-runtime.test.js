@@ -6,7 +6,7 @@ describe('startup pipeline runtime', () => {
   it('publishes the listening port before bootstrapping managed OpenCode', async () => {
     const order = [];
     const runtime = createStartupPipelineRuntime({
-      createTerminalRuntime: () => ({}),
+
       createDictationRuntime: () => ({}),
       createMessageStreamWsRuntime: () => ({}),
       createServerStartupRuntime: () => ({

@@ -95,7 +95,6 @@ export const registerServerStatusRoutes = (app, dependencies) => {
       'api.raw-file.v1',
       'realtime.sse.v1',
       'realtime.websocket.global-events.v1',
-      'terminal.websocket.v1',
     ],
   };
 
@@ -272,7 +271,7 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     res.json({ ok: true });
 
     // Terminate the entire dev process group so `bun run dev` leaves no orphans.
-    // We still run graceful shutdown to clean up OpenCode, terminals, websockets.
+    // We still run graceful shutdown to clean up OpenCode and websockets.
     try {
       const rawPreviewUrls = Array.isArray(req.body?.previewUrls) ? req.body.previewUrls : [];
       const previewPorts = Array.from(new Set(
@@ -1073,7 +1072,6 @@ export const registerCommonRequestMiddleware = (app, dependencies) => {
       req.path.startsWith('/api/git') ||
       req.path.startsWith('/api/magic-prompts') ||
       req.path.startsWith('/api/prompts') ||
-      req.path.startsWith('/api/terminal') ||
       req.path.startsWith('/api/opencode') ||
       req.path.startsWith('/api/push') ||
       req.path.startsWith('/api/notifications') ||

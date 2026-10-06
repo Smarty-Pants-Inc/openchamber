@@ -36,7 +36,7 @@ response carries `X-Speech-Model` and `X-Speech-Language`.
 - `runtime.js` — registers `GET /api/dictation/status`,
   `POST /api/dictation/models/:modelId/download`, and the
   `/api/dictation/ws` WebSocket endpoint (auth-gated the same way as the
-  terminal WS: UI session token or `oc_url_token`, plus origin check).
+  event-stream WS: UI session token or `oc_url_token`, plus origin check).
   Human upgrades instead use the existing `requireUpgradeAuth` lifetime gate
   before `handleUpgrade`, after Host validation. Session deletion or expiry
   closes the tracked raw socket, and the admission recheck covers concurrent

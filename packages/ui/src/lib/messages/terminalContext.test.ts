@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { appendTerminalContexts, extractTerminalContexts, normalizeTerminalContext, terminalContextKey } from './terminalContext';
+import { appendTerminalContexts, extractTerminalContexts } from './terminalContext';
 
 const context = {
   terminalId: 'term-1', terminalLabel: 'Terminal 1', startLine: 12, endLine: 13, text: 'one\r\ntwo',
@@ -7,9 +7,11 @@ const context = {
 
 describe('terminal context serialization', () => {
   test('normalizes immutable selection snapshots and line ranges', () => {
-    expect(normalizeTerminalContext(context)).toEqual({ ...context, text: 'one\ntwo' });
-    expect(normalizeTerminalContext({ ...context, text: '\n\n' })).toBeNull();
-    expect(normalizeTerminalContext({ ...context, startLine: -2, endLine: 0 })?.startLine).toBe(1);
+    const normalized = extractTerminalContexts(appendTerminalContexts('', [context]));
+    expect(normalized.contexts[0]?.text).toBe('one\ntwo');
+    expect(appendTerminalContexts('hello', [{ ...context, text: '\n\n' }])).toBe('hello');
+    const bounded = extractTerminalContexts(appendTerminalContexts('', [{ ...context, startLine: -2, endLine: 0 }]));
+    expect(bounded.contexts[0]?.startLine).toBe(1);
   });
 
   test('serializes multiple contexts without exposing the block in visible text', () => {
@@ -22,8 +24,7 @@ describe('terminal context serialization', () => {
     ]);
   });
 
-  test('ignores expired contexts and provides deterministic deduplication keys', () => {
+  test('ignores empty historical contexts', () => {
     expect(appendTerminalContexts('hello', [{ ...context, text: '' }])).toBe('hello');
-    expect(terminalContextKey(context)).toBe(terminalContextKey({ ...context }));
   });
 });

@@ -15,8 +15,7 @@ export const createGracefulShutdownRuntime = (dependencies) => {
     scheduledTasksRuntime,
     getHealthCheckInterval,
     clearHealthCheckInterval,
-    getTerminalRuntime,
-    setTerminalRuntime,
+
     getMessageStreamRuntime,
     setMessageStreamRuntime,
     shouldSkipOpenCodeStop,
@@ -54,16 +53,6 @@ export const createGracefulShutdownRuntime = (dependencies) => {
     const healthCheckInterval = getHealthCheckInterval();
     if (healthCheckInterval) {
       clearHealthCheckInterval(healthCheckInterval);
-    }
-
-    const terminalRuntime = getTerminalRuntime();
-    if (terminalRuntime) {
-      try {
-        await terminalRuntime.shutdown();
-      } catch {
-      } finally {
-        setTerminalRuntime(null);
-      }
     }
 
     const messageStreamRuntime = getMessageStreamRuntime();

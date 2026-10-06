@@ -34,7 +34,6 @@ export const createSettingsHelpers = (dependencies) => {
   const SHORTCUT_OVERRIDE_VALUE_MAX_LENGTH = 128;
   const PWA_ORIENTATION_VALUES = new Set(['system', 'portrait', 'landscape']);
   const MOBILE_KEYBOARD_MODE_VALUES = new Set(['native', 'resize-content']);
-  const TERMINAL_SHELL_VALUES = new Set(['auto', 'bash', 'zsh', 'sh', 'fish', 'pwsh', 'powershell', 'cmd', 'dash', 'ksh', 'nu']);
   const SIDEBAR_PROJECT_DISPLAY_MODE_VALUES = new Set(['all', 'single']);
   const SIDEBAR_SESSION_GROUPING_MODE_VALUES = new Set(['by-worktree', 'flat']);
   const SIDEBAR_PROJECT_SORT_ORDER_VALUES = new Set(['manual', 'a-z', 'z-a', 'date-added', 'recent']);
@@ -308,7 +307,6 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.draftStartersScheduleTaskAdded === 'boolean') {
       result.draftStartersScheduleTaskAdded = candidate.draftStartersScheduleTaskAdded;
     }
-
 
     if (typeof candidate.uiFont === 'string' && candidate.uiFont.length > 0) {
       result.uiFont = candidate.uiFont;
@@ -634,21 +632,8 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.fontSize === 'number' && Number.isFinite(candidate.fontSize)) {
       result.fontSize = Math.max(50, Math.min(200, Math.round(candidate.fontSize)));
     }
-    if (typeof candidate.terminalFontSize === 'number' && Number.isFinite(candidate.terminalFontSize)) {
-      result.terminalFontSize = Math.max(9, Math.min(52, Math.round(candidate.terminalFontSize)));
-    }
     if (typeof candidate.editorFontSize === 'number' && Number.isFinite(candidate.editorFontSize)) {
       result.editorFontSize = Math.max(9, Math.min(32, Math.round(candidate.editorFontSize)));
-    }
-    if (typeof candidate.terminalShell === 'string') {
-      const shell = candidate.terminalShell.trim().toLowerCase();
-      if (TERMINAL_SHELL_VALUES.has(shell)) result.terminalShell = shell;
-    }
-    if (Array.isArray(candidate.terminalLoginShells)) {
-      result.terminalLoginShells = [...new Set(candidate.terminalLoginShells
-        .filter((shell) => typeof shell === 'string')
-        .map((shell) => shell.trim().toLowerCase())
-        .filter((shell) => TERMINAL_SHELL_VALUES.has(shell)))];
     }
     if (typeof candidate.padding === 'number' && Number.isFinite(candidate.padding)) {
       result.padding = Math.max(50, Math.min(200, Math.round(candidate.padding)));

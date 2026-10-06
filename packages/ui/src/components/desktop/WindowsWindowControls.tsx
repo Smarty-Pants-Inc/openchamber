@@ -156,9 +156,9 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
   }
 
   // Classic Windows-style square buttons. Left side matches the h-8 titlebar
-  // icon cluster (app menu / sidebar / project actions) and avoids negative
+  // icon cluster (app menu / sidebar) and avoids negative
   // margins so TitlebarLeftControls publishes an accurate reserved width —
-  // otherwise the project-actions chevron overlaps the session title. Right
+  // otherwise the controls overlap the session title. Right
   // side keeps a taller h-12 Windows-style hit target.
   const buttonClassName = cn(
     'app-region-no-drag inline-flex items-center justify-center text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
