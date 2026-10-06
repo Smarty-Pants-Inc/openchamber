@@ -502,3 +502,42 @@ describe('settings runtime', () => {
     }
   });
 });
+
+// openchamber#552 Astra r2 F5: legacy saved project actions remain read-only migration hints, so an orphan config
+// identified only by them still moves its notes, todos and plans to the canonical project id.
+describe('orphan project recovery with legacy actions as hints', () => {
+  for (const hint of ['name', 'rootPath']) {
+    it(`moves notes, todos and plans of an orphan identified only by a saved action (${hint})`, async () => {
+      const { runtime, settingsFilePath, tempRoot, cleanup } = await createRuntime();
+      try {
+        const projectPath = path.join(tempRoot, 'kates-app');
+        await fsPromises.mkdir(path.join(projectPath, 'scripts'), { recursive: true });
+        await fsPromises.writeFile(path.join(projectPath, 'scripts', 'serve.sh'), '#!/bin/sh\n');
+        const projectsDir = path.join(path.dirname(settingsFilePath), 'projects');
+        await fsPromises.mkdir(projectsDir, { recursive: true });
+        const orphanId = '0f0f0f0f-1111-4222-8333-444444444444';
+        const action = hint === 'name'
+          ? { id: 'a1', name: 'Run kates-app', command: 'npm start' }
+          : { id: 'a1', name: 'Serve', command: '$ROOT_PROJECT_PATH/scripts/serve.sh' };
+        await fsPromises.writeFile(path.join(projectsDir, `${orphanId}.json`), JSON.stringify({
+          projectNotes: 'remember the launch list',
+          projectTodos: [{ id: 't1', text: 'ship the feed', completed: false }],
+          projectPlanFiles: [{ id: 'p1', path: 'plan.md' }],
+          projectActions: [action],
+        }), 'utf8');
+        await fsPromises.writeFile(settingsFilePath, JSON.stringify({ projects: [{ id: 'legacy-id', path: projectPath }] }), 'utf8');
+
+        const settings = await runtime.readSettingsFromDiskMigrated();
+        const canonicalId = createProjectIdFromPath(projectPath);
+        expect(settings.projects.map((p) => p.id)).toEqual([canonicalId]);
+        const moved = JSON.parse(await fsPromises.readFile(path.join(projectsDir, `${canonicalId}.json`), 'utf8'));
+        expect(moved.projectNotes).toBe('remember the launch list');
+        expect(moved.projectTodos).toEqual([{ id: 't1', text: 'ship the feed', completed: false }]);
+        expect(moved.projectPlanFiles.map((p) => p.path)).toEqual(['plan.md']);
+        await expect(fsPromises.stat(path.join(projectsDir, `${orphanId}.json`))).rejects.toThrow();
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+});
