@@ -86,6 +86,33 @@ export class SendRecovery {
   /** The content signature: text plus the identity of every attached file and context part. */
   static signature(text: string, attachments: readonly string[] = []) { return JSON.stringify([text, [...attachments].sort()]); }
 
+  /** Admission identity is runtime + session; owner directory only routes restoration. */
+  private sessionScope(target: string) {
+    const fields = target.split('\u0000');
+    return fields.length < 3 ? target : [fields[0], fields[2]].join('\u0000');
+  }
+
+  /** Any unanswered attempt or unresolved reservation fences every explicit Send in this session.
+   * Restored/edited input, lost editor ownership and watchdog expiry never settle an outcome. */
+  isSessionPending(target: string, exceptMessageID?: string) {
+    const scope = this.sessionScope(target);
+    for (const groups of this.groups.values()) {
+      for (const group of groups) {
+        if (group.messageID !== exceptMessageID && this.sessionScope(group.target) === scope
+          && this.isReservationUnresolved(group)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Strict composer admission, atomic with beginning the attempt. Legacy begin remains content-scoped. */
+  beginSession(target: string, content: string, hooks: Hooks, candidate?: RecoveryCandidate): RecoveryAttempt | null {
+    if (this.isSessionPending(target)) { hooks.notify('still-pending'); return null; }
+    const attempt = this.begin(target, content, hooks, candidate);
+    if (!attempt) return null;
+    return { ...attempt, canDispatch: () => attempt.canDispatch() && !this.isSessionPending(target, attempt.messageID) };
+  }
+
   /** True when a Send of `content` to `target` would post it twice (its send is unanswered and its text not given back). */
   wouldBlock(target: string, content: string) {
     const key = `${target}\u0000${content}`;

@@ -60,8 +60,11 @@ both targets' loader views, preserves session/draft/history identity, and never 
 control-plane move endpoint. Confirmed owner routing outranks late losing child metadata.
 Ordinary sends then retain the loader's existing same-branch sendable-view behavior. When the
 verified move retains live editor input, the composer transfers pending Send recovery and its
-owned input copy to that same runtime/session's new directory. Explicit re-sends keep the original
-client message ID; adoption never replays a prompt. See the [composer contract](../components/chat/composer/DOCUMENTATION.md#ordering-rules-worth-knowing).
+owned input copy to that same runtime/session's new directory. Adoption never replays a prompt.
+Unresolved Send outcomes fence that runtime/session across directory moves, independent of editor
+ownership. Explicit Send resumes only once every outcome is known; Stop stays available. The composer
+passes its late admission check through `sendMessage` to the existing SDK `beforeDispatch` callback.
+See the [composer contract](../components/chat/composer/DOCUMENTATION.md#ordering-rules-worth-knowing).
 
 One selected check shares its strict read and has a ten-second observation deadline. Runtime,
 auth, selection A-B-A, admitted catalog identity and native generation changes reject stale

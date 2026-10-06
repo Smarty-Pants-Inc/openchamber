@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "35c2cd43c9582f27efb0dd4b3308b94fa32cbe20",
+  "sourceTree": "b75c9daee4571c94d7aedfc6233737889187611f",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -15,6 +15,7 @@
     { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx" },
     { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx" },
     { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx" },
+    { "status": "M", "path": "packages/ui/src/lib/i18n/messages/send-pending.i18n.ts" },
     { "status": "M", "path": "packages/ui/src/lib/sendRecovery.test.ts" },
     { "status": "M", "path": "packages/ui/src/lib/sendRecovery.ts" },
     { "status": "M", "path": "packages/ui/src/sync/DOCUMENTATION.md" },
@@ -33,19 +34,19 @@
   "files": [
     {
       "status": "M", "path": "packages/ui/src/components/chat/ChatInput.tsx",
-      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895", "blob": "7c0005381a4ebfa898d832f86e99d98ea5e366e5",
+      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895", "blob": "69b223e05dc5911f9129b1742c103c3f7dc0d678",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "0a3126116a0f23e1d53868c5a61455d7bdb39eaeb85b147a96d4238d4e17fb58",
-      "note": "Fence composer admission by editor-owned recovered text and parts while retaining verified transfer and unrelated input."
+      "sha256": "51ddbe8fad8a15955d5048ec8581cdc1b14630337f01a74bb0ca1ca1a9a7a9d9",
+      "note": "Block explicit Send while any outcome in the same runtime and session is unresolved; preserve Stop and accepted-part cleanup."
     },
     {
       "status": "M", "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md",
-      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405", "blob": "1feedd443ecd813e561822e11cca0d658a8459b4",
+      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405", "blob": "95435a3810fa8355b6d41f0f8c625f2411d3d8cd",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d",
-      "sha256": "b93d4712b77892764bd4344d636a62829cb6fc5c437457ad13078ba84a0f1009",
-      "note": "Document editor-owned recovered input admission across joined text, restored parts and verified owner moves."
+      "sha256": "e9fbb9a4f9aa2a76e6ea032b1ca5d93082e41021d91ff0ac64c62556a13c0f74",
+      "note": "Document the runtime and session confirmation fence, owner moves, Stop availability and known-outcome release."
     },
     {
       "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts",
@@ -73,35 +74,43 @@
     },
     {
       "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
-      "predecessorBlob": null, "blob": "671a002728e31debf1cfa0aab39492a790013221",
+      "predecessorBlob": null, "blob": "7ab1e7ebb6f19eb090f3bd893a2afb1752ddeff1",
       "predecessorMode": null, "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "d18f10c529ad7c1a20fb2c25fda5b4368269a4a74f3cdaac126c078574b21aff",
-      "note": "Cover actual composer collision recovery with restored context, joined newer input, unrelated replacement and complete settlement."
+      "sha256": "3c71742d872c0a5a6da67fec47f5a7471d934ed130f04c9de25a31ad27fab71a",
+      "note": "Exercise mounted session confirmation fencing, offscreen moves, input preservation and explicit Send after settlement."
+    },
+    {
+      "status": "M", "path": "packages/ui/src/lib/i18n/messages/send-pending.i18n.ts",
+      "predecessorBlob": "b4c0e24cbfc6be4f610b6eb8463aa28716637ec2", "blob": "98dddb5102a16c8b590d9f30405f38221dc2c2b0",
+      "predecessorMode": "100644", "mode": "100644",
+      "predecessorSha256": "d04be9f1bbc45074632468f67295764c891bc3a3977489942382b30a11d3287e",
+      "sha256": "76d2e6e44ac430661e27079120a304e33f896572e032e37af87f28dd0eda92a8",
+      "note": "Translate the session confirmation wait reason in all twelve supported locales."
     },
     {
       "status": "M", "path": "packages/ui/src/lib/sendRecovery.test.ts",
-      "predecessorBlob": "9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29", "blob": "8161b15d97c7a7ff407d599d5aa8d51668d60d00",
+      "predecessorBlob": "9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29", "blob": "1c286c434509fb3497d0594cd03ef83db570353a",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d",
-      "sha256": "81617bd7222bfa8ed7907d4a593ca1f597c7abf136efe8ed85122ffe21bba29e",
-      "note": "Cover recovery collision lifetime, owned-input admission, reservation conflicts, settlement orders and safe same-ID retries."
+      "sha256": "1bf8127e585085356dc1e17e5ab68f8e50ea742e3b5dc880f34bbd1127e3ae93",
+      "note": "Cover collision lifetime, session-wide admission, runtime isolation, reservation conflicts and known-outcome release."
     },
     {
       "status": "M", "path": "packages/ui/src/lib/sendRecovery.ts",
-      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e", "blob": "323dfdc61eed0dc91b1f08e0beffa898fb772495",
+      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e", "blob": "cf5a97ace12b03783db649ad518177633e1bfb2c",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42",
-      "sha256": "e31300424143fca8ab11cb82d69a701e5eea53dd972bc3979e999f102516400b",
-      "note": "Preserve all recovery reservations and reject new-ID admission of owned recovered input until its unresolved outcomes settle."
+      "sha256": "e525a5332a4010ada825eecac7a9e82d5f51ea9c491b13958c1933b3347e6e93",
+      "note": "Retain colliding reservations and atomically fence session admission until every outcome is known, independent of owner directory or input identity."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/DOCUMENTATION.md",
-      "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf", "blob": "5b0a9b84bec562a07524ec1b0ec6d7bc3c722a91",
+      "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf", "blob": "20dd27382fb132807d46e17992ffbc09faa70e27",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
-      "sha256": "b2500f9fddea9bd6138aa505dc6d059e302a771ddf6667d485e460acf6217a7f",
-      "note": "Document bounded quiet history recovery and verified pending submission ownership transfer."
+      "sha256": "dcb30ae13a5d4a07680f067e49632ff669e4442b3a9f6acc42fd3cf721400238",
+      "note": "Document bounded quiet history recovery, verified pending ownership transfer and the SDK confirmation fence."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts",
@@ -185,12 +194,12 @@
     },
     {
       "status": "M", "path": "packages/ui/src/sync/session-ui-store.ts",
-      "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94", "blob": "4ab9448c657bba62da474acf28afb7025b6bd3e4",
+      "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94", "blob": "617c9336bd63189b4a0f9d9e3d7855f57d9e1f4d",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
-      "sha256": "085cc4e5f2efe83c67ef6dd1fb287e812e4516e8fec2983877c9ef21fa93e868",
-      "note": "Arm and consume only the selected verified same-session draft transfer under runtime and reveal revision fences."
+      "sha256": "c56f362c5629c3f354b1d1fa450ffe79fd41ff85e0db2f1b68ceaf438071948b",
+      "note": "Retain verified draft transfer and forward the composer dispatch check through the existing ordinary SDK route."
     }
   ],
-  "note": "Parent-native export of the frozen PR549 round-4 and owned-recovery security repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the frozen PR549 round-4 and session-confirmation security repair: 21 UI files, 14 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }

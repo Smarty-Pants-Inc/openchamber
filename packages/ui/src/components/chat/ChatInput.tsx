@@ -103,6 +103,7 @@ import { useI18n } from '@/lib/i18n';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { isClientIdConflict, SendRecovery } from '@/lib/sendRecovery';
 import { ascendingId } from '@/sync/session-actions';
+import { isAmbiguousSendFailure } from '@/sync/send-failure-classification';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
@@ -1469,6 +1470,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     };
 
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
+        const submitRuntimeKey = getRuntimeKey();
+        const capturedSessionScope = currentSessionId && isOrdinarySession(currentSessionId)
+            ? [submitRuntimeKey, currentSessionDirectoryForSync ?? currentDirectory ?? '', currentSessionId].join('\u0000') : null;
+        // Every explicit Send is fenced, including queue-only sends and unrelated replacement input.
+        if (capturedSessionScope && sendRecovery.current!.isSessionPending(capturedSessionScope)) {
+            toast.info(t('chat.send.waitingForConfirmation'));
+            return;
+        }
         if (queueAdmissionInFlight.current || (followUpPreflight.current && !options?.queuedOnly)) return;
         if (sentLocked) return; // The notice above the composer says why, and offers Check again.
         // smarty-code#966: the draft's project is no longer admitted: no Send by button or keyboard; the text stays, and the
@@ -1479,16 +1488,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, candidateText);
         const capturedInput = useInputStore.getState();
         const capturedCopies = captureOwnedCopies(chatDraftIdentity, candidateText, attachedFiles, capturedInput.pendingSyntheticParts ?? []);
-        if (pendingKeys && (sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)
-            || sendRecovery.current!.wouldBlockOwned(pendingKeys.target, { content: pendingKeys.content, ownedCopies: capturedCopies }))) {
-            toast.info(t('chat.send.stillPending'));
-            return;
-        }
         if (messageQueueKey && useMessageQueueStore.getState().recoveryMessages[messageQueueKey]?.some(item => item.state === 'unconfirmed')) {
             toast.error(t('chat.queuedMessage.admissionUnknown'));
             return;
         }
-        const submitRuntimeKey = getRuntimeKey();
         let submissionIdentity = chatDraftIdentity;
         let persistSubmittedDraft = capturePersistNow(submissionIdentity);
         const queuedOnly = options?.queuedOnly ?? false;
@@ -1729,6 +1732,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             displayName?: string;
             messageID?: string;
             onMessageID?: (messageID: string) => void;
+            beforeDispatch?: () => void;
         } | undefined;
         if (isBtwActive && btwSessionId && btwDirectory) {
             sendMessageOptions = {
@@ -1922,14 +1926,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             content: SendRecovery.signature(inputSnapshot.message, [...attachedFiles.map(file => file.id), ...(syntheticParts ?? []).map(part => part.text)]),
             ownedCopies: [...capturedCopies, ...captureOwnedCopies(submissionIdentity, null, attachedFiles, syntheticParts ?? [])],
         } : null;
-        // Recheck the captured input, not the now-mutated live composer. Parts
-        // consumed after preparation can themselves be recovered copies.
-        if (pendingKeys && recoveryCandidate && sendRecovery.current!.wouldBlockOwned(pendingKeys.target, recoveryCandidate)) {
+        // Another attempt may have begun during preparation. The captured session never follows selection.
+        if (capturedSessionScope && sendRecovery.current!.isSessionPending(capturedSessionScope)) {
             restoreConsumedInput();
-            toast.info(t('chat.send.stillPending'));
+            toast.info(t('chat.send.waitingForConfirmation'));
             return;
         }
-        const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, recoveryCandidate!.content, {
+        const recovery = watchUnconfirmed ? sendRecovery.current!.beginSession(pendingKeys!.target, recoveryCandidate!.content, {
             // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content,
             // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
             restore: () => {
@@ -1969,7 +1972,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 // Exactly the restored files and context parts go with it (after this render: another store).
                 const clearOwnParts = () => queueMicrotask(() => {
                     const input = useInputStore.getState();
-                    if (attachedFiles.length) input.setAttachedFiles(input.attachedFiles.filter(file => !attachedFiles.some(sent => sent.id === file.id)));
+                    if (own.files.length) input.setAttachedFiles(input.attachedFiles.filter(file => !own.files.includes(file)));
                     if (syntheticParts?.length) input.setPendingSyntheticParts((input.pendingSyntheticParts ?? []).filter(part => !syntheticParts.includes(part)));
                 });
                 // An attachment-only send (review r2 2) has no text block to find: its restored parts still go.
@@ -1991,16 +1994,25 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     const first = !own.gone;
                     if (!own.gone) followEdit(own, prev);
                     const rest = removeOwn(prev);
-                    if (rest === null) { ownedJoinsRef.current.delete(own); return prev; }
+                    if (rest === null) {
+                        if (first) { own.gone = true; clearOwnParts(); }
+                        ownedJoinsRef.current.delete(own);
+                        return prev;
+                    }
                     messageRef.current = rest; persistSubmittedDraft(rest);
                     if (first) clearOwnParts();
                     return rest;
                 });
             },
             notify: kind => { if (kind === 'unconfirmed') toast.info(t('chat.send.unconfirmed'));
-                else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.stillPending')); },
+                else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.waitingForConfirmation')); },
         }, recoveryCandidate!) : null;
         if (watchUnconfirmed && !recovery) { restoreConsumedInput(); return; }
+        const sessionPending = () => !!capturedSessionScope && (sendRecovery.current!.isSessionPending(capturedSessionScope, recovery?.messageID)
+            || (!!recovery && !recovery.canDispatch()));
+        if (capturedSessionScope) sendMessageOptions = { ...sendMessageOptions, beforeDispatch: () => {
+            if (sessionPending()) throw new Error(t('chat.send.waitingForConfirmation'));
+        } };
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
 
@@ -2107,12 +2119,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
         }
 
-        // No new POST after a collision arrived during settings/snippet
-        // preparation. The captured provenance survives editor consumption.
-        if (pendingKeys && recoveryCandidate && (sendRecovery.current!.wouldBlockOwned(pendingKeys.target, recoveryCandidate)
-            || (recovery && !recovery.canDispatch()))) {
+        // Recheck after settings/snippets; the SDK also invokes this gate after its own preparation.
+        if (sessionPending()) {
             if (recovery) recovery.refused(); else restoreConsumedInput();
-            toast.info(t('chat.send.stillPending'));
+            toast.info(t('chat.send.waitingForConfirmation'));
             return;
         }
 
@@ -2180,9 +2190,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // (the other attempt is pending or was delivered): the recovery waits for that, and gives the text back if
             // nothing is delivered. A definite refusal gives it back now, unless another attempt is still pending.
             if (recovery) {
-                if (isClientIdConflict(rawMessage)) {
-                    // Already accepted (smarty-code#962): the message went, so there is nothing to say.
-                    if (!recovery.conflict()) toast.info(t('chat.send.stillPending'));
+                if (isClientIdConflict(rawMessage) || isAmbiguousSendFailure(error)) {
+                    // Unknown delivery retains the reservation. Neither a failed confirmation read nor a watchdog settles it.
+                    if (!recovery.conflict()) toast.info(t('chat.send.waitingForConfirmation'));
                     return;
                 }
                 recovery.refused();

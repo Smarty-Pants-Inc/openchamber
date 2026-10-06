@@ -151,19 +151,21 @@ runs last, after either historical mapping.
 
 `selected-owner-repair-overlay.json` records the frozen successor of base
 `11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
-and `sourceTree` is native Git subtree `35c2cd43c9582f27efb0dd4b3308b94fa32cbe20`.
+and `sourceTree` is native Git subtree `b75c9daee4571c94d7aedfc6233737889187611f`.
 This is a UI tree, not a commit, full repository tree or qualified release pin.
 Branding, scripts and this README are outside that subtree, so UI and provenance
 can land in one combined patch without a future commit or self-reference.
 
-The exact round-4/owned-recovery parent-exported scope contains 20 paths,
-13 modified and 7 added. It includes bounded quiet-history recovery, pending
-submission transfer, collision-aware recovery buckets and editor-owned admission.
-The composer captures retained recovery blocks and restored parts before awaits,
-so a changed content signature does not grant new-ID admission. Exact singleton
-retries keep their client ID; unrelated input and fully settled new sends remain
-allowed. This inventory does not qualify native admission of requests already
-dispatched before a collision or replace real original-Pi browser evidence. Each row keeps native SHA1 blob IDs, file modes,
+The round-4/session-confirmation parent-exported scope contains 21 paths,
+14 modified and 7 added. It includes bounded quiet-history recovery, pending
+submission transfer, collision-aware recovery buckets and a session confirmation
+fence. Explicit Send waits while any outcome for the same runtime and session is
+unresolved, even after owner moves, input edits or restored-part cleanup. This
+also blocks unrelated text and same-ID retries until every outcome is known.
+Stop and other sessions remain available. The existing dispatch callback carries
+the check through SDK preparation, and all twelve locales explain the wait.
+This inventory does not qualify native admission of requests already dispatched
+before a collision or replace real original-Pi browser evidence. Each row keeps native SHA1 blob IDs, file modes,
 separate byte SHA256 hashes and its repair disposition. Modified rows name their actual base bytes even outside
 the old ledger. Added rows have null predecessor fields and are source inventory,
 never historical stock or branding parity. The old 19-file table and complete
@@ -171,7 +173,7 @@ never historical stock or branding parity. The old 19-file table and complete
 and raw byte digest is `25d8427a`; the older 48-entry unwind stays unchanged.
 
 The repair test fixes metadata and all rows from independent parent-native
-exports, then hashes all 20 current files. It needs no old or unreachable Git
+exports, then hashes all 21 current files. It needs no old or unreachable Git
 objects. Run it explicitly with
 `node --test scripts/branding-selected-owner-repair.test.mjs`.
 The isolated root runner discovers it, but `test:brand` does not list it.

@@ -1,7 +1,8 @@
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, spyOn, test } from 'bun:test';
 import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { mountedNativeComposer } from './nativeComposer.fixture';
+import { toast } from '@/components/ui';
 import { deferred, directory as A, session } from '@/sync/native-draft-fixture';
 import { adoptObservedSessionOwner } from '@/sync/session-actions';
 import { checkSelectedSessionOwner } from '@/sync/selected-session-owner';
@@ -13,6 +14,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
 import { createChatDraftIdentity, readChatDraft, writeChatDraft } from '@/lib/chatDraftPersistence';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
+import { markAmbiguousTransportFailure } from '@/lib/relay/transport-error';
 
 const B = '/native-project-b';
 const ordinary = { generation: 'g1', sequence: 1, model: { providerID: 'p', modelID: 'm', name: 'M' }, thinkingLevel: 'high' };
@@ -21,13 +23,19 @@ const row = (directory: string, ended = false) => ({ ...session, directory, ordi
 let mounted: Awaited<ReturnType<typeof mountedNativeComposer>> | undefined;
 let restoreDetail = () => {};
 const originalDelay = sendUnconfirmed.ms;
+const errors: string[] = []; // Capture info notices only; no Send, loader or native gate is replaced.
+let restoreInfo = () => {};
 afterEach(async () => {
   restoreDetail(); restoreDetail = () => {}; sendUnconfirmed.ms = originalDelay;
+  restoreInfo(); restoreInfo = () => {};
   await mounted?.dispose(); mounted = undefined;
 });
 const settle = () => act(async () => { await sleep(20); });
 
 async function mount(persist = false) {
+  errors.length = 0;
+  const info = spyOn(toast, 'info').mockImplementation(message => { errors.push(String(message)); return 'test-info'; });
+  restoreInfo = () => info.mockRestore();
   const c = mounted = await mountedNativeComposer(persist, undefined, undefined, undefined, f => {
     useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready',
       managedRows: [{ id: 'a', worktree: A }, { id: 'b', worktree: B }],
@@ -149,18 +157,15 @@ for (const persist of [false, true]) for (const timing of ['before', 'after'] as
     expect(useInputStore.getState().attachedFiles.map(file => file.id)).toEqual(['pending-file']);
     expect(useInputStore.getState().pendingSyntheticParts?.map(part => part.text)).toEqual(['Pending move context']);
     expect(c.prompts()).toHaveLength(1); // Adoption and the watchdog never replay POST.
-    c.handlers.prompt = async () => new Response(JSON.stringify({ message: 'client message id already exists or a submission is pending' }), { status: 409 });
-    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
-    const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
-    expect(sent[1].messageID).toBe(sent[0].messageID);
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(1);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
     expect(new URL(c.prompts()[0].url).searchParams.get('directory')).toBe(A);
-    expect(new URL(c.prompts()[1].url).searchParams.get('directory')).toBe(B);
     await act(async () => { await sleep(300); }); expect(c.text()).toBe(text);
     await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
     expect(c.text()).toBe(''); expect(readChatDraft(c.identity(B)).text).toBe('');
     expect(useInputStore.getState().attachedFiles).toHaveLength(0);
     expect(useInputStore.getState().pendingSyntheticParts).toHaveLength(0);
-    expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(2);
+    expect(c.creates()).toHaveLength(0); expect(c.prompts()).toHaveLength(1);
   });
 }
 
@@ -232,264 +237,162 @@ for (const persist of [false, true]) for (const timing of ['before', 'after'] as
   });
 }
 
-for (const accepted of ['original-A', 'moved-B'] as const) {
-  test(`actual composer collision blocks untouched watchdog copy until every outcome is known, accepted ${accepted}`, async () => {
-    const c = await mount(), text = 'same-content collision';
-    await c.replace(text);
-    await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
-    sendUnconfirmed.ms = 1_000;
-    const original = deferred<Response>(), moved = deferred<Response>();
-    let dispatches = 0, admissions = 0;
-    c.handlers.prompt = async () => {
-      dispatches++;
-      if (dispatches === 1) return original.promise;
-      if (dispatches === 2) return moved.promise;
-      admissions++;
-      return new Response(null, { status: 204 });
-    };
-    try {
-      await c.submit();
-      expect(c.prompts()).toHaveLength(1);
-      await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
-      await settle();
-
-      // Offscreen adoption changes the session owner, not the mounted A recovery.
-      await act(async () => adoptObservedSessionOwner(row(B), A));
-      await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: B }));
-      await settle();
-      expect(c.text()).toBe('');
-      await c.replace(text);
-      await c.submit();
-      expect(c.prompts()).toHaveLength(2);
-      const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
-      expect(sent[1].messageID).not.toBe(sent[0].messageID);
-      expect(c.prompts().map(request => new URL(request.url).searchParams.get('directory'))).toEqual([A, B]);
-
-      // The selected-owner operation performs real strict/scoped detail reads and loader adoption.
-      await act(async () => c.children.ensureChild(A, { bootstrap: false }).setState({ session: [row(A)] }));
-      const baseFetch = globalThis.fetch;
-      let detailReads = 0;
-      globalThis.fetch = async (input, init) => {
-        const request = new Request(input, init), url = new URL(request.url);
-        if (request.method === 'GET' && url.hostname === 'synthetic.invalid' && url.pathname.endsWith(`/session/${session.id}`)) {
-          detailReads++; c.requests.push(request);
-          return Response.json(row(A));
-        }
-        return baseFetch(input, init);
-      };
-      try {
-        await act(async () => { await checkSelectedSessionOwner(session.id, B); });
-      } finally {
-        globalThis.fetch = baseFetch;
-      }
-      expect(detailReads).toBe(2);
-      expect(useSessionUIStore.getState().selectedManagedOwner?.status).toBe('live');
-      expect(useSessionUIStore.getState().currentSessionDirectory).toBe(A);
-      expect(c.prompts()).toHaveLength(2); // Verification never replays either POST.
-
-      await act(async () => { await sleep(1_100); });
-      expect(c.text()).toBe(text); // Both watchdogs restore; identical plain text remains one copy.
-      await c.submit(); // Untouched restored input, with no rewrite to hide a signature change.
-      expect(c.prompts()).toHaveLength(2);
-      expect(c.text()).toBe(text);
-
-      const receipt = accepted === 'original-A' ? original : moved;
-      const held = accepted === 'original-A' ? moved : original;
-      await act(async () => { admissions++; receipt.resolve(new Response(null, { status: 204 })); await sleep(20); });
-      expect(c.text()).toBe(''); // Late acceptance consumes its untouched restored copy.
-      await c.replace(text);
-      await c.submit();
-      expect(c.prompts()).toHaveLength(2); // The other original callback is still unresolved.
-      expect(c.text()).toBe(text);
-      expect(admissions).toBe(1);
-      await act(async () => { held.resolve(new Response(null, { status: 409 })); await sleep(20); });
-      expect(c.prompts()).toHaveLength(2);
-      expect(admissions).toBe(1); // Exactly one admission in the defined colliding settlement sequence.
-
-      // Fully accounted-for outcomes are not a permanent content ban. A deliberate new Send is allowed.
-      await c.replace('Different deliberate input');
-      await c.replace(text);
-      await c.submit(); await settle();
-      expect(c.prompts()).toHaveLength(3);
-      expect(admissions).toBe(2);
-      expect(c.creates()).toHaveLength(0);
-    } finally {
-      await act(async () => {
-        original.resolve(new Response(null, { status: 409 }));
-        moved.resolve(new Response(null, { status: 409 }));
-        await sleep(20);
-      });
-    }
-  });
-}
-
-type CollisionVariant = 'same-context' | 'newer-join' | 'same-attachment' | 'unrelated';
-
-async function withOwnedCollision(variant: CollisionVariant, probe: (c: Awaited<ReturnType<typeof mount>>, original: ReturnType<typeof deferred<Response>>, moved: ReturnType<typeof deferred<Response>>, text: string) => Promise<void>) {
-  const c = await mount(), text = 'same-content collision';
-  const original = deferred<Response>(), moved = deferred<Response>();
-  let dispatches = 0;
-  c.handlers.prompt = async () => {
-    dispatches++;
-    if (dispatches === 1) return original.promise;
-    if (dispatches === 2) return moved.promise;
-    return new Response(null, { status: 204 });
-  };
-  const prepareParts = () => act(async () => {
-    if (variant === 'same-context') useInputStore.setState({ pendingSyntheticParts: [{ text: 'same captured context', synthetic: true }] });
-    if (variant === 'same-attachment') useInputStore.setState({ attachedFiles: [{ id: 'same-captured-file', filename: 'context.txt', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,bm90ZXM=', source: 'local', file: new File(['notes'], 'context.txt', { type: 'text/plain' }), size: 5 }] });
-  });
-  try {
-    await c.replace(text);
-    await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
-    sendUnconfirmed.ms = 1_000;
-    await prepareParts(); await c.submit();
-    expect(c.prompts()).toHaveLength(1);
-    await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
-    await settle();
-    await act(async () => adoptObservedSessionOwner(row(B), A));
-    await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: B }));
-    await settle(); expect(c.text()).toBe('');
-    await c.replace(text); await prepareParts(); await c.submit();
-    expect(c.prompts()).toHaveLength(2);
-    const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
-    expect(sent[1].messageID).not.toBe(sent[0].messageID);
-    expect(c.prompts().map(request => new URL(request.url).searchParams.get('directory'))).toEqual([A, B]);
-    await act(async () => c.children.ensureChild(A, { bootstrap: false }).setState({ session: [row(A)] }));
-    const previous = globalThis.fetch;
-    let details = 0;
-    globalThis.fetch = async (input, init) => {
-      const request = new Request(input, init), url = new URL(request.url);
-      if (request.method === 'GET' && url.hostname === 'synthetic.invalid' && url.pathname.endsWith(`/session/${session.id}`)) {
-        details++; c.requests.push(request); return Response.json(row(A));
-      }
-      return previous(input, init);
-    };
-    try { await act(async () => { await checkSelectedSessionOwner(session.id, B); }); }
-    finally { globalThis.fetch = previous; }
-    expect(details).toBe(2);
-    expect(useSessionUIStore.getState().selectedManagedOwner?.status).toBe('live');
-    expect(useSessionUIStore.getState().currentSessionDirectory).toBe(A);
-    expect(c.prompts()).toHaveLength(2);
-    if (variant === 'newer-join') await c.replace('Genuinely newer input');
-    await act(async () => { await sleep(1_100); });
-    if (variant === 'same-context') expect(useInputStore.getState().pendingSyntheticParts?.map(part => part.text)).toEqual(['same captured context', 'same captured context']);
-    if (variant === 'newer-join') expect(c.text()).toBe(`Genuinely newer input\n\n${text}\n\n${text}\n\n`);
-    await probe(c, original, moved, text);
-  } finally {
-    await act(async () => { original.resolve(new Response(null, { status: 409 })); moved.resolve(new Response(null, { status: 409 })); await sleep(20); });
-  }
-}
-
-for (const variant of ['same-context', 'newer-join'] as const) for (const accepted of ['original-A', 'moved-B'] as const) {
-  test(`owned composer recovery blocks unchanged ${variant}, accepted ${accepted}`, async () => {
-    await withOwnedCollision(variant, async (c, original, moved, text) => {
-      const restored = c.text();
-      await c.submit(); // Direct Send of the actual restored editor, with no rewrite.
-      expect(c.prompts()).toHaveLength(2);
-      expect(c.text()).toBe(restored);
-      const receipt = accepted === 'original-A' ? original : moved;
-      const held = accepted === 'original-A' ? moved : original;
-      await act(async () => { receipt.resolve(new Response(null, { status: 204 })); await sleep(20); });
-      await c.submit();
-      expect(c.prompts()).toHaveLength(2); // Other original remains unresolved.
-      await act(async () => { held.resolve(new Response(null, { status: 409 })); await sleep(20); });
-      await c.replace('Deliberate different input');
-      await act(async () => useInputStore.setState({ attachedFiles: [], pendingSyntheticParts: [] }));
-      await c.replace(text); await c.submit(); await settle();
-      expect(c.prompts()).toHaveLength(3); // No permanent same-content ban.
-      expect(c.creates()).toHaveLength(0);
-    });
-  });
-}
-
-test('owned composer recovery keeps same-attachment ID collision blocked without duplicating files', async () => {
-  await withOwnedCollision('same-attachment', async c => {
-    expect(useInputStore.getState().attachedFiles.map(file => file.id)).toEqual(['same-captured-file']);
-    await c.submit(); expect(c.prompts()).toHaveLength(2);
-    expect(useInputStore.getState().attachedFiles.map(file => file.id)).toEqual(['same-captured-file']);
-    expect(c.creates()).toHaveLength(0);
-  });
-});
-
-test('owned composer recovery permits entirely unrelated replacement while original outcomes remain held', async () => {
-  await withOwnedCollision('unrelated', async c => {
-    await c.replace('Entirely unrelated next question');
-    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(3);
-    const sent = await c.prompts()[2].clone().json();
-    expect(sent.parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(['Entirely unrelated next question']);
-    expect(c.creates()).toHaveLength(0);
-  });
-});
-
-test('owned composer recovery permits unrelated Send after recovered text and context are removed', async () => {
-  await withOwnedCollision('same-context', async c => {
-    await c.replace('Unrelated input after removing recovered context');
-    await act(async () => useInputStore.setState({ pendingSyntheticParts: [] }));
-    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(3);
-    const sent = await c.prompts()[2].clone().json();
-    expect(sent.parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(['Unrelated input after removing recovered context']);
-    expect(c.creates()).toHaveLength(0);
-  });
-});
-
-test('owned composer recovery keeps recovered context blocked after text alone is replaced', async () => {
-  await withOwnedCollision('same-context', async c => {
-    await c.replace('Unrelated text still carrying recovered context');
-    await c.submit(); expect(c.prompts()).toHaveLength(2);
-    expect(c.text()).toBe('Unrelated text still carrying recovered context');
-    expect(useInputStore.getState().pendingSyntheticParts).toHaveLength(2);
-  });
-});
-
-test('owned composer recovery permits newer text after both recovered blocks are removed', async () => {
-  await withOwnedCollision('newer-join', async c => {
-    await c.replace('Genuinely newer input');
-    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(3);
-    expect(c.creates()).toHaveLength(0);
-  });
-});
-
-for (const variant of ['same-context', 'newer-join'] as const) {
-  test(`owned composer recovery retains ${variant} fence across reservation conflict and later verified move`, async () => {
-    await withOwnedCollision(variant, async (c, original, moved) => {
-      await act(async () => { moved.resolve(new Response(JSON.stringify({ message: 'client message id already exists or a submission is pending' }), { status: 409 })); await sleep(20); });
-      expect(c.prompts()).toHaveLength(2);
-      // A later verified owner move must carry the unresolved reservation and editor copies together.
-      await act(async () => c.children.ensureChild(B, { bootstrap: false }).setState({ session: [row(B)] }));
-      await act(async () => { await checkSelectedSessionOwner(session.id, A); });
-      expect(useSessionUIStore.getState().currentSessionDirectory).toBe(B);
-      expect(useSessionUIStore.getState().selectedManagedOwner?.status).toBe('live');
-      await c.submit(); expect(c.prompts()).toHaveLength(2);
-      await act(async () => { original.resolve(new Response(null, { status: 204 })); await sleep(20); });
-      await c.submit(); expect(c.prompts()).toHaveLength(2);
-      expect(c.creates()).toHaveLength(0);
-    });
-  });
-}
-
-test('owned composer recovery blocks changed singleton signature but permits unrelated newer context', async () => {
-  const c = await mount(), first = deferred<Response>(), text = 'Single outstanding prompt';
+// Two independent pending IDs cannot be created by the mounted composer under
+// the session fence. Library tests retain coverage for already-existing cohorts.
+async function heldSend(context = false) {
+  const c = await mount(), first = deferred<Response>();
   await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
   sendUnconfirmed.ms = 250;
-  let posts = 0;
-  c.handlers.prompt = async () => ++posts === 1 ? first.promise : new Response(null, { status: 204 });
+  c.handlers.prompt = async () => c.prompts().length === 1 ? first.promise : new Response(null, { status: 204 });
+  await c.replace('Single outstanding prompt');
+  if (context) await act(async () => useInputStore.setState({ pendingSyntheticParts: [{ text: 'Captured old context', synthetic: true }] }));
+  const captured = useInputStore.getState();
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  return { c, first, captured };
+}
+
+for (const retainedContext of [false, true]) test(`session fence blocks unrelated replacement after watchdog, context ${retainedContext}`, async () => {
+  const { c, first, captured } = await heldSend(retainedContext);
   try {
-    await c.replace(text); await c.submit(); expect(c.prompts()).toHaveLength(1);
-    await c.replace('Newer unsent question');
     await act(async () => { await sleep(300); });
-    expect(c.text()).toBe(`Newer unsent question\n\n${text}\n\n`);
+    await c.replace('Entirely unrelated next question');
+    if (retainedContext) expect(useInputStore.getState().pendingSyntheticParts![0]).toBe(captured.pendingSyntheticParts![0]);
     await c.submit(); expect(c.prompts()).toHaveLength(1);
-    expect(c.text()).toContain(text);
-    await c.replace('Entirely unrelated newer question');
-    await act(async () => useInputStore.setState({ pendingSyntheticParts: [{ text: 'Unrelated newer context', synthetic: true }] }));
-    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
-    const sent = await c.prompts()[1].clone().json();
-    expect(sent.parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(['Entirely unrelated newer question', 'Unrelated newer context']);
+    expect(c.text()).toBe('Entirely unrelated next question');
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    await act(async () => { await sleep(300); });
+    await c.submit(); expect(c.prompts()).toHaveLength(1); // Another watchdog interval is not authority.
     expect(c.creates()).toHaveLength(0);
-  } finally {
-    await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); });
-  }
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+for (const mode of ['moved-owner', 'current-owner-return'] as const) test(`session fence survives offscreen ${mode} with retained old context`, async () => {
+  const { c, first, captured } = await heldSend(true);
+  try {
+    await act(async () => { await sleep(300); });
+    expect(useInputStore.getState().pendingSyntheticParts![0]).toBe(captured.pendingSyntheticParts![0]);
+    await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
+    await settle();
+    if (mode === 'moved-owner') await act(async () => adoptObservedSessionOwner(row(B), A));
+    await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: mode === 'moved-owner' ? B : A }));
+    await settle();
+    expect(useInputStore.getState().pendingSyntheticParts![0]).toBe(captured.pendingSyntheticParts![0]);
+    await c.replace('Unrelated replacement after returning');
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    // Removing every old reference must not turn unknown into known.
+    await act(async () => useInputStore.setState({ pendingSyntheticParts: [] }));
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    expect(c.text()).toBe('Unrelated replacement after returning');
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+for (const status of [204, 409]) test(`session fence releases immediately after known outcome ${status} without automatic POST`, async () => {
+  const { c, first } = await heldSend();
+  await act(async () => { await sleep(300); });
+  await c.replace('Unrelated deliberate message');
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => { first.resolve(new Response(null, { status })); await sleep(20); });
+  expect(c.prompts()).toHaveLength(1); expect(c.text()).toBe('Unrelated deliberate message');
+  await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+  const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
+  expect(sent[1].messageID).not.toBe(sent[0].messageID);
+  expect(sent[1].parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(['Unrelated deliberate message']);
+  expect(c.creates()).toHaveLength(0);
+});
+
+test('session fence keeps unresolved reservation blocked after watchdog', async () => {
+  const c = await mount();
+  await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+  sendUnconfirmed.ms = 250;
+  c.handlers.prompt = async () => new Response(JSON.stringify({ message: 'client message id already exists or a submission is pending' }), { status: 409 });
+  await c.submit(); await settle(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => { await sleep(300); });
+  await c.replace('Unrelated message after conflict');
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  expect(errors).toContain('Waiting for your last message to be confirmed.');
+  expect(c.text()).toBe('Unrelated message after conflict');
+});
+
+test('session fence retains ambiguous transport outcome after empty confirmation reads and watchdog', async () => {
+  const c = await mount();
+  await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+  sendUnconfirmed.ms = 250;
+  let dispatched = 0;
+  c.handlers.prompt = async () => {
+    dispatched++;
+    throw markAmbiguousTransportFailure(new Error('Dispatched response lost'));
+  };
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  // The real optimistic store performs three bounded SDK confirmation reads.
+  // Successful empty history is not confirmation that the POST was refused.
+  await act(async () => { await sleep(1_100); });
+  expect(c.requests.filter(request => request.method === 'GET' && new URL(request.url).pathname.endsWith('/message')).length).toBeGreaterThanOrEqual(3);
+  expect(errors).toContain('Waiting for your last message to be confirmed.');
+  await c.replace('Unrelated question after lost response');
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => { await sleep(300); });
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  expect(dispatched).toBe(1); expect(c.text()).toBe('Unrelated question after lost response');
+  expect(c.creates()).toHaveLength(0);
+});
+
+test('session fence allows a different native session while the first outcome is unknown', async () => {
+  const { c, first } = await heldSend();
+  const other = { ...row(B), id: '11234567-1234-4234-9234-012345678901' };
+  try {
+    await act(async () => { await sleep(300); });
+    await act(async () => {
+      c.children.ensureChild(B, { bootstrap: false }).setState({ session: [other] });
+      useSessionUIStore.setState({ currentSessionId: other.id, currentSessionDirectory: B });
+    });
+    await settle(); await c.replace('Other native session question');
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+    expect(new URL(c.prompts()[1].url).pathname).toContain(other.id);
+    expect(new URL(c.prompts()[1].url).searchParams.get('directory')).toBe(B);
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+for (const newerContext of [false, true]) test(`accepted restored parts cleanup keeps replacement text and newer context ${newerContext}`, async () => {
+  const { c, first, captured } = await heldSend(true);
+  const acceptedPart = captured.pendingSyntheticParts![0];
+  const unrelatedPart = { text: 'New unrelated context', synthetic: true };
+  await act(async () => { await sleep(300); });
+  await c.replace('Unrelated text after accepted recovery');
+  await act(async () => useInputStore.setState({ pendingSyntheticParts: newerContext ? [acceptedPart, unrelatedPart] : [acceptedPart] }));
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
+  expect(c.text()).toBe('Unrelated text after accepted recovery');
+  expect(useInputStore.getState().pendingSyntheticParts).toEqual(newerContext ? [unrelatedPart] : []);
+  if (newerContext) expect(useInputStore.getState().pendingSyntheticParts![0]).toBe(unrelatedPart);
+  expect(c.prompts()).toHaveLength(1);
+  await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+  const sent = await c.prompts()[1].clone().json();
+  expect(sent.parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(newerContext ? ['Unrelated text after accepted recovery', unrelatedPart.text] : ['Unrelated text after accepted recovery']);
+});
+
+test('accepted restored parts cleanup keeps a newer attachment with replacement text', async () => {
+  const c = await mount(), first = deferred<Response>();
+  await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+  sendUnconfirmed.ms = 250;
+  const oldFile: ReturnType<typeof useInputStore.getState>['attachedFiles'][number] = { id: 'captured-file', filename: 'context.txt', mimeType: 'text/plain', dataUrl: 'data:text/plain;base64,bm90ZXM=', source: 'local', file: new File(['notes'], 'context.txt', { type: 'text/plain' }), size: 5 };
+  const newFile = { ...oldFile, id: 'new-file', filename: 'new-context.txt' };
+  await act(async () => useInputStore.setState({ attachedFiles: [oldFile] }));
+  c.handlers.prompt = async () => c.prompts().length === 1 ? first.promise : new Response(null, { status: 204 });
+  await c.submit(); await act(async () => { await sleep(300); });
+  expect(useInputStore.getState().attachedFiles[0]).toBe(oldFile);
+  await c.replace('Unrelated text with a newer file');
+  await act(async () => useInputStore.setState({ attachedFiles: [oldFile, newFile] }));
+  await c.submit(); expect(c.prompts()).toHaveLength(1);
+  await act(async () => { first.resolve(new Response(null, { status: 204 })); await sleep(20); });
+  expect(c.text()).toBe('Unrelated text with a newer file');
+  expect(useInputStore.getState().attachedFiles).toEqual([newFile]);
+  expect(useInputStore.getState().attachedFiles[0]).toBe(newFile);
+  await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+  const sent = await c.prompts()[1].clone().json();
+  expect(sent.parts.filter((part: { type: string }) => part.type === 'file').map((part: { filename: string }) => part.filename)).toEqual(['new-context.txt']);
 });
 
 for (const exit of ['shown', 'offscreen'] as const) test(`protected destination survives late accepted cleanup ${exit}`, async () => {

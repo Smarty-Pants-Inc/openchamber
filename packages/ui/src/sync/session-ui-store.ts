@@ -336,6 +336,7 @@ type SendMessageOptions = {
   nativeIntent?: NativeDraftSend
   displayName?: string
   delivery?: 'steer'
+  beforeDispatch?: () => void
   /** smarty-code#827: see routeMessage. */
   messageID?: string
   onMessageID?: (messageID: string) => void
@@ -2258,6 +2259,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
     const messageRoute = await routeMessage({
       runtimeKey: capturedTarget?.runtimeKey,
+      beforeDispatch: options?.beforeDispatch,
       sessionId: targetSessionId || "",
       directory: currentSessionDirectory,
       content,

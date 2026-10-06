@@ -19,6 +19,129 @@ function harness() {
   return { r, log, advance, hooks, show: (t: string) => { shown = t; r.flush(t); } };
 }
 const A = SendRecovery.signature('text A'), B = SendRecovery.signature('text B');
+const sessionTarget = (directory: string, runtime = 'runtime', session = 'session') => [runtime, directory, session].join('\u0000');
+
+for (const directory of ['owner-a', 'owner-b']) {
+  test(`session policy blocks unrelated, edited and same-ID input at ${directory} after watchdog`, () => {
+    const h = harness(), target = sessionTarget('owner-a');
+    const original = h.r.beginSession(target, A, h.hooks('original'))!;
+    expect(original.canDispatch()).toBe(true);
+    expect(h.r.beginSession(sessionTarget(directory), B, h.hooks('unrelated'))).toBeNull();
+    h.advance(15_000);
+    for (const content of [A, B, SendRecovery.signature('edited', ['new-file'])]) {
+      expect(h.r.isSessionPending(sessionTarget(directory))).toBe(true);
+      expect(h.r.beginSession(sessionTarget(directory), content, h.hooks('blocked'))).toBeNull();
+    }
+    expect(h.r.isSessionPending(sessionTarget(directory), original.messageID)).toBe(false);
+    original.refused();
+    expect(h.r.isSessionPending(sessionTarget(directory))).toBe(false);
+  });
+}
+
+test('session policy atomically begins one attempt, preserves IDs after definite refusal and never auto-posts', () => {
+  const h = harness(), target = sessionTarget('owner-a'), posted: string[] = [];
+  const send = (content: string) => {
+    const attempt = h.r.beginSession(target, content, h.hooks('send'));
+    if (attempt?.canDispatch()) posted.push(attempt.messageID);
+    return attempt;
+  };
+  const first = send(A)!;
+  expect(send(B)).toBeNull();
+  h.advance(60_000);
+  expect(send(A)).toBeNull();
+  expect(posted).toEqual([first.messageID]);
+  first.refused();
+  expect(h.r.isSessionPending(target)).toBe(false);
+  const retry = send(A)!;
+  expect(retry.messageID).toBe(first.messageID);
+  retry.accepted();
+  expect(h.r.isSessionPending(target)).toBe(false);
+  h.advance(60_000);
+  expect(posted).toEqual([first.messageID, first.messageID]);
+});
+
+test('session policy ignores editor ownership and offscreen routing but isolates runtime and session', () => {
+  const h = harness(), source = sessionTarget('owner-a'), destination = sessionTarget('owner-b');
+  h.show('unrelated');
+  const first = h.r.beginSession(source, A, { ...h.hooks('first'), ownsCandidate: () => false })!;
+  h.r.transferTarget(source, destination, false);
+  h.advance(60_000);
+  expect(h.r.isSessionPending(source)).toBe(true);
+  expect(h.r.isSessionPending(destination)).toBe(true);
+  expect(h.r.beginSession(source, B, h.hooks('ownership lost'), { content: B, ownedCopies: [] })).toBeNull();
+  expect(h.r.isSessionPending(sessionTarget('owner-a', 'other-runtime'))).toBe(false);
+  expect(h.r.isSessionPending(sessionTarget('owner-a', 'runtime', 'other-session'))).toBe(false);
+  const otherRuntime = h.r.beginSession(sessionTarget('owner-a', 'other-runtime'), A, h.hooks('other runtime'))!;
+  const otherSession = h.r.beginSession(sessionTarget('owner-a', 'runtime', 'other-session'), A, h.hooks('other session'))!;
+  otherRuntime.accepted(); otherSession.refused(); first.accepted();
+  expect(h.r.isSessionPending(source)).toBe(false);
+  expect(h.r.isSessionPending(destination)).toBe(false);
+});
+
+test('session policy rechecks a competing group arriving during asynchronous preparation before any POST', async () => {
+  const h = harness(), target = sessionTarget('owner-a'), posted: string[] = [];
+  const preparing = h.r.beginSession(target, A, h.hooks('preparing'))!;
+  let finishPreparation = () => {};
+  const prepared = new Promise<void>(resolve => { finishPreparation = resolve; });
+  const dispatch = (async () => {
+    await prepared;
+    if (!preparing.canDispatch() || h.r.isSessionPending(target, preparing.messageID)) {
+      preparing.refused(); return;
+    }
+    posted.push(preparing.messageID);
+  })();
+  // An already-existing independent group can collide after a verified adoption.
+  const incoming = h.r.begin(sessionTarget('owner-b'), B, h.hooks('incoming'))!;
+  h.r.transferTarget(sessionTarget('owner-b'), target);
+  expect(preparing.canDispatch()).toBe(false);
+  expect(h.r.isSessionPending(target, preparing.messageID)).toBe(true);
+  finishPreparation(); await dispatch;
+  expect(posted).toEqual([]);
+  expect(h.r.isSessionPending(target)).toBe(true);
+  incoming.refused();
+  expect(h.r.isSessionPending(target)).toBe(false);
+});
+
+test('session policy keeps unknown conflicts fenced through watchdogs and duplicate settlement callbacks', () => {
+  const h = harness(), target = sessionTarget('owner-a');
+  const first = h.r.beginSession(target, A, h.hooks('first'))!;
+  first.conflict(); h.advance(120_000);
+  first.refused(); first.accepted();
+  expect(h.r.isSessionPending(sessionTarget('owner-b'))).toBe(true);
+  expect(h.r.beginSession(target, A, h.hooks('same-ID retry'))).toBeNull();
+  expect(h.r.beginSession(target, B, h.hooks('unrelated'))).toBeNull();
+});
+
+for (const outcome of ['accepted', 'refused', 'conflict'] as const) {
+  test(`session policy retains an accepted member until its pending legacy callback is ${outcome}`, () => {
+    const h = harness(), source = sessionTarget('owner-a'), destination = sessionTarget('owner-b');
+    const first = h.r.begin(source, A, h.hooks('first'))!;
+    h.advance(15_000);
+    const retry = h.r.begin(source, A, h.hooks('legacy retry'))!;
+    first.accepted(); h.r.transferTarget(source, destination, false);
+    expect(h.r.isSessionPending(source)).toBe(true);
+    expect(h.r.isSessionPending(destination)).toBe(true);
+    expect(h.r.beginSession(destination, B, h.hooks('unrelated'))).toBeNull();
+    retry[outcome]();
+    expect(h.r.isSessionPending(source)).toBe(false);
+    expect(h.r.isSessionPending(destination)).toBe(false);
+    expect(h.r.beginSession(destination, B, h.hooks('known'))).not.toBeNull();
+  });
+}
+
+for (const finalOutcome of ['accepted', 'refused'] as const) {
+  test(`session policy unblocks immediately only after every independent ID is known, last ${finalOutcome}`, () => {
+    const h = harness(), target = sessionTarget('owner-a');
+    const first = h.r.begin(target, A, h.hooks('first'))!;
+    const second = h.r.begin(sessionTarget('owner-b'), B, h.hooks('second'))!;
+    h.advance(15_000); first.accepted();
+    expect(h.r.isSessionPending(target)).toBe(true);
+    expect(h.r.beginSession(target, B, h.hooks('blocked'))).toBeNull();
+    second[finalOutcome]();
+    expect(h.r.isSessionPending(target)).toBe(false);
+    expect(h.r.beginSession(target, SendRecovery.signature('new'), h.hooks('new'))).not.toBeNull();
+  });
+}
 
 for (const source of ['text block', 'attachment', 'synthetic part'] as const) {
   test(`captured owned ${source} blocks a new-ID mixed singleton, not unrelated input or exact retry`, () => {

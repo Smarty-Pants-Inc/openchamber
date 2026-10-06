@@ -186,21 +186,21 @@ and the send path reading the same grammar.
   while a draft is being restored, and a deleted draft's empty signature is
   recorded before a queued write could resurrect it. A verified same-session owner
   move that retains live input also transfers that submission's pending
-  `SendRecovery` group and owned editor copy to the new directory. The client message ID stays unchanged across
-  an explicit re-send. The watchdog restores input on the current verified owner;
-  a late acceptance removes only its own untouched copy. This transfer never
+  `SendRecovery` group and owned editor copy to the new directory. The watchdog
+  restores input on the current verified owner; it does not confirm the request.
+  A late acceptance removes only its own untouched copy. This transfer never
   posts input automatically and ordinary navigation does not transfer recovery.
   If a move meets another recovery group for the same target and content, both
   client IDs and their live attempts remain tracked. A reservation conflict
-  remains unresolved, not a definite refusal or acceptance. Composer admission
-  captures editor-owned recovery identities before asynchronous preparation or
-  input consumption. Those identities follow retained text blocks and restored
-  parts, so joining a copy to newer text or restoring several context parts does
-  not permit a new client-ID POST while its recovery outcomes remain unresolved.
-  The late admission check uses the captured input, not unrelated newer editor
-  state. An exact noncollision resend still uses the original client ID.
-  Removing every recovered block and part permits unrelated replacement input;
-  a deliberate new Send is allowed after every outcome is known.
+  remains unresolved, not a definite refusal or acceptance. While any request
+  or reservation for the same runtime and session remains unresolved, explicit
+  Send is blocked with "Waiting for your last message to be confirmed." This
+  includes edited or unrelated input, same-ID retries and queued input. Owner
+  directory changes do not bypass the fence. Admission checks run before
+  preparation and again before dispatch, excluding only the current admitted
+  request from its own late check. Other sessions and Stop remain available.
+  Once every outcome is known, a deliberate new Send is allowed immediately.
+  Neither the watchdog nor restored-part cleanup grants Send permission.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It
