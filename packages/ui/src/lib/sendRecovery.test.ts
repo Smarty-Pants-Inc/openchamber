@@ -20,6 +20,59 @@ function harness() {
 }
 const A = SendRecovery.signature('text A'), B = SendRecovery.signature('text B');
 
+for (const source of ['text block', 'attachment', 'synthetic part'] as const) {
+  test(`captured owned ${source} blocks a new-ID mixed singleton, not unrelated input or exact retry`, () => {
+    const h = harness(), copy = Symbol(source);
+    const hooks = { ...h.hooks(source), ownsCandidate: (candidate: { ownedCopies: readonly symbol[] }) => candidate.ownedCopies.includes(copy) };
+    const original = h.r.begin('s1', A, hooks)!;
+    h.advance(15_000);
+    const mixed = { content: B, ownedCopies: [copy] };
+    expect(h.r.wouldBlockOwned('s1', mixed)).toBe(true);
+    expect(h.r.begin('s1', B, h.hooks('mixed'), mixed)).toBeNull();
+    expect(h.r.wouldBlockOwned('other', mixed)).toBe(false);
+    expect(h.r.wouldBlockOwned('s1', { content: B, ownedCopies: [] })).toBe(false);
+    const retry = h.r.begin('s1', A, hooks, { content: A, ownedCopies: [copy] })!;
+    expect(retry.messageID).toBe(original.messageID);
+    expect(retry.canDispatch()).toBe(true);
+    original.refused(); retry.refused();
+    expect(h.r.wouldBlockOwned('s1', mixed)).toBe(false);
+    expect(h.r.begin('s1', B, h.hooks('new'), mixed)).not.toBeNull();
+  });
+}
+
+test('a settled collision copy remains owned until the other reservation is known across moves', () => {
+  const h = harness(), copy = Symbol('settled copy');
+  const first = h.r.begin('s1', A, { ...h.hooks('first'), ownsCandidate: candidate => candidate.ownedCopies.includes(copy) })!;
+  const other = h.r.begin('s2', A, h.hooks('other', 's2'))!;
+  h.r.transferTarget('s2', 's1'); h.advance(15_000); first.refused();
+  const mixed = { content: B, ownedCopies: [copy] };
+  expect(h.r.wouldBlockOwned('s1', mixed)).toBe(true);
+  other.conflict(); h.r.transferTarget('s1', 's3');
+  expect(h.r.wouldBlockOwned('s3', mixed)).toBe(true);
+  expect(h.r.begin('s3', B, h.hooks('unsafe', 's3'), mixed)).toBeNull();
+});
+
+test('captured unrelated input does not acquire ownership from a later watchdog', () => {
+  const h = harness(), copy = Symbol('later restore');
+  h.r.begin('s1', A, { ...h.hooks('first'), ownsCandidate: candidate => candidate.ownedCopies.includes(copy) })!;
+  const captured = { content: B, ownedCopies: [] };
+  h.advance(15_000);
+  expect(h.r.wouldBlockOwned('s1', captured)).toBe(false);
+  expect(h.r.begin('s1', B, h.hooks('unrelated'), captured)).not.toBeNull();
+});
+
+test('dispatch rechecks an exact retry when a collision arrives during preparation', () => {
+  const h = harness();
+  h.r.begin('s1', A, h.hooks('first'))!; h.advance(15_000);
+  const retry = h.r.begin('s1', A, h.hooks('retry'))!;
+  expect(retry.canDispatch()).toBe(true);
+  const other = h.r.begin('s2', A, h.hooks('other', 's2'))!;
+  h.r.transferTarget('s2', 's1');
+  expect(retry.canDispatch()).toBe(false);
+  other.refused();
+  expect(retry.canDispatch()).toBe(true);
+});
+
 // Navigation does not transfer recovery. Only the later verified B -> A adoption does.
 function offscreenCollision() {
   const h = harness();

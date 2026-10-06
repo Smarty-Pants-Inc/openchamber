@@ -191,13 +191,16 @@ and the send path reading the same grammar.
   a late acceptance removes only its own untouched copy. This transfer never
   posts input automatically and ordinary navigation does not transfer recovery.
   If a move meets another recovery group for the same target and content, both
-  client IDs and their live attempts remain tracked. For the unchanged content
-  signature, a restored copy does not permit another Send until every colliding
-  outcome is known. A reservation conflict remains unresolved, not a definite
-  refusal or acceptance. Content signatures still use the current whole editor
-  text and restored parts. Joining copies to newer text or restoring duplicate
-  synthetic parts can change that signature; the bucket fence alone does not
-  recognize those copies as a retry.
+  client IDs and their live attempts remain tracked. A reservation conflict
+  remains unresolved, not a definite refusal or acceptance. Composer admission
+  captures editor-owned recovery identities before asynchronous preparation or
+  input consumption. Those identities follow retained text blocks and restored
+  parts, so joining a copy to newer text or restoring several context parts does
+  not permit a new client-ID POST while its recovery outcomes remain unresolved.
+  The late admission check uses the captured input, not unrelated newer editor
+  state. An exact noncollision resend still uses the original client ID.
+  Removing every recovered block and part permits unrelated replacement input;
+  a deliberate new Send is allowed after every outcome is known.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It

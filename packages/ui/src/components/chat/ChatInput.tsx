@@ -253,7 +253,8 @@ const buildSkillMentionInstruction = (skillNames: string[]): string | null => {
 };
 
 /** A given-back text's block in its draft: `at` of `length` chars within the text `seen` (smarty-code#962). */
-type OwnedJoin = { identity: ChatDraftIdentity | null; at: number; gone: boolean; seen: string; length: number };
+type OwnedJoin = { identity: ChatDraftIdentity | null; at: number; gone: boolean; seen: string; length: number;
+    token: symbol; files: readonly AttachedFile[]; parts: readonly SyntheticContextPart[] };
 type LinkedReferenceAuthor = { login: string; avatarUrl?: string };
 type LinkedGitHubIssue = { number: number; title: string; url: string; contextText: string; author?: LinkedReferenceAuthor };
 type LinkedGitHubPr = {
@@ -447,7 +448,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const followEdit = React.useCallback((own: OwnedJoin, text: string) => {
         if (own.at < 0 || own.seen === text) return;
         own.at = shiftOwnedBlock(own.seen, text, own.at, own.length); own.seen = text;
-        if (own.at < 0) ownedJoinsRef.current.delete(own);
+        // A deleted text block does not disown restored files or context.
     }, []);
     const currentChatDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(initialDraftIdentityRef.current);
     const pendingPastedAttachmentFilenamesRef = React.useRef<Set<string>>(new Set());
@@ -1437,6 +1438,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         let timer = setTimeout(run, 0);
         return () => clearTimeout(timer);
     }, [shownTarget, chatDraftIdentity]);
+    // Capture provenance while the candidate's editor and parts still exist. A
+    // later watchdog may restore into the live editor, not this submission.
+    const captureOwnedCopies = (identity: ChatDraftIdentity | null, text: string | null,
+        files: readonly AttachedFile[], parts: readonly SyntheticContextPart[]) => {
+        const copies: symbol[] = [];
+        for (const own of ownedJoinsRef.current) {
+            if (!sameDraftIdentity(own.identity, identity)) continue;
+            const at = text === null || own.at < 0 ? -1 : shiftOwnedBlock(own.seen, text, own.at, own.length);
+            if (at >= 0 || own.files.some(file => files.includes(file)) || own.parts.some(part => parts.includes(part))) copies.push(own.token);
+        }
+        return copies;
+    };
     const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
         if (!sessionId || !isOrdinarySession(sessionId)) return null;
         const input = useInputStore.getState();
@@ -1462,8 +1475,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // notice says to choose another project (openchamber#441 r1).
         if (newSessionDraftOpen && nativeCreation.mode === 'notAdmitted') return;
         // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
-        const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
-        if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
+        const candidateText = options?.presetText ?? composerRef.current?.getValue() ?? messageRef.current;
+        const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, candidateText);
+        const capturedInput = useInputStore.getState();
+        const capturedCopies = captureOwnedCopies(chatDraftIdentity, candidateText, attachedFiles, capturedInput.pendingSyntheticParts ?? []);
+        if (pendingKeys && (sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)
+            || sendRecovery.current!.wouldBlockOwned(pendingKeys.target, { content: pendingKeys.content, ownedCopies: capturedCopies }))) {
             toast.info(t('chat.send.stillPending'));
             return;
         }
@@ -1572,7 +1589,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // where that draft still holds it (with drafts off, the composer does not load it: then it comes back here).
         let textInDraft = false;
         // smarty-code#962: the copy this submission joined, and where. A late acceptance removes that copy only.
-        const own: OwnedJoin = { identity: chatDraftIdentity, at: -1, gone: false, seen: '', length: inputSnapshot.message.length };
+        const own: OwnedJoin = { identity: chatDraftIdentity, at: -1, gone: false, seen: '', length: inputSnapshot.message.length,
+            token: Symbol('recovered-input'), files: [], parts: [] };
         // A submission without text (review r3 2: newlines only too) gives back and takes back only its parts.
         const textless = !inputSnapshot.message.trim();
         const restoreComposerText = () => {
@@ -1795,6 +1813,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             if (syntheticParts?.length) {
                 const inputState = useInputStore.getState();
                 inputState.setPendingSyntheticParts([...syntheticParts, ...(inputState.pendingSyntheticParts ?? [])]);
+                own.parts = syntheticParts;
+                ownedJoinsRef.current.add(own);
             }
             restoreComposerText();
             if (!queuedOnly && attachedFiles.length > 0) {
@@ -1802,6 +1822,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 const present = new Set(inputState.attachedFiles.map((attachment) => attachment.id));
                 const missing = attachedFiles.filter((attachment) => !present.has(attachment.id));
                 if (missing.length > 0) inputState.setAttachedFiles([...inputState.attachedFiles, ...missing]);
+                own.files = useInputStore.getState().attachedFiles.filter(file => attachedFiles.some(sent => sent.id === file.id));
+                ownedJoinsRef.current.add(own);
             }
         };
 
@@ -1896,7 +1918,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const watchUnconfirmed = !nativeIntent && !queuedOnly && !isBtwActive && !commandPlan && !!pendingKeys && inputSnapshot.hasContent;
         // This submission's recovery: its own target and content, its own timers (lib/sendRecovery). Taken before the
         // composer clears: a same-content Send that raced this one is refused here and everything it took goes back.
-        const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, pendingKeys!.content, {
+        const recoveryCandidate = pendingKeys ? {
+            content: SendRecovery.signature(inputSnapshot.message, [...attachedFiles.map(file => file.id), ...(syntheticParts ?? []).map(part => part.text)]),
+            ownedCopies: [...capturedCopies, ...captureOwnedCopies(submissionIdentity, null, attachedFiles, syntheticParts ?? [])],
+        } : null;
+        // Recheck the captured input, not the now-mutated live composer. Parts
+        // consumed after preparation can themselves be recovered copies.
+        if (pendingKeys && recoveryCandidate && sendRecovery.current!.wouldBlockOwned(pendingKeys.target, recoveryCandidate)) {
+            restoreConsumedInput();
+            toast.info(t('chat.send.stillPending'));
+            return;
+        }
+        const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, recoveryCandidate!.content, {
             // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content,
             // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
             restore: () => {
@@ -1906,6 +1939,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             },
             // Due while another session is shown: the text joins this session's saved draft now (a reload or unmount keeps it).
             save: () => { if (retainNativeDraft || !submissionIdentity) return; restoreComposerText(); textInDraft = true; },
+            ownsCandidate: candidate => candidate.ownedCopies.includes(own.token),
             retarget: (copyRetained) => {
                 // The moved editor carries this block. Retire only its untouched saved source copy, not another tab's draft.
                 const saved = readChatDraft(submissionIdentity);
@@ -1965,7 +1999,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             },
             notify: kind => { if (kind === 'unconfirmed') toast.info(t('chat.send.unconfirmed'));
                 else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.stillPending')); },
-        }) : null;
+        }, recoveryCandidate!) : null;
         if (watchUnconfirmed && !recovery) { restoreConsumedInput(); return; }
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
@@ -2071,6 +2105,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         } catch (error) {
             if (nativeIntent) { toast.error(nativeCreation.describeError(nativeCreation.noteRefusal(error))); return; }
             console.warn('[ChatInput] Failed to expand snippets, sending original text:', error);
+        }
+
+        // No new POST after a collision arrived during settings/snippet
+        // preparation. The captured provenance survives editor consumption.
+        if (pendingKeys && recoveryCandidate && (sendRecovery.current!.wouldBlockOwned(pendingKeys.target, recoveryCandidate)
+            || (recovery && !recovery.canDispatch()))) {
+            if (recovery) recovery.refused(); else restoreConsumedInput();
+            toast.info(t('chat.send.stillPending'));
+            return;
         }
 
         // Collect all attachments for error recovery

@@ -18,6 +18,11 @@
 export const isClientIdConflict = (message: string | null | undefined) =>
   !!message && /client message id already exists or a submission is pending/i.test(message);
 export type RecoveryNotice = 'unconfirmed' | 'delivered-late' | 'still-pending';
+export type RecoveryCandidate = {
+  content: string;
+  /** Editor-issued identities captured before consumption or asynchronous preparation. */
+  ownedCopies: readonly symbol[];
+};
 type Hooks = {
   /** Brings the input back into the composer; false when the composer does not show this group's target now. */
   restore: () => boolean;
@@ -27,13 +32,17 @@ type Hooks = {
   /** Rebind the saved/editor copy only after the caller verifies an identity-preserving owner move. */
   retarget?: (copyRetained: boolean) => void;
   clearIfUntouched: () => void;
+  /** Says whether a captured candidate still contains this group's editor-owned copy. */
+  ownsCandidate?: (candidate: RecoveryCandidate) => boolean;
   notify: (kind: RecoveryNotice) => void;
 };
-type Group = Hooks & { key: string; target: string; messageID: string; pending: number; reservationUnresolved: boolean; delivered: boolean; copyInComposer: boolean; saved: boolean;
+type Group = Hooks & { key: string; target: string; content: string; messageID: string; pending: number; reservationUnresolved: boolean; delivered: boolean; copyInComposer: boolean; saved: boolean;
   due: RecoveryNotice | null; timers: Set<ReturnType<typeof setTimeout>> };
 export type RecoveryAttempt = {
   /** The client message ID this attempt must send with (the group's, fixed at its first Send). */
   messageID: string;
+  /** Recheck this admitted attempt after async preparation, including a later owner collision. */
+  canDispatch(): boolean;
   accepted(): void;
   /** A client-ID reservation conflict: another attempt of this group holds (or held) the ID. Not acceptance. Returns
    * true when an earlier attempt of this group was already accepted: there is nothing to say (smarty-code#962). */
@@ -86,10 +95,27 @@ export class SendRecovery {
   }
 
   /**
+   * A changed signature can still contain a recovery's owned editor copy. This
+   * is deliberately target-scoped, but it never blocks an exact singleton
+   * retry: that path keeps the group's client ID.
+   */
+  wouldBlockOwned(target: string, candidate: RecoveryCandidate) {
+    for (const groups of this.groups.values()) {
+      if (!groups.some(group => this.isReservationUnresolved(group))) continue;
+      for (const group of groups) {
+        if (group.target !== target || group.content === candidate.content) continue;
+        if (group.ownsCandidate?.(candidate)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * A Send of `content` to `target`. Returns null when the same content's send to the same target is still unanswered
    * and its input was not given back (a second Send would post it twice): the caller keeps the input and says so.
    */
-  begin(target: string, content: string, hooks: Hooks): RecoveryAttempt | null {
+  begin(target: string, content: string, hooks: Hooks, candidate?: RecoveryCandidate): RecoveryAttempt | null {
+    if (candidate && this.wouldBlockOwned(target, candidate)) { hooks.notify('still-pending'); return null; }
     const key = `${target}\u0000${content}`;
     let group: Group | undefined;
     const groups = this.groups.get(key);
@@ -105,7 +131,7 @@ export class SendRecovery {
       group.copyInComposer = false; group.saved = false; group.due = null; Object.assign(group, hooks);
     } else {
       if (group) this.drop(group);
-      group = { key, target, ...hooks, messageID: this.newID(), pending: 0, reservationUnresolved: false, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
+      group = { key, target, content, ...hooks, messageID: this.newID(), pending: 0, reservationUnresolved: false, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
       this.groups.set(key, [group]);
     }
     const activeGroup = group; let settled = false;
@@ -114,6 +140,11 @@ export class SendRecovery {
     const settle = () => { if (settled) return false; settled = true; activeGroup.pending -= 1; this.timers.clear(timer); activeGroup.timers.delete(timer); return true; };
     return {
       messageID: activeGroup.messageID,
+      canDispatch: () => {
+        const bucket = this.groups.get(activeGroup.key);
+        return !settled && !activeGroup.delivered && !!bucket?.includes(activeGroup)
+          && !bucket.some(group => group !== activeGroup && this.isReservationUnresolved(group));
+      },
       accepted: () => {
         if (!settle()) return;
         activeGroup.reservationUnresolved = false;

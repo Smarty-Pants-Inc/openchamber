@@ -7,15 +7,15 @@ import { responsePolicyOutputSha256 } from './branding-response-policy.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const read = file => readFileSync(new URL(`../${file}`, import.meta.url));
-// Copied from the frozen round-4/security parent-native receipt, SHA256 17dadb0b.
+// Copied from the frozen owned-recovery parent-native receipt, SHA256 521917bf.
 // Never learned from the candidate ledger or filesystem; no Git object dependency.
 const inventory = [
-  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', '6f2e45a900da3bafd8c6c2fd9b0892e140be2a23',
-    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', 'ca06443f2ae4567b5057e8dae4c2853abb099a0d1056b072d5cdbde6fc63a092',
-    'Transfer pending recovery target and owned input only after verified same-session owner adoption.'],
-  ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', 'f63bb8d703c736f92793ab53d52907bdc85cfd2d',
-    '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'e372648aa2a5096b9a5adad4bf7307997e66c496b552abab3fb91baba4de9e54',
-    'Document verified owner transfer and collision blocking until every Send outcome is accounted for.'],
+  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', '7c0005381a4ebfa898d832f86e99d98ea5e366e5',
+    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', '0a3126116a0f23e1d53868c5a61455d7bdb39eaeb85b147a96d4238d4e17fb58',
+    'Fence composer admission by editor-owned recovered text and parts while retaining verified transfer and unrelated input.'],
+  ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', '1feedd443ecd813e561822e11cca0d658a8459b4',
+    '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'b93d4712b77892764bd4344d636a62829cb6fc5c437457ad13078ba84a0f1009',
+    'Document editor-owned recovered input admission across joined text, restored parts and verified owner moves.'],
   ['M', 'packages/ui/src/components/chat/composer/state/useComposerDraft.ts', 'a016acfef2c108e95982c945dd6005c1d77c4aae', '795c8717aa9f7ea0b167e89a2968cdfcdf68d08c',
     '6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011', '842c701a5ed447c9aa409f81b0c479ede079a07baed0c2c5a556d3fb6d03cc47',
     'Transfer live editor and pending-send recovery identity through the verified owner-move boundary.'],
@@ -25,15 +25,15 @@ const inventory = [
   ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx', null, '61b0f5cfd806fc8fb175f64b5c0041ac33b63301',
     null, '9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e',
     'Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection.'],
-  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '2770e2a4a1048556fa25f839adda4d4892ba2c77',
-    null, '694d4dee5e585cfbd842e249a7c555c0c7c3e366c29f67ea6b9978eb3497812e',
-    'Cover held POST moves, offscreen recovery collisions, retry blocking, preserved callbacks and one synthetic native admission.'],
-  ['M', 'packages/ui/src/lib/sendRecovery.test.ts', '9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29', 'adbc181b7a0a6a2e8d56e1133966067d435dc69c',
-    'a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d', 'b9326eeb9d5717c9d3e9ed94ada4d96c8e1df599c7220ac1869af3fa47ff38ad',
-    'Cover offscreen owner collisions, all settlement orders, reservation conflicts, later moves and safe same-ID retries.'],
-  ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '94456897742cef074705806ea1225455515968a0',
-    '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', 'd5b0a8fbac911b2665ecb59158f327a9fa932a5aa0ef5fc378ea406e55945b12',
-    'Preserve all colliding recovery groups, client IDs and unresolved reservations through verified owner moves; block retries until settlement.'],
+  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '671a002728e31debf1cfa0aab39492a790013221',
+    null, 'd18f10c529ad7c1a20fb2c25fda5b4368269a4a74f3cdaac126c078574b21aff',
+    'Cover actual composer collision recovery with restored context, joined newer input, unrelated replacement and complete settlement.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.test.ts', '9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29', '8161b15d97c7a7ff407d599d5aa8d51668d60d00',
+    'a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d', '81617bd7222bfa8ed7907d4a593ca1f597c7abf136efe8ed85122ffe21bba29e',
+    'Cover recovery collision lifetime, owned-input admission, reservation conflicts, settlement orders and safe same-ID retries.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '323dfdc61eed0dc91b1f08e0beffa898fb772495',
+    '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', 'e31300424143fca8ab11cb82d69a701e5eea53dd972bc3979e999f102516400b',
+    'Preserve all recovery reservations and reject new-ID admission of owned recovered input until its unresolved outcomes settle.'],
   ['M', 'packages/ui/src/sync/DOCUMENTATION.md', '16d18c486a11185137809abd0787bb3f48157ddf', '5b0a9b84bec562a07524ec1b0ec6d7bc3c722a91',
     '6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4', 'b2500f9fddea9bd6138aa505dc6d059e302a771ddf6667d485e460acf6217a7f',
     'Document bounded quiet history recovery and verified pending submission ownership transfer.'],
@@ -74,14 +74,14 @@ const inventory = [
 const expected = {
   schemaVersion: 1, pullRequest: 549, issue: 'smarty-code#1378',
   baseHead: '11796181f2f7341730e3a467b347bdd0470b0642', sourceTreePath: 'packages/ui',
-  sourceTree: 'c257d60579e3d4935bf3c9f18ccaed263c49ca6a', objectFormat: 'sha1',
+  sourceTree: '35c2cd43c9582f27efb0dd4b3308b94fa32cbe20', objectFormat: 'sha1',
   predecessorLedgerSha256: '976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b',
   predecessorLedgerBytesSha256: '25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1',
   scope: inventory.map(([status, path]) => ({ status, path })),
   files: inventory.map(([status, path, predecessorBlob, blob, predecessorSha256, sha256, note]) => ({
     status, path, predecessorBlob, blob, predecessorMode: status === 'A' ? null : '100644', mode: '100644', predecessorSha256, sha256, note,
   })),
-  note: 'Parent-native export of the frozen PR549 round-4 and security collision repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
+  note: 'Parent-native export of the frozen PR549 round-4 and owned-recovery security repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
 };
 function assertInventory(candidate, readSource = read, ledgerBytes = read('branding/behavior-overlay.json')) {
   assert.deepEqual(candidate, expected);
