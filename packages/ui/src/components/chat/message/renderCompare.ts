@@ -1,4 +1,5 @@
 import { isUnsaved } from '@/sync/unsaved';
+import { trustedHumanAuthor } from '@/components/auth/human-author-data';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import type { TurnActivityGroup, TurnActivityRecord, TurnChangedFile, TurnDiffStats, TurnGroupingContext } from '../lib/turns/types';
 
@@ -119,6 +120,17 @@ export const areRenderRelevantPartsEqual = (left: Part[], right: Part[]): boolea
   return true;
 };
 
+const areHumanAuthorsEqual = (left: Message, right: Message): boolean => {
+  // Use HumanAuthor's trusted contract, not raw metadata or legacy display names.
+  const leftAuthor = trustedHumanAuthor(left);
+  const rightAuthor = trustedHumanAuthor(right);
+  return leftAuthor?.version === rightAuthor?.version
+    && leftAuthor?.issuer === rightAuthor?.issuer
+    && leftAuthor?.subject === rightAuthor?.subject
+    && leftAuthor?.name === rightAuthor?.name
+    && leftAuthor?.image === rightAuthor?.image;
+};
+
 const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boolean => {
   if (left === right) return true;
 
@@ -135,6 +147,7 @@ const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boole
     && (left as { clientRole?: unknown }).clientRole === (right as { clientRole?: unknown }).clientRole
     && (left as { userMessageMarker?: unknown }).userMessageMarker === (right as { userMessageMarker?: unknown }).userMessageMarker
     && isUnsaved(left) === isUnsaved(right)
+    && areHumanAuthorsEqual(left, right)
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null)
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null);
 };

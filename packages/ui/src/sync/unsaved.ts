@@ -1,3 +1,5 @@
+import { trustedHumanAuthor } from '@/components/auth/human-author-data';
+
 /** True only when the server marks the record: Pi holds it in memory, but it is not in the session file yet. */
 export const isUnsaved = (info: unknown): boolean =>
   (info as { metadata?: { smartyCodeUnsaved?: unknown } } | null | undefined)?.metadata?.smartyCodeUnsaved === true;
@@ -35,11 +37,13 @@ export function keepSavedState<T extends object>(existing: object, incoming: T):
 /**
  * Whether a history page's record for a row already shown should replace its metadata: never from an optimistic shadow
  * (not the server's word); always over an optimistic record; otherwise when the page is not older and says something
- * different (the save state or the revision).
+ * different (the save state, revision or validated author snapshot).
  */
-export function reconciledMetadata(existing: object, incoming: object): { adopt: boolean } {
+export function reconciledMetadata(existing: object, incoming: object) {
   if (optimisticMessageRecords.has(incoming)) return { adopt: false }
   if (optimisticMessageRecords.has(existing)) return { adopt: true }
   if (isStale(existing, incoming)) return { adopt: false }
-  return { adopt: isUnsaved(existing) !== isUnsaved(incoming) || revisionOf(existing) !== revisionOf(incoming) }
+  if (isUnsaved(existing) !== isUnsaved(incoming) || revisionOf(existing) !== revisionOf(incoming)) return { adopt: true }
+  // Compare the same schema-normalized snapshot HumanAuthor renders, not object identity or message text (#675).
+  return { adopt: JSON.stringify(trustedHumanAuthor(existing)) !== JSON.stringify(trustedHumanAuthor(incoming)) }
 }
