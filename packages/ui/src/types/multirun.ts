@@ -23,7 +23,6 @@ export interface CreateMultiRunParams {
   worktreeBaseBranch?: string;
   isolateRuns?: boolean;
   files?: MultiRunFileAttachment[];
-  setupCommands?: string[];
 }
 
 export interface CreateMultiRunResult {

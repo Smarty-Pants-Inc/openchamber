@@ -39,7 +39,6 @@ const attachmentState = {
 };
 
 mock.module('@/lib/openchamberConfig', () => ({
-  substituteCommandVariables: (command: string) => command,
 }));
 
 mock.module('@/components/ui', () => ({
@@ -697,7 +696,7 @@ describe('worktreeManager fork remote payload wiring', () => {
     attachmentState.attachments = new Map();
   });
 
-  test('validate and create forward ensureRemoteName/Url for a fork head', async () => {
+  test('validate and create send an existing remote branch without commands or remote provisioning', async () => {
     const project = { id: 'project-1', path: '/repo' };
     const args = {
       mode: 'existing' as const,
@@ -707,9 +706,9 @@ describe('worktreeManager fork remote payload wiring', () => {
       setUpstream: true as const,
       upstreamRemote: 'pr-alice',
       upstreamBranch: 'feature/login',
-      ensureRemoteName: 'pr-alice',
-      ensureRemoteUrl: 'https://github.com/alice/openchamber.git',
     };
+    // smarty-code#1398 slice 2: the server refuses these fields with a 400, so the client never sends them.
+    const removedFields = ['startCommand', 'ensureRemoteName', 'ensureRemoteUrl'];
 
     const validation = await validateWorktreeCreate(project, args);
     expect(validation.ok).toBe(true);
@@ -717,8 +716,7 @@ describe('worktreeManager fork remote payload wiring', () => {
     const validated = validatePayloads[0] as Record<string, unknown>;
     expect(validated.mode).toBe('existing');
     expect(validated.existingBranch).toBe('remotes/pr-alice/feature/login');
-    expect(validated.ensureRemoteName).toBe('pr-alice');
-    expect(validated.ensureRemoteUrl).toBe('https://github.com/alice/openchamber.git');
+    for (const field of removedFields) expect(field in validated).toBe(false);
     expect('pullRequest' in validated).toBe(false);
 
     await createWorktree(project, {
@@ -728,9 +726,8 @@ describe('worktreeManager fork remote payload wiring', () => {
     expect(createPayloads).toHaveLength(1);
     const created = createPayloads[0] as Record<string, unknown>;
     expect(created.existingBranch).toBe('remotes/pr-alice/feature/login');
-    expect(created.ensureRemoteName).toBe('pr-alice');
-    expect(created.ensureRemoteUrl).toBe('https://github.com/alice/openchamber.git');
     expect(created.setUpstream).toBe(true);
+    for (const field of removedFields) expect(field in created).toBe(false);
     expect('pullRequest' in created).toBe(false);
   });
 });

@@ -446,7 +446,7 @@ export function registerGitRoutes(app) {
   });
 
   app.post('/api/git/worktrees/validate', async (req, res) => {
-    const { validateWorktreeCreate } = await getGitLibraries();
+    const { validateWorktreeCreate, WorktreeRequestRefusedError } = await getGitLibraries();
     if (typeof validateWorktreeCreate !== 'function') {
       return res.status(501).json({ error: 'Worktree validation is not available' });
     }
@@ -460,13 +460,16 @@ export function registerGitRoutes(app) {
       const result = await validateWorktreeCreate(directory, req.body || {});
       res.json(result);
     } catch (error) {
+      if (error instanceof WorktreeRequestRefusedError) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('Failed to validate worktree creation:', error);
       res.status(500).json({ error: error.message || 'Failed to validate worktree creation' });
     }
   });
 
   app.post('/api/git/worktrees', async (req, res) => {
-    const { createWorktree } = await getGitLibraries();
+    const { createWorktree, WorktreeRequestRefusedError } = await getGitLibraries();
     if (typeof createWorktree !== 'function') {
       return res.status(501).json({ error: 'Worktree creation is not available' });
     }
@@ -480,6 +483,9 @@ export function registerGitRoutes(app) {
       const created = await createWorktree(directory, req.body || {});
       res.json(created);
     } catch (error) {
+      if (error instanceof WorktreeRequestRefusedError) {
+        return res.status(400).json({ error: error.message });
+      }
       console.error('Failed to create worktree:', error);
       res.status(500).json({ error: error.message || 'Failed to create worktree' });
     }

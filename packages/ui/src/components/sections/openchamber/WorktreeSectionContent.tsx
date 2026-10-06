@@ -1,8 +1,5 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui';
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
 import { Icon } from "@/components/icon/Icon";
 import type { Session } from '@opencode-ai/sdk/v2';
@@ -14,9 +11,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useDeviceInfo } from '@/lib/device';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import {
-  getWorktreeSetupCommands,
   getWorktreeSetupWaitEnabled,
-  saveWorktreeSetupCommands,
   saveWorktreeSetupWaitEnabled,
 } from '@/lib/openchamberConfig';
 import { listProjectWorktrees } from '@/lib/worktrees/worktreeManager';
@@ -32,14 +27,11 @@ import { useI18n } from '@/lib/i18n';
 export interface WorktreeSectionContentProps {
   projectRef?: { id: string; path: string } | null;
   /**
-   * 'all' renders setup commands + the worktree list (settings panel);
-   * 'list-only' renders just the list (the Worktrees page — setup commands
-   * stay a settings concern).
+   * 'all' renders the bootstrap wait preference + the worktree list (settings
+   * panel); 'list-only' renders just the list (the Worktrees page).
    */
   sections?: 'all' | 'list-only';
 }
-
-const SETUP_COMMANDS_SAVE_DELAY_MS = 450;
 
 export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ projectRef: projectRefProp = null, sections = 'all' }) => {
   const { t } = useI18n();
@@ -53,14 +45,11 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
   const sessions = useSessions();
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
 
-  const [setupCommands, setSetupCommands] = React.useState<string[]>([]);
   const [waitForSetupCommands, setWaitForSetupCommands] = React.useState(false);
   const [isLoadingCommands, setIsLoadingCommands] = React.useState(false);
-  const [commandsSnapshot, setCommandsSnapshot] = React.useState<string | null>(null);
   const [isGitRepoLocal, setIsGitRepoLocal] = React.useState<boolean | null>(null);
   const [availableWorktrees, setAvailableWorktrees] = React.useState<WorktreeMetadata[]>([]);
   const [isLoadingWorktrees, setIsLoadingWorktrees] = React.useState(false);
-  const isSavingCommandsRef = React.useRef(false);
 
   const projectRef = React.useMemo(() => {
     if (projectRefProp?.id && projectRefProp?.path) {
@@ -148,20 +137,12 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
 
     (async () => {
       try {
-        const [commands, waitForSetup] = await Promise.all([
-          getWorktreeSetupCommands(projectRef),
-          getWorktreeSetupWaitEnabled(projectRef),
-        ]);
+        const waitForSetup = await getWorktreeSetupWaitEnabled(projectRef);
         if (!cancelled) {
-          const nextCommands = commands.length > 0 ? commands : [''];
-          setSetupCommands(nextCommands);
-          setCommandsSnapshot(JSON.stringify(nextCommands));
           setWaitForSetupCommands(waitForSetup);
         }
       } catch {
         if (!cancelled) {
-          setSetupCommands(['']);
-          setCommandsSnapshot(JSON.stringify(['']));
           setWaitForSetupCommands(false);
         }
       } finally {
@@ -175,89 +156,6 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
       cancelled = true;
     };
   }, [projectRef]);
-
-  const persistSetupCommands = React.useCallback(async (commands: string[]): Promise<boolean> => {
-    if (!projectRef) {
-      return false;
-    }
-    const filtered = commands.filter((cmd) => cmd.trim().length > 0);
-    try {
-      const ok = await saveWorktreeSetupCommands(projectRef, filtered);
-      if (!ok) {
-        toast.error(t('settings.openchamber.worktrees.setup.toast.saveFailed'));
-        return false;
-      }
-      setCommandsSnapshot(JSON.stringify(commands));
-      return true;
-    } catch {
-      toast.error(t('settings.openchamber.worktrees.setup.toast.saveFailed'));
-      return false;
-    }
-  }, [projectRef, t]);
-
-  const commandsHaveChanges = React.useMemo(() => {
-    if (commandsSnapshot === null) {
-      return false;
-    }
-    return commandsSnapshot !== JSON.stringify(setupCommands);
-  }, [commandsSnapshot, setupCommands]);
-
-  React.useEffect(() => {
-    if (!commandsHaveChanges || isLoadingCommands || isSavingCommandsRef.current) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      if (isSavingCommandsRef.current) {
-        return;
-      }
-      isSavingCommandsRef.current = true;
-      void (async () => {
-        try {
-          await persistSetupCommands(setupCommands);
-        } finally {
-          isSavingCommandsRef.current = false;
-        }
-      })();
-    }, SETUP_COMMANDS_SAVE_DELAY_MS);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [commandsHaveChanges, isLoadingCommands, persistSetupCommands, setupCommands]);
-
-  const handleSetupCommandChange = React.useCallback((index: number, value: string) => {
-    setSetupCommands((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-  }, []);
-
-  const handleAddCommand = React.useCallback(() => {
-    setSetupCommands((prev) => [...prev, '']);
-  }, []);
-
-  const handleRemoveCommand = React.useCallback((index: number) => {
-    setSetupCommands((prev) => {
-      const next = prev.filter((_, i) => i !== index);
-      return next.length > 0 ? next : [''];
-    });
-  }, []);
-
-  const handleCommandBlur = React.useCallback(() => {
-    if (!commandsHaveChanges || isSavingCommandsRef.current) {
-      return;
-    }
-    isSavingCommandsRef.current = true;
-    void (async () => {
-      try {
-        await persistSetupCommands(setupCommands);
-      } finally {
-        isSavingCommandsRef.current = false;
-      }
-    })();
-  }, [commandsHaveChanges, persistSetupCommands, setupCommands]);
 
   const handleWaitForSetupCommandsChange = React.useCallback((enabled: boolean) => {
     setWaitForSetupCommands(enabled);
@@ -331,16 +229,6 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
     }
   }, [sessionsKey, isGitRepoLocal, projectPath, refreshWorktrees]);
 
-  const setupTooltip = (
-    <SettingsInfoHint>
-      {t('settings.openchamber.worktrees.setup.tooltipPrefix')}
-      {' '}
-      <code className="font-mono text-xs bg-sidebar-accent/50 px-1 rounded">$ROOT_PROJECT_PATH</code>
-      {' '}
-      {t('settings.openchamber.worktrees.setup.tooltipSuffix')}
-    </SettingsInfoHint>
-  );
-
   const listTooltip = (
     <SettingsInfoHint>
       {t('settings.openchamber.worktrees.list.tooltip')}
@@ -379,43 +267,11 @@ export const WorktreeSectionContent: React.FC<WorktreeSectionContentProps> = ({ 
       <ProjectSettingsSubsection
         title={t('settings.projects.page.section.worktree')}
         settingsItem="projects.worktree"
-        titleAccessory={setupTooltip}
       >
         {isLoadingCommands ? (
           <p className="typography-meta text-muted-foreground">{t('settings.openchamber.worktrees.setup.loading')}</p>
         ) : (
           <div className={cn('space-y-2', PROJECT_SETTINGS_CONTROL_WIDTH)}>
-            {setupCommands.map((command, index) => (
-              <div key={index} className="flex w-full gap-2">
-                <Input
-                  value={command}
-                  onChange={(e) => handleSetupCommandChange(index, e.target.value)}
-                  onBlur={handleCommandBlur}
-                  placeholder={t('settings.openchamber.worktrees.setup.commandPlaceholder')}
-                  className="h-7 min-w-0 flex-1 font-mono text-xs"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => handleRemoveCommand(index)}
-                  className="h-7 w-7 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  aria-label={t('settings.openchamber.worktrees.setup.removeCommandAria')}
-                >
-                  <Icon name="close" className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="!font-normal"
-              onClick={handleAddCommand}
-            >
-              <Icon name="add" className="h-3.5 w-3.5" />
-              {t('settings.openchamber.worktrees.setup.addCommand')}
-            </Button>
             <label
               data-settings-item="projects.worktree.setup.wait"
               className="flex cursor-pointer items-center gap-2 py-1"

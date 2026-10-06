@@ -5,7 +5,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { cn, formatDirectoryName } from '@/lib/utils';
@@ -13,8 +12,6 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useMultiRunStore } from '@/stores/useMultiRunStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { getWorktreeSetupCommands } from '@/lib/openchamberConfig';
-import type { ProjectRef } from '@/lib/openchamberConfig';
 import type { CreateMultiRunParams, MultiRunGroup } from '@/types/multirun';
 import { ModelMultiSelect, generateInstanceId, type ModelSelectionWithId } from './ModelMultiSelect';
 import { BranchSelector, useBranchOptions } from './BranchSelector';
@@ -96,20 +93,11 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
   const [selectedAgent, setSelectedAgent] = React.useState<string>('');
   const [attachedFiles, setAttachedFiles] = React.useState<MultiRunAttachedFile[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [setupCommands, setSetupCommands] = React.useState<string[]>([]);
-  const [isSetupCommandsOpen, setIsSetupCommandsOpen] = React.useState(false);
-  const [isLoadingSetupCommands, setIsLoadingSetupCommands] = React.useState(false);
   const [isolateRuns, setIsolateRuns] = React.useState(true);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory ?? null);
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory ?? null);
-
-  const vscodeWorkspaceFolder = React.useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    const folder = (window as unknown as { __VSCODE_CONFIG__?: { workspaceFolder?: unknown } }).__VSCODE_CONFIG__?.workspaceFolder;
-    return typeof folder === 'string' && folder.trim().length > 0 ? folder.trim() : null;
-  }, []);
 
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
@@ -174,15 +162,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
       </span>
     );
   }, [homeDirectory, currentTheme.metadata.variant, currentTheme.colors.surface.foreground]);
-
-  const projectRef = React.useMemo<ProjectRef | null>(() => {
-    if (selectedProject?.path) {
-      return { id: selectedProject.id, path: selectedProject.path };
-    }
-    const base = currentDirectory ?? vscodeWorkspaceFolder;
-    if (!base) return null;
-    return { id: `path:${base}`, path: base };
-  }, [selectedProject, currentDirectory, vscodeWorkspaceFolder]);
 
   const [isDesktopApp] = React.useState(() => (typeof window !== 'undefined' ? isDesktopShell() : false));
 
@@ -274,23 +253,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
     }
   }, [initialPrompt]);
 
-  React.useEffect(() => {
-    if (!projectRef) return;
-    let cancelled = false;
-    setIsLoadingSetupCommands(true);
-    (async () => {
-      try {
-        const commands = await getWorktreeSetupCommands(projectRef);
-        if (!cancelled) setSetupCommands(commands);
-      } catch {
-        // Ignore
-      } finally {
-        if (!cancelled) setIsLoadingSetupCommands(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectRef]);
-
   const updateGroup = React.useCallback((groupId: string, updates: Partial<RunGroupState>) => {
     setRunGroups((prev) => prev.map((g) => g.id === groupId ? { ...g, ...updates } : g));
   }, []);
@@ -373,8 +335,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
         url: f.dataUrl,
       }));
 
-      const commandsForStore = setupCommands.filter((cmd) => cmd.trim().length > 0);
-
       const groups: MultiRunGroup[] = validGroups.map((g) => ({
         prompt: g.prompt.trim(),
         models: g.models.map((m) => ({ providerID: m.providerID, modelID: m.modelID, displayName: m.displayName, variant: m.variant })),
@@ -387,7 +347,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
         worktreeBaseBranch: effectiveIsolateRuns ? worktreeBaseBranch : undefined,
         isolateRuns: effectiveIsolateRuns,
         files: filesForStore.length > 0 ? filesForStore : undefined,
-        setupCommands: commandsForStore.length > 0 ? commandsForStore : undefined,
       };
 
       const result = await createMultiRun(params);
@@ -410,8 +369,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
     && !isLoadingWorktreeBaseBranches
     && (isGitRepository === false || !effectiveIsolateRuns || worktreeBaseBranch)
   );
-
-  const configuredSetupCount = setupCommands.filter((cmd) => cmd.trim()).length;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full bg-background">
@@ -518,72 +475,6 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
                 <AgentSelector value={selectedAgent} onChange={setSelectedAgent} id="multirun-agent" />
               </div>
             </div>
-
-            <Collapsible open={isSetupCommandsOpen} onOpenChange={setIsSetupCommandsOpen}>
-              <CollapsibleTrigger className="w-full flex items-center gap-2 py-1.5 px-2 -mx-2 rounded-lg hover:bg-[var(--interactive-hover)]/50 transition-colors group">
-                <Icon name="terminal" className="h-3.5 w-3.5 text-muted-foreground/70" />
-                <span className="typography-meta font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                  {t('multirun.launcher.setupCommands.label')}
-                </span>
-                {configuredSetupCount > 0 && (
-                  <span
-                    className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full typography-micro font-medium"
-                    style={{
-                      backgroundColor: 'var(--primary-base)',
-                      color: 'var(--primary-foreground)',
-                      fontSize: '0.625rem',
-                      lineHeight: 1,
-                    }}
-                  >
-                    {configuredSetupCount}
-                  </span>
-                )}
-                <Icon name="arrow-down-s" className={cn(
-                  'h-3.5 w-3.5 text-muted-foreground/50 transition-transform duration-200 ml-auto',
-                  isSetupCommandsOpen && 'rotate-180',
-                )} />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="pt-2 space-y-1.5">
-                  {isLoadingSetupCommands ? (
-                    <p className="typography-meta text-muted-foreground/70 px-2">{t('multirun.launcher.setupCommands.loading')}</p>
-                  ) : (
-                    <>
-                      {setupCommands.map((command, index) => (
-                        <div key={`${command}-${index}`} className="flex gap-1.5">
-                          <Input
-                            value={command}
-                            onChange={(e) => {
-                              const newCommands = [...setupCommands];
-                              newCommands[index] = e.target.value;
-                              setSetupCommands(newCommands);
-                            }}
-                            placeholder={t('multirun.launcher.setupCommands.commandPlaceholder')}
-                            className="h-8 flex-1 font-mono text-xs"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSetupCommands(setupCommands.filter((_, i) => i !== index))}
-                            className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                            aria-label={t('multirun.launcher.setupCommands.removeCommandAria')}
-                          >
-                            <Icon name="close" className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setSetupCommands([...setupCommands, ''])}
-                        className="flex items-center gap-1 typography-meta text-muted-foreground hover:text-foreground transition-colors px-1"
-                      >
-                        <Icon name="add" className="h-3 w-3" />
-                        {t('multirun.launcher.setupCommands.addCommand')}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
 
             <div className="flex flex-col gap-1.5">
               <FieldLabel htmlFor="prompt" required>{t('multirun.launcher.attachments.label')}</FieldLabel>

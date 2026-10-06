@@ -14,7 +14,7 @@ import { checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
 import { generateBranchName } from '@/lib/git/branchNameGenerator';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
-import { getWorktreeSetupCommands, getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
+import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
 import {
   removeProjectWorktree,
   type ProjectRef,
@@ -71,14 +71,12 @@ export const createQuickWorktree = async (
   options: { preferredName?: string; startRef?: string } = {},
 ) => {
   const preferredName = options.preferredName ?? generateBranchName();
-  const setupCommands = await getWorktreeSetupCommands(project);
   return createWorktreeWithDefaults(project, {
     preferredName,
     mode: 'new',
     branchName: preferredName,
     worktreeName: preferredName,
     startRef: options.startRef,
-    setupCommands,
     returnAfterDirectoryCreated: true,
   });
 };
@@ -323,8 +321,6 @@ export async function createWorktreeSessionForNewBranch(
     setUpstream?: boolean;
     upstreamRemote?: string;
     upstreamBranch?: string;
-    ensureRemoteName?: string;
-    ensureRemoteUrl?: string;
     createdFromBranch?: string;
     returnAfterDirectoryCreated?: boolean;
   }
@@ -363,7 +359,6 @@ export async function createWorktreeSessionForNewBranch(
       return null;
     }
 
-    const setupCommands = await getWorktreeSetupCommands(projectRef);
     const rootBranch = await getRootBranch(projectRef.path);
     try {
       const metadata = await createWorktreeWithDefaults(projectRef, {
@@ -375,9 +370,6 @@ export async function createWorktreeSessionForNewBranch(
         setUpstream: options?.setUpstream,
         upstreamRemote: options?.upstreamRemote,
         upstreamBranch: options?.upstreamBranch,
-        ensureRemoteName: options?.ensureRemoteName,
-        ensureRemoteUrl: options?.ensureRemoteUrl,
-        setupCommands,
         returnAfterDirectoryCreated: options?.returnAfterDirectoryCreated,
       });
       const createdMetadata = {

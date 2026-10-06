@@ -140,7 +140,6 @@ mock.module('@/lib/gitApi', () => ({
 }));
 
 mock.module('@/lib/openchamberConfig', () => ({
-  substituteCommandVariables: (command: string) => command,
 }));
 
 mock.module('@/lib/worktreeSessionCreator', () => ({

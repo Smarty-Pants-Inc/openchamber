@@ -257,15 +257,10 @@ export interface CreateGitWorktreePayload {
   existingBranch?: string;
   /** Start ref for mode=new (local/remote branch or commit SHA). */
   startRef?: string;
-  /** Additional startup script to run after project startup script. */
-  startCommand?: string;
   /** Configure upstream tracking for the created/attached local branch. */
   setUpstream?: boolean;
   upstreamRemote?: string;
   upstreamBranch?: string;
-  /** Optional remote provisioning (used for fork PR workflows). */
-  ensureRemoteName?: string;
-  ensureRemoteUrl?: string;
   /** Return once the target directory exists and finish Git worktree setup in the background. */
   returnAfterDirectoryCreated?: boolean;
 }

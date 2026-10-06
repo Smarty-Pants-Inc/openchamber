@@ -90,7 +90,6 @@ mock.module('@/lib/worktrees/worktreeStatus', () => ({
 
 mock.module('@/lib/openchamberConfig', () => ({
   getWorktreeSetupWaitEnabled: mock(() => Promise.resolve(waitForWorktreeSetup)),
-  saveWorktreeSetupCommands: mock(() => Promise.resolve()),
 }));
 
 mock.module('./useDirectoryStore', () => ({

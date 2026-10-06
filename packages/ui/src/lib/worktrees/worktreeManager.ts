@@ -1,4 +1,3 @@
-import { substituteCommandVariables } from '@/lib/openchamberConfig';
 import { toast } from '@/components/ui';
 import { formatMessage, useI18nStore } from '@/lib/i18n';
 import type { WorktreeMetadata } from '@/types/worktree';
@@ -199,27 +198,8 @@ const deriveSdkWorktreeNameFromDirectory = (directory: string): string => {
   return parts[parts.length - 1] ?? normalized;
 };
 
-const buildSdkStartCommand = (args: {
-  projectDirectory: string;
-  setupCommands: string[];
-}): string | undefined => {
-  const commands: string[] = [];
-
-  for (const raw of args.setupCommands) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    commands.push(
-      substituteCommandVariables(trimmed, { rootWorktreePath: args.projectDirectory })
-    );
-  }
-
-  const joined = commands.filter(Boolean).join(' && ');
-  return joined.trim().length > 0 ? joined : undefined;
-};
-
 const toCreatePayload = (args: {
   preferredName?: string;
-  setupCommands?: string[];
   mode?: 'new' | 'existing';
   worktreeName?: string;
   branchName?: string;
@@ -228,10 +208,8 @@ const toCreatePayload = (args: {
   setUpstream?: boolean;
   upstreamRemote?: string;
   upstreamBranch?: string;
-  ensureRemoteName?: string;
-  ensureRemoteUrl?: string;
   returnAfterDirectoryCreated?: boolean;
-}, projectDirectory: string): CreateGitWorktreePayload => {
+}): CreateGitWorktreePayload => {
   const mode = args.mode === 'existing' ? 'existing' : 'new';
 
   const worktreeNameSeed = args.worktreeName ?? args.preferredName ?? '';
@@ -243,24 +221,15 @@ const toCreatePayload = (args: {
   const existingBranch = normalizeBranchName(args.existingBranch ?? args.branchName ?? '');
   const startRef = (args.startRef || '').trim();
 
-  const commands = Array.isArray(args.setupCommands) ? args.setupCommands : [];
-  const startCommand = buildSdkStartCommand({
-    projectDirectory,
-    setupCommands: commands,
-  });
-
   return {
     mode,
     ...(worktreeName ? { worktreeName } : {}),
     ...(branchName ? { branchName } : {}),
     ...(existingBranch ? { existingBranch } : {}),
     ...(startRef ? { startRef } : {}),
-    ...(startCommand ? { startCommand } : {}),
     ...(args.setUpstream ? { setUpstream: true } : {}),
     ...(args.upstreamRemote ? { upstreamRemote: args.upstreamRemote } : {}),
     ...(args.upstreamBranch ? { upstreamBranch: args.upstreamBranch } : {}),
-    ...(args.ensureRemoteName ? { ensureRemoteName: args.ensureRemoteName } : {}),
-    ...(args.ensureRemoteUrl ? { ensureRemoteUrl: args.ensureRemoteUrl } : {}),
     ...(args.returnAfterDirectoryCreated ? { returnAfterDirectoryCreated: true } : {}),
   };
 };
@@ -537,7 +506,6 @@ export async function listProjectWorktrees(project: ProjectRef, options?: {
 
 export type CreateWorktreeArgs = {
   preferredName?: string;
-  setupCommands?: string[];
   mode?: 'new' | 'existing';
   worktreeName?: string;
   branchName?: string;
@@ -546,15 +514,13 @@ export type CreateWorktreeArgs = {
   setUpstream?: boolean;
   upstreamRemote?: string;
   upstreamBranch?: string;
-  ensureRemoteName?: string;
-  ensureRemoteUrl?: string;
   returnAfterDirectoryCreated?: boolean;
 };
 
 export async function createWorktree(project: ProjectRef, args: CreateWorktreeArgs): Promise<WorktreeMetadata> {
   const projectDirectory = normalizePath(project.path);
   const metadataProjectDirectory = await resolveProjectRoot(projectDirectory).catch(() => projectDirectory);
-  const payload = toCreatePayload(args, projectDirectory);
+  const payload = toCreatePayload(args);
 
   const created = await git.worktree.create(projectDirectory, payload);
   if (created?.sourceFetchFailed) {
@@ -618,7 +584,7 @@ export async function createWorktree(project: ProjectRef, args: CreateWorktreeAr
 
 export async function validateWorktreeCreate(project: ProjectRef, args: CreateWorktreeArgs): Promise<GitWorktreeValidationResult> {
   const projectDirectory = project.path;
-  const payload = toCreatePayload(args, projectDirectory);
+  const payload = toCreatePayload(args);
   return git.worktree.validate(projectDirectory, payload);
 }
 

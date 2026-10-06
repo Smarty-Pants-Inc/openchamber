@@ -3,9 +3,7 @@ import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useProjectsStore } from '@/stores/useProjectsStore';
 import { ModelMultiSelect, generateInstanceId, type ModelSelectionWithId } from '@/components/multirun/ModelMultiSelect';
 import { BranchSelector, useBranchOptions } from '@/components/multirun/BranchSelector';
 import { AgentSelector } from '@/components/multirun/AgentSelector';
@@ -13,10 +11,7 @@ import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo }
 import { FileMentionAutocomplete, type FileMentionHandle } from '@/components/chat/FileMentionAutocomplete';
 import { Icon } from "@/components/icon/Icon";
 import { isIMECompositionEvent } from '@/lib/ime';
-import { getWorktreeSetupCommands } from '@/lib/openchamberConfig';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
-import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import type { ProjectRef } from '@/lib/openchamberConfig';
 import type { CreateMultiRunParams, MultiRunFileAttachment } from '@/types/multirun';
 import { useI18n } from '@/lib/i18n';
 
@@ -53,9 +48,6 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
   const [baseBranch, setBaseBranch] = React.useState('');
   const [attachedFiles, setAttachedFiles] = React.useState<AttachedFile[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [setupCommands, setSetupCommands] = React.useState<string[]>([]);
-  const [isSetupCommandsOpen, setIsSetupCommandsOpen] = React.useState(false);
-  const [isLoadingSetupCommands, setIsLoadingSetupCommands] = React.useState(false);
   const [showFileMention, setShowFileMention] = React.useState(false);
   const [mentionQuery, setMentionQuery] = React.useState('');
   const [showCommandAutocomplete, setShowCommandAutocomplete] = React.useState(false);
@@ -67,67 +59,8 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
   const commandRef = React.useRef<CommandAutocompleteHandle>(null);
   
   const { currentTheme } = useThemeSystem();
-  const { runtime } = useRuntimeAPIs();
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory ?? null);
   const { isGitRepository, isLoading: isLoadingBranches } = useBranchOptions(currentDirectory);
-  
-  const vscodeWorkspaceFolder = React.useMemo(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-    const folder = (window as unknown as { __VSCODE_CONFIG__?: { workspaceFolder?: unknown } }).__VSCODE_CONFIG__?.workspaceFolder;
-    return typeof folder === 'string' && folder.trim().length > 0 ? folder.trim() : null;
-  }, []);
-
-  const isVSCodeRuntime = runtime.isVSCode;
-
-  // Get project directory for setup commands
-  const activeProjectId = useProjectsStore((state) => state.activeProjectId);
-  const projects = useProjectsStore((state) => state.projects);
-  const projectRef = React.useMemo<ProjectRef | null>(() => {
-    // VS Code panel should always use the current workspace root.
-    if (isVSCodeRuntime && vscodeWorkspaceFolder) {
-      return { id: `vscode:${vscodeWorkspaceFolder}`, path: vscodeWorkspaceFolder };
-    }
-
-    if (activeProjectId) {
-      const project = projects.find((p) => p.id === activeProjectId);
-      if (project?.path) {
-        return { id: project.id, path: project.path };
-      }
-    }
-
-    if (currentDirectory) {
-      return { id: `path:${currentDirectory}`, path: currentDirectory };
-    }
-
-    return null;
-  }, [activeProjectId, projects, currentDirectory, vscodeWorkspaceFolder, isVSCodeRuntime]);
-
-  // Load setup commands from config
-  React.useEffect(() => {
-    if (!projectRef) return;
-    
-    let cancelled = false;
-    setIsLoadingSetupCommands(true);
-    
-    (async () => {
-      try {
-        const commands = await getWorktreeSetupCommands(projectRef);
-        if (!cancelled) {
-          setSetupCommands(commands);
-        }
-      } catch {
-        // Ignore errors, start with empty commands
-      } finally {
-        if (!cancelled) {
-          setIsLoadingSetupCommands(false);
-        }
-      }
-    })();
-    
-    return () => { cancelled = true; };
-  }, [projectRef]);
 
   const handleAddModel = React.useCallback((model: ModelSelectionWithId) => {
     setSelectedModels((prev) => [...prev, model]);
@@ -333,16 +266,12 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
           }))
         : undefined;
 
-      // Filter setup commands
-      const commandsToRun = setupCommands.filter(cmd => cmd.trim().length > 0);
-
       await onCreateGroup?.({
         name: groupName.trim(),
         groups: [{ prompt: prompt.trim(), models }],
         agent: selectedAgent || undefined,
         worktreeBaseBranch: baseBranch,
         files,
-        setupCommands: commandsToRun.length > 0 ? commandsToRun : undefined,
       });
 
       // Reset form on success - only after onCreateGroup completes
@@ -431,72 +360,6 @@ export const AgentManagerEmptyState: React.FC<AgentManagerEmptyStateProps> = ({
           </p>
         </div>
 
-        {/* Setup commands collapsible */}
-        <Collapsible open={isSetupCommandsOpen} onOpenChange={setIsSetupCommandsOpen}>
-          <CollapsibleTrigger className="w-full flex items-center justify-between py-1 hover:bg-[var(--interactive-hover)] rounded-md px-1 -mx-1 transition-colors">
-            <p className="typography-ui-label font-medium text-foreground">
-              {t('agentManager.empty.setupCommands.label')}
-              {(() => {
-                const trimmedCommandCount = setupCommands.filter(cmd => cmd.trim()).length;
-                return trimmedCommandCount > 0 ? (
-                  <span className="font-normal text-muted-foreground/70">
-                    {' '}({t('agentManager.empty.setupCommands.configured', { count: trimmedCommandCount })})
-                  </span>
-                ) : null;
-              })()}
-            </p>
-            <Icon name="arrow-down-s" className={cn(
-              'h-4 w-4 text-muted-foreground transition-transform duration-200',
-              isSetupCommandsOpen && 'rotate-180'
-            )} />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="pt-2 space-y-2">
-              <p className="typography-micro text-muted-foreground/70">
-                {t('agentManager.empty.setupCommands.description')}
-              </p>
-              {isLoadingSetupCommands ? (
-                <p className="typography-meta text-muted-foreground/70">{t('agentManager.empty.setupCommands.loading')}</p>
-              ) : (
-                <div className="space-y-1.5">
-                  {setupCommands.map((command, index) => (
-                    <div key={index} className="flex gap-2">
-                      <Input
-                        value={command}
-                        onChange={(e) => {
-                          const newCommands = [...setupCommands];
-                          newCommands[index] = e.target.value;
-                          setSetupCommands(newCommands);
-                        }}
-                        placeholder={t('agentManager.empty.setupCommands.commandPlaceholder')}
-                        className="h-8 flex-1 font-mono text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newCommands = setupCommands.filter((_, i) => i !== index);
-                          setSetupCommands(newCommands);
-                        }}
-                        className="flex-shrink-0 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                        aria-label={t('agentManager.empty.setupCommands.removeCommandAria')}
-                      >
-                        <Icon name="close" className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setSetupCommands([...setupCommands, ''])}
-                    className="flex items-center gap-1.5 typography-meta text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Icon name="add" className="h-3.5 w-3.5" />
-                    {t('agentManager.empty.setupCommands.addCommand')}
-                  </button>
-                </div>
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
 
         {/* Agent Selection */}
         <div className="space-y-1.5">

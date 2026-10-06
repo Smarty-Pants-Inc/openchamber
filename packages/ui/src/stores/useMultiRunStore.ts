@@ -4,7 +4,7 @@ import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
 import { devtools } from 'zustand/middleware';
 import type { CreateMultiRunParams, CreateMultiRunResult } from '@/types/multirun';
 import { opencodeClient } from '@/lib/opencode/client';
-import { getWorktreeSetupWaitEnabled, saveWorktreeSetupCommands } from '@/lib/openchamberConfig';
+import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
 import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktreeWithDefaults, resolveRootTrackingRemote } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
@@ -117,7 +117,7 @@ export const useMultiRunStore = create<MultiRunStore>()(
 
       createMultiRun: async (params: CreateMultiRunParams) => {
         const groupName = params.name.trim();
-        const { groups, agent, files, setupCommands } = params;
+        const { groups, agent, files } = params;
 
         if (!groupName) {
           set({ error: 'Group name is required' });
@@ -166,8 +166,6 @@ export const useMultiRunStore = create<MultiRunStore>()(
             variant?: string;
             prompt: string;
           }> = [];
-
-          const commandsToRun = setupCommands?.filter((cmd) => cmd.trim().length > 0) ?? [];
 
           for (let gi = 0; gi < groups.length; gi++) {
             const group = groups[gi];
@@ -229,7 +227,6 @@ export const useMultiRunStore = create<MultiRunStore>()(
                   branchName: preferredName,
                   worktreeName: preferredName,
                   startRef: params.worktreeBaseBranch || 'HEAD',
-                  setupCommands: commandsToRun,
                   returnAfterDirectoryCreated: true,
                 }, {
                   resolvedRootTrackingRemote: rootTrackingRemote,
@@ -265,13 +262,6 @@ export const useMultiRunStore = create<MultiRunStore>()(
                 console.warn('[MultiRun] Failed to create session:', err);
               }
             }
-          }
-
-          const commandsToSave = setupCommands?.filter((cmd) => cmd.trim().length > 0) ?? [];
-          if (commandsToSave.length > 0) {
-            saveWorktreeSetupCommands(project, commandsToSave).catch(() => {
-              console.warn('[MultiRun] Failed to save worktree setup commands');
-            });
           }
 
           const sessionIds = createdRuns.map((r) => r.sessionId);

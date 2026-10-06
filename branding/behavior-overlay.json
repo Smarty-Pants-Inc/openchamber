@@ -433,7 +433,7 @@
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "brandingSha256": "a022d24da478aa027395a31081509b6fa577d5a02c50db1165d6c1772146a338",
       "behaviorSha256": "d55d28d332ba514beb833e3d3d030c26dab8aeb97dc6dcb4ee8feeffdf0cef13",
-      "combinedSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "combinedSha256": "d7586d87f98390fc8b79c581a4d286e27c5cc96db37ee2fa1e7f679a39f90c3b",
       "catalogReloadSource": "b4b815b491de25924df4a9a33554427efff10898",
       "catalogReloadSha256": "8caf10c8c849c4e133e07a3189d8bfdb58ece39c8c655b7d2f427a06f242bf0b",
       "preCatalogReloadCombinedSha256": "bb0d6abff832b0eaeea9309a5cc4adf8413220de783fb4daa76aa14cf790d0eb",
@@ -480,7 +480,11 @@
       "personalSidebarReviewNote": "PR454 review 5914164668 finding 1: preserve the held-open reveal ticket and manual-collapse cancellation through managed-catalog admission. Source writer released the correction at 2026-09-30T16:08Z; parent and branding-worker SHA256 readbacks match the released store output. Original reviewed 9ba0596d output and all preceding hashes remain historical evidence. Exact combined-head CI and served-release acceptance remain separate.",
       "prePersonalSidebarRevealCombinedSha256": "55c8ea1f9a25110b480346825bd4828e0607fbafea1c017c7a13209e34064240",
       "personalSidebarRevealSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
-      "personalSidebarRevealNote": "PR454 security comment 5919567288 P2: bind reveal persistence and delayed ticket publication to the initiating preference-admission cohort, retaining manual-collapse cancellation as local intent. Writer released its store at 2026-09-30T22:45:25Z; parent verified all eight source hashes. A subsequent actual-store RED exposed consumed-ticket resurrection; the parent added the matching-live-intent guard and retained collapse sets, then released and independently hashed the final store at 2026-09-30T22:52:50Z. The older held-open correction and every prior ledger field remain historical evidence. Security review, exact-head CI and served-release acceptance remain separate."
+      "personalSidebarRevealNote": "PR454 security comment 5919567288 P2: bind reveal persistence and delayed ticket publication to the initiating preference-admission cohort, retaining manual-collapse cancellation as local intent. Writer released its store at 2026-09-30T22:45:25Z; parent verified all eight source hashes. A subsequent actual-store RED exposed consumed-ticket resurrection; the parent added the matching-live-intent guard and retained collapse sets, then released and independently hashed the final store at 2026-09-30T22:52:50Z. The older held-open correction and every prior ledger field remain historical evidence. Security review, exact-head CI and served-release acceptance remain separate.",
+      "preHostPowerRemovalCombinedSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "hostPowerRemovalBaseSha256": "81b57a1b36d565997ccd163d6a4214fa30161c79a49ed798ecfb226e253c207b",
+      "hostPowerRemovalSha256": "d7586d87f98390fc8b79c581a4d286e27c5cc96db37ee2fa1e7f679a39f90c3b",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the assistant-answer worktree path no longer reads or sends worktree setup commands; branded strings unchanged."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.behavior.test.tsx",
@@ -736,10 +740,14 @@
       "path": "packages/web/server/lib/git/service.js",
       "brandingSha256": "e0b51a40a1bfbfe3b8a52a84bb56d64ce6ffee9195b704ed9362eb423fb03d8f",
       "behaviorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
-      "combinedSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "combinedSha256": "5949b03dff9795c73e5e2945283dcbc0a5969a04197f7396491fe77db9562626",
       "reason": "OPENCHAMBER_WORKTREE_ROOT (smarty-code#629) places managed worktrees at <root>/<repository folder>/; in that shared root, removal deletes only git-registered worktrees, never an unregistered folder (#354 review). Branded strings are unchanged.",
       "worktreeRootAdded": true,
-      "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154"
+      "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "preHostPowerRemovalCombinedSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "hostPowerRemovalBaseSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "hostPowerRemovalSha256": "5949b03dff9795c73e5e2945283dcbc0a5969a04197f7396491fe77db9562626",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: worktree create/validate refuse startCommand, ensureRemoteName and ensureRemoteUrl with a 400 before any git command runs; the start-command runner, project start command and remote provisioning are removed; branded strings unchanged."
     },
     {
       "path": ".github/workflows/docs-source.yml",
@@ -1713,6 +1721,16 @@
       "hostPowerRemovalAdded": true,
       "hostPowerRemovalBaseSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
       "hostPowerRemovalSha256": "17214445969f7dc5af84830909fda3a0643cc6f24cfaee2c91f391a6dcddf2f9"
+    },
+    {
+      "path": "packages/ui/src/lib/worktreeSessionCreator.ts",
+      "brandingSha256": "47ca11c191661e93dd4b8ae566127b09186d4d7baae8d0a16dc597077805eeaa",
+      "behaviorSha256": "79ba7fd46879239189117870f28fa4e8470ded8ed4d755b3e35686a32d2d6fca",
+      "combinedSha256": "79ba7fd46879239189117870f28fa4e8470ded8ed4d755b3e35686a32d2d6fca",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: new-branch worktree sessions no longer send setup commands or fork-remote provisioning (ensureRemoteName/ensureRemoteUrl); branded strings unchanged.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "47ca11c191661e93dd4b8ae566127b09186d4d7baae8d0a16dc597077805eeaa",
+      "hostPowerRemovalSha256": "79ba7fd46879239189117870f28fa4e8470ded8ed4d755b3e35686a32d2d6fca"
     },
     {
       "path": "packages/web/bin/cli-output.js",
