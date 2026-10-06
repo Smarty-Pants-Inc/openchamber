@@ -8,20 +8,11 @@ import type {
   GetGitFileDiffOptions,
   GitBranch,
   GitUnpushedBranchCounts,
-  GitDeleteBranchPayload,
-  GitDeleteRemoteBranchPayload,
-  GitRemoveRemotePayload,
-  GeneratedCommitMessage,
   GitWorktreeInfo,
   CreateGitWorktreePayload,
   GitWorktreeCreateResult,
   RemoveGitWorktreePayload,
   GitWorktreeValidationResult,
-  CreateGitCommitOptions,
-  GitCommitResult,
-  GitPushResult,
-  GitPullResult,
-  GitPullOptions,
   GitStashEntry,
   GitLogOptions,
   GitLogResponse,
@@ -29,18 +20,13 @@ import type {
   CommitFileDiffResponse,
   GitIdentityProfile,
   GitIdentitySummary,
-  DiscoveredGitCredential,
   MergeConflictDetails,
-  CheckoutCommitResponse,
-  CherryPickResponse,
-  RevertCommitResponse,
-  ResetToCommitResponse,
 } from './api/types';
 import { normalizePath } from './pathNormalization';
 import { runtimeFetch } from './runtime-fetch';
 import { getRuntimeUrlResolver } from './runtime-url';
 import { getRuntimeKey } from './runtime-switch';
-import { notifyGitStatusInvalidated, subscribeGitStatusInvalidations } from './gitStatusInvalidation';
+import { subscribeGitStatusInvalidations } from './gitStatusInvalidation';
 
 const API_BASE = '/api/git';
 const GIT_STATUS_CACHE_TTL_MS = 1200;
@@ -73,23 +59,6 @@ const clearGitStatusCache = (runtimeKey: string, directory: string): void => {
 subscribeGitStatusInvalidations((directory) => {
   clearGitStatusCache(getRuntimeKey(), directory);
 });
-
-const invalidateGitStatusCache = (directory: string): void => {
-  notifyGitStatusInvalidated(directory);
-};
-
-// Shared success path for status-affecting mutations. The payload is parsed
-// before invalidating so a failed mutation (non-ok response handled by the
-// caller, or a malformed body) cannot publish a false state change.
-const completeStatusMutation = async <T>(directory: string, response: Response): Promise<T> => {
-  // SAFETY: every caller rejects non-ok responses before reaching here, and on
-  // success each git route returns the body declared by that route's return
-  // type in `./api/types`. The assertion names that per-route contract; there is
-  // no narrower type available at this shared success path.
-  const result = await response.json() as T;
-  invalidateGitStatusCache(directory);
-  return result;
-};
 
 function buildUrl(
   path: string,
@@ -232,34 +201,6 @@ export async function resolveGitTopLevel(directory: string): Promise<{ root: str
   return { root: typeof payload.root === 'string' && payload.root ? payload.root : directory };
 }
 
-export async function getGitCommitSummaries(
-  directory: string,
-  shas: string[]
-): Promise<{ commits: Array<{ sha: string; short: string; subject: string }> }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/commit-summaries`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ shas }),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to get git commit summaries: ${response.statusText}`);
-  }
-  const payload = await response.json().catch(() => ({})) as {
-    commits?: Array<{ sha?: string; short?: string; subject?: string }>;
-  };
-  return {
-    commits: Array.isArray(payload.commits)
-      ? payload.commits
-          .map((entry) => ({
-            sha: typeof entry.sha === 'string' ? entry.sha : '',
-            short: typeof entry.short === 'string' ? entry.short : '',
-            subject: typeof entry.subject === 'string' ? entry.subject : '',
-          }))
-          .filter((entry) => entry.sha && entry.short)
-      : [],
-  };
-}
-
 export async function getGitDiff(directory: string, options: GetGitDiffOptions): Promise<GitDiffResponse> {
   const { path, staged, contextLines } = options;
   if (!path) {
@@ -371,120 +312,6 @@ export async function getGitFileDiff(directory: string, options: GetGitFileDiffO
   return response.json();
 }
 
-export async function revertGitFile(
-  directory: string,
-  filePath: string,
-  options?: { scope?: 'all' | 'working' }
-): Promise<void> {
-  if (!filePath) {
-    throw new Error('path is required to revert git changes');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/revert`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: filePath, scope: options?.scope }),
-  });
-
-  if (!response.ok) {
-    const message = await response
-      .json()
-      .catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to revert git changes');
-  }
-
-  invalidateGitStatusCache(directory);
-}
-
-export async function stageGitFile(directory: string, filePath: string): Promise<void> {
-  await stageGitFiles(directory, [filePath]);
-}
-
-export async function stageGitFiles(directory: string, filePaths: string[]): Promise<void> {
-  const paths = filePaths.map((path) => path.trim()).filter(Boolean);
-
-  if (paths.length === 0) {
-    throw new Error('path is required to stage git changes');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/stage`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paths }),
-  });
-
-  if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to stage git changes');
-  }
-
-  invalidateGitStatusCache(directory);
-}
-
-export async function unstageGitFile(directory: string, filePath: string): Promise<void> {
-  await unstageGitFiles(directory, [filePath]);
-}
-
-export async function unstageGitFiles(directory: string, filePaths: string[]): Promise<void> {
-  const paths = filePaths.map((path) => path.trim()).filter(Boolean);
-
-  if (paths.length === 0) {
-    throw new Error('path is required to unstage git changes');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/unstage`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ paths }),
-  });
-
-  if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to unstage git changes');
-  }
-
-  invalidateGitStatusCache(directory);
-}
-
-export async function stageGitHunk(directory: string, filePath: string, patch: string): Promise<void> {
-  await applyGitHunk(directory, filePath, patch, 'stage');
-}
-
-export async function unstageGitHunk(directory: string, filePath: string, patch: string): Promise<void> {
-  await applyGitHunk(directory, filePath, patch, 'unstage');
-}
-
-export async function revertGitHunk(directory: string, filePath: string, patch: string): Promise<void> {
-  await applyGitHunk(directory, filePath, patch, 'discard');
-}
-
-async function applyGitHunk(
-  directory: string,
-  filePath: string,
-  patch: string,
-  action: 'stage' | 'unstage' | 'discard',
-): Promise<void> {
-  if (!filePath) {
-    throw new Error('path is required to apply a git hunk');
-  }
-  if (typeof patch !== 'string' || !patch.trim()) {
-    throw new Error('patch is required to apply a git hunk');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/apply-hunk`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: filePath, patch, action }),
-  });
-
-  if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to apply git hunk');
-  }
-
-  invalidateGitStatusCache(directory);
-}
-
 export async function isLinkedWorktree(directory: string): Promise<boolean> {
   if (!directory) {
     return false;
@@ -513,128 +340,6 @@ export async function getGitUnpushedBranchCounts(directory: string, branches: st
   });
   if (!response.ok) throw new Error(`Failed to get branch push status: ${response.statusText}`);
   return response.json();
-}
-
-export async function deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }> {
-  if (!payload?.branch) {
-    throw new Error('branch is required to delete a branch');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/branches`, directory), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete branch');
-  }
-
-  return completeStatusMutation(directory, response);
-}
-
-export async function deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }> {
-  if (!payload?.branch) {
-    throw new Error('branch is required to delete remote branch');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/remote-branches`, directory), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete remote branch');
-  }
-
-  return completeStatusMutation(directory, response);
-}
-
-export async function removeRemote(directory: string, payload: GitRemoveRemotePayload): Promise<{ success: boolean }> {
-  const remote = payload?.remote?.trim();
-  if (!remote) {
-    throw new Error('remote is required to remove a remote');
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/remotes`, directory), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ remote }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to remove remote');
-  }
-
-  return completeStatusMutation(directory, response);
-}
-
-export async function generateCommitMessage(
-  directory: string,
-  files: string[],
-  options?: { zenModel?: string; providerId?: string; modelId?: string }
-): Promise<{ message: GeneratedCommitMessage }> {
-  if (!Array.isArray(files) || files.length === 0) {
-    throw new Error('No files provided to generate commit message');
-  }
-
-  const body: Record<string, unknown> = { files };
-  if (options?.zenModel) {
-    body.zenModel = options.zenModel;
-  }
-  if (options?.providerId) {
-    body.providerId = options.providerId;
-  }
-  if (options?.modelId) {
-    body.modelId = options.modelId;
-  }
-
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/commit-message`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    console.error('[git-generation][browser] http error', {
-      status: response.status,
-      statusText: response.statusText,
-      error,
-    });
-    const traceSuffix = typeof error?.traceId === 'string' && error.traceId
-      ? ` (traceId: ${error.traceId})`
-      : '';
-    throw new Error(`${error.error || 'Failed to generate commit message'}${traceSuffix}`);
-  }
-
-  const data = await response.json();
-
-  if (!data?.message || typeof data.message !== 'object') {
-    throw new Error('Malformed commit generation response');
-  }
-
-  const subject =
-    typeof data.message.subject === 'string' && data.message.subject.trim().length > 0
-      ? data.message.subject.trim()
-      : '';
-
-  const highlights: string[] = Array.isArray(data.message.highlights)
-    ? (data.message.highlights as unknown[])
-        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-        .map((item) => (item as string).trim())
-    : [];
-
-  return {
-    message: {
-      subject,
-      highlights,
-    },
-  };
 }
 
 export async function generatePullRequestDescription(
@@ -758,76 +463,6 @@ export async function deleteGitWorktree(directory: string, payload: RemoveGitWor
   return response.json();
 }
 
-export async function createGitCommit(
-  directory: string,
-  message: string,
-  options: CreateGitCommitOptions = {}
-): Promise<GitCommitResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/commit`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message,
-      addAll: options.addAll ?? false,
-      files: options.files,
-      stageFiles: options.stageFiles,
-    }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create commit');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function gitPush(
-  directory: string,
-  options: { remote?: string; branch?: string; options?: string[] | Record<string, unknown> } = {}
-): Promise<GitPushResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/push`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to push');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function gitPull(
-  directory: string,
-  options: GitPullOptions = {}
-): Promise<GitPullResult> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/pull`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to pull');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function gitFetch(
-  directory: string,
-  options: { remote?: string; branch?: string } = {}
-): Promise<{ success: boolean }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/fetch`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to fetch');
-  }
-  return completeStatusMutation(directory, response);
-}
-
 export async function listGitStashes(directory: string): Promise<{ stashes: GitStashEntry[] }> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/stashes`, directory));
   if (!response.ok) {
@@ -848,83 +483,6 @@ export async function countGitStashFiles(directory: string, refs: string[]): Pro
     throw new Error(error.error || 'Failed to count stash files');
   }
   return response.json();
-}
-
-export async function stashGitChanges(directory: string, options: { message?: string } = {}): Promise<{ success: boolean; created: boolean; message: string; output: string }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/stash`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to stash changes');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-const postStashRef = async (directory: string, path: string, options: { ref: string }): Promise<{ success: boolean; ref: string }> => {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/${path}`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `Failed to ${path}`);
-  }
-  return completeStatusMutation(directory, response);
-};
-
-export const applyGitStash = (directory: string, options: { ref: string }) => postStashRef(directory, 'stash/apply', options);
-export const popGitStash = (directory: string, options: { ref: string }) => postStashRef(directory, 'stash/pop', options);
-export const dropGitStash = (directory: string, options: { ref: string }) => postStashRef(directory, 'stash/drop', options);
-
-export async function checkoutBranch(directory: string, branch: string): Promise<{ success: boolean; branch: string }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/checkout`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ branch }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to checkout branch');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function createBranch(
-  directory: string,
-  name: string,
-  startPoint?: string
-): Promise<{ success: boolean; branch: string }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/branches`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, startPoint }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create branch');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function renameBranch(
-  directory: string,
-  oldName: string,
-  newName: string
-): Promise<{ success: boolean; branch: string }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/branches/rename`, directory), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ oldName, newName }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to rename branch');
-  }
-  return completeStatusMutation(directory, response);
 }
 
 export async function getGitLog(
@@ -987,42 +545,6 @@ export async function getGitIdentities(): Promise<GitIdentityProfile[]> {
   return response.json();
 }
 
-export async function createGitIdentity(profile: GitIdentityProfile): Promise<GitIdentityProfile> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/identities`, undefined), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(profile),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create git identity');
-  }
-  return response.json();
-}
-
-export async function updateGitIdentity(id: string, updates: GitIdentityProfile): Promise<GitIdentityProfile> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/identities/${id}`, undefined), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to update git identity');
-  }
-  return response.json();
-}
-
-export async function deleteGitIdentity(id: string): Promise<void> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/identities/${id}`, undefined), {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete git identity');
-  }
-}
-
 export async function getCurrentGitIdentity(directory: string): Promise<GitIdentitySummary | null> {
   if (!directory) {
     return null;
@@ -1070,30 +592,6 @@ export async function getGlobalGitIdentity(): Promise<GitIdentitySummary | null>
   };
 }
 
-export async function setGitIdentity(
-  directory: string,
-  profileId: string
-): Promise<{ success: boolean; profile: GitIdentityProfile }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/set-identity`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profileId }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to set git identity');
-  }
-  return response.json();
-}
-
-export async function discoverGitCredentials(): Promise<DiscoveredGitCredential[]> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/discover-credentials`, undefined));
-  if (!response.ok) {
-    throw new Error(`Failed to discover git credentials: ${response.statusText}`);
-  }
-  return response.json();
-}
-
 export async function getRemoteUrl(directory: string, remote?: string): Promise<string | null> {
   if (!directory) {
     return null;
@@ -1112,161 +610,6 @@ export async function getRemotes(directory: string): Promise<Array<{ name: strin
     throw new Error(`Failed to get remotes: ${response.statusText}`);
   }
   return response.json();
-}
-
-export async function rebase(
-  directory: string,
-  options: { onto: string }
-): Promise<{ success: boolean; conflict?: boolean; conflictFiles?: string[] }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/rebase`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to rebase');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function abortRebase(directory: string): Promise<{ success: boolean }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/rebase/abort`, directory), {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to abort rebase');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function merge(
-  directory: string,
-  options: { branch: string }
-): Promise<{ success: boolean; conflict?: boolean; conflictFiles?: string[] }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/merge`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to merge');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function checkoutCommit(
-  directory: string,
-  hash: string
-): Promise<CheckoutCommitResponse> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/checkout-commit`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hash }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to checkout commit');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function cherryPick(
-  directory: string,
-  hash: string
-): Promise<CherryPickResponse> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/cherry-pick`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hash }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to cherry-pick');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function revertCommit(
-  directory: string,
-  hash: string
-): Promise<RevertCommitResponse> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/revert-commit`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hash }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to revert commit');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function resetToCommit(
-  directory: string,
-  hash: string,
-  mode: 'soft' | 'mixed' | 'hard',
-  force?: boolean
-): Promise<ResetToCommitResponse> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/reset-to-commit`, directory), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hash, mode, force }),
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to reset');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function abortMerge(directory: string): Promise<{ success: boolean }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/merge/abort`, directory), {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to abort merge');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function continueRebase(directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/rebase/continue`, directory), {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to continue rebase');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function continueMerge(directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }> {
-  const response = await runtimeFetch(buildUrl(`${API_BASE}/merge/continue`, directory), {
-    method: 'POST',
-  });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to continue merge');
-  }
-  return completeStatusMutation(directory, response);
-}
-
-export async function stash(
-  directory: string,
-  options?: { message?: string; includeUntracked?: boolean }
-): Promise<{ success: boolean }> {
-  await stashGitChanges(directory, { message: options?.message });
-  return { success: true };
-}
-
-export async function stashPop(directory: string): Promise<{ success: boolean }> {
-  await popGitStash(directory, { ref: 'stash@{0}' });
-  return { success: true };
 }
 
 export async function getConflictDetails(directory: string): Promise<MergeConflictDetails> {

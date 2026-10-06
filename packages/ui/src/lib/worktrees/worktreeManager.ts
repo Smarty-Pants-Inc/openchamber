@@ -2,10 +2,7 @@ import { substituteCommandVariables } from '@/lib/openchamberConfig';
 import { toast } from '@/components/ui';
 import { formatMessage, useI18nStore } from '@/lib/i18n';
 import type { WorktreeMetadata } from '@/types/worktree';
-import {
-  deleteRemoteBranch,
-  git,
-} from '@/lib/gitApi';
+import { git } from '@/lib/gitApi';
 import {
   clearWorktreeBootstrapState,
   markWorktreeBootstrapPending,
@@ -626,15 +623,11 @@ export async function validateWorktreeCreate(project: ProjectRef, args: CreateWo
 }
 
 export async function removeProjectWorktree(project: ProjectRef, worktree: WorktreeMetadata, options?: {
-  deleteRemoteBranch?: boolean;
   deleteLocalBranch?: boolean;
-  remoteName?: string;
 }): Promise<void> {
   const projectDirectory = normalizePath(project.path);
 
-  const deleteRemote = Boolean(options?.deleteRemoteBranch);
   const deleteLocalBranch = options?.deleteLocalBranch === true;
-  const remoteName = options?.remoteName;
   const raw = await git.worktree.remove(projectDirectory, {
     directory: worktree.path,
     deleteLocalBranch,
@@ -679,9 +672,4 @@ export async function removeProjectWorktree(project: ProjectRef, worktree: Workt
     ),
     worktreeMetadata: updatedMetadata,
   });
-
-  const branchName = (worktree.branch || '').replace(/^refs\/heads\//, '').trim();
-  if (deleteRemote && branchName) {
-    await deleteRemoteBranch(projectDirectory, { branch: branchName, remote: remoteName }).catch(() => undefined);
-  }
 }

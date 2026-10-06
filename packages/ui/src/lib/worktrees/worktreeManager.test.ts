@@ -88,7 +88,6 @@ mock.module('@/sync/session-ui-store', () => ({
 }));
 
 mock.module('@/lib/gitApi', () => ({
-  deleteRemoteBranch: mock(),
   git: {
     worktree: {
       list: (directory: string) => {

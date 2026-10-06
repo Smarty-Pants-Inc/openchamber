@@ -1,9 +1,6 @@
 import React, { useCallback, useMemo } from 'react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
-import { Icon } from "@/components/icon/Icon";
 import type { GitStatus } from '@/lib/api/types';
-import { useI18n } from '@/lib/i18n';
 
 type ChangeDescriptor = {
   code: string;
@@ -39,81 +36,32 @@ function describeChange(file: GitStatus['files'][number]): ChangeDescriptor {
 
 interface ChangeRowProps {
   file: GitStatus['files'][number];
-  actionLabel: string;
-  actionSymbol: '+' | '-';
-  onAction: () => void;
   onViewDiff: () => void;
-  onRevert: () => void;
-  isReverting: boolean;
   stats?: { insertions: number; deletions: number };
   rowPaddingClassName?: string;
   indentPx?: number;
-  /** Place the stage/unstage action at the row start (flat view) instead of the end (tree view). */
-  actionAtStart?: boolean;
-  showRevert?: boolean;
 }
 
 export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
   file,
-  actionLabel,
-  actionSymbol,
-  onAction,
   onViewDiff,
-  onRevert,
-  isReverting,
   stats,
   rowPaddingClassName,
   indentPx = 0,
-  actionAtStart = false,
-  showRevert = true,
 }) {
   const descriptor = useMemo(() => describeChange(file), [file]);
-  const { t } = useI18n();
   const indicatorLabel = descriptor.description;
   const insertions = stats?.insertions ?? 0;
   const deletions = stats?.deletions ?? 0;
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (event.key === ' ') {
-        event.preventDefault();
-        onAction();
-      } else if (event.key === 'Enter') {
+      if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         onViewDiff();
       }
     },
-    [onAction, onViewDiff]
-  );
-
-  const handleActionClick = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onAction();
-    },
-    [onAction]
-  );
-
-  const handleRevertClick = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      onRevert();
-    },
-    [onRevert]
-  );
-
-  const actionButton = (
-    <button
-      type="button"
-      onClick={handleActionClick}
-      className="flex size-5 shrink-0 items-center justify-center rounded typography-micro font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-      aria-label={actionLabel}
-      title={actionLabel}
-    >
-      {actionSymbol}
-    </button>
+    [onViewDiff]
   );
 
   return (
@@ -125,7 +73,6 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
       onKeyDown={handleKeyDown}
       style={indentPx > 0 ? { paddingLeft: `${indentPx}px` } : undefined}
     >
-        {actionAtStart ? actionButton : null}
         <span
           className="typography-micro font-semibold w-4 text-center uppercase"
           style={{ color: descriptor.color }}
@@ -167,27 +114,6 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
           <span className="text-muted-foreground mx-0.5">/</span>
           <span style={{ color: 'var(--status-error)' }}>-{deletions}</span>
         </span>
-        {showRevert ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleRevertClick}
-                disabled={isReverting}
-                className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t('gitView.changes.revertFileAria', { path: file.path })}
-              >
-                {isReverting ? (
-                  <Icon name="loader-4" className="size-3.5 animate-spin" />
-                ) : (
-                  <Icon name="arrow-go-back" className="size-3.5" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={8}>{t('gitView.changes.revertFileTooltip')}</TooltipContent>
-          </Tooltip>
-        ) : null}
-        {actionAtStart ? null : actionButton}
     </div>
   );
 });

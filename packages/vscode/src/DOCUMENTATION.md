@@ -139,7 +139,7 @@ every surface reached only through those is unreachable.
 | MCP settings | MOUNTED | `SettingsView` → `McpSidebar` / `McpPage` |
 | Agents / commands / skills / plugins / providers / projects settings | MOUNTED | `SettingsView` page registry |
 | Worktrees | PARTIAL | Create/remove reachable via `SessionSidebar` → `NewWorktreeDialog` and `sessionWorktreeMenu`. `WorktreesView` is `MainLayout`-only |
-| Git | PARTIAL | Read-only status/branches/log via `useGitStore` in `SessionSidebar`, `ChatInput`, `WorkStatusPrimaryGroup`. Stage/commit/push/history/merge/rebase live in `GitView` + `views/git/*`, cut off with `ContextPanel` |
+| Git | PARTIAL | Read-only status/branches/log via `useGitStore` in `SessionSidebar`, `ChatInput`, `WorkStatusPrimaryGroup`. The shared UI has no git write actions any more (hostdel slice); the read-only `GitView` + `views/git/*` are cut off with `ContextPanel` |
 | Voice / dictation | PARTIAL | `ComposerDictation` renders in `ChatInput`; the `voice` settings page is VS Code-gated |
 | Command palette | PARTIAL | `useKeyboardShortcuts` runs from `SyncAppEffects` and `open_command_palette` toggles `isCommandPaletteOpen`, but `CommandPalette` renders only in `MainLayout` — the shortcut opens nothing |
 | ContextPanel / project context (notes, todos, plans tabs) | NOT MOUNTED | `ContextPanel`, `ContextPanelRail`, `RightSidebarTabs` imported only by `MainLayout` and `MobileWorkspaceDrawer` |
@@ -163,10 +163,8 @@ Handlers with no reachable caller in the VS Code webview.
 | Handler | Why unreachable |
 |---|---|
 | `api:git/ignore-openchamber` | No reference anywhere in `packages/vscode/webview` |
-| `api:git/commit`, `api:git/commit-files`, `api:git/commit-file-diff` | Only `GitView` and `views/git/*` call them |
-| `api:git/log` (write paths), `api:git/checkout`, `api:git/checkout-commit`, `api:git/reset-to-commit`, `api:git/revert-commit`, `api:git/cherry-pick` | `views/git/HistoryCommitRow.tsx` only |
-| `api:git/merge`, `api:git/merge/abort`, `api:git/merge/continue`, `api:git/rebase`, `api:git/rebase/abort`, `api:git/rebase/continue`, `api:git/conflict-details` | `GitView` only |
-| `api:git/push`, `api:git/pull`, `api:git/fetch` | `GitView` and `MobileChangesSurface` only |
+| `api:git/commit`, `api:git/revert`, `api:git/stage`, `api:git/unstage`, `api:git/apply-hunk`, `api:git/push`, `api:git/pull`, `api:git/fetch`, `api:git/stash`, `api:git/stash/apply`, `api:git/stash/pop`, `api:git/stash/drop`, `api:git/checkout`, `api:git/checkout-commit`, `api:git/reset-to-commit`, `api:git/revert-commit`, `api:git/cherry-pick`, `api:git/merge`, `api:git/merge/abort`, `api:git/merge/continue`, `api:git/rebase`, `api:git/rebase/abort`, `api:git/rebase/continue`, `api:git/remote-branches`, branch create/rename/delete, identity writes | The shared `GitAPI` contract no longer has git write methods, so `webview/api/git.ts` no longer sends them |
+| `api:git/commit-files`, `api:git/commit-file-diff`, `api:git/conflict-details` | Only the read-only `GitView` and `views/git/*` call them |
 | `api:git/diff`, `api:git/file-diff` | `DiffView` only |
 | `api:git/pr-description` | `views/git/PullRequestSection.tsx` only |
 | `api:git/identity` | `git` settings page is VS Code-gated |

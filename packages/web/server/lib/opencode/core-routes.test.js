@@ -266,7 +266,6 @@ describe('core-routes', () => {
       label: 'Pair phone',
       allowedClientKinds: ['mobile'],
       createdByClientId: null,
-      usesRelay: false,
     });
   });
 
@@ -312,42 +311,6 @@ describe('core-routes', () => {
     expect(response.body.server.candidates).toEqual([
       { type: 'lan', url: 'http://192.168.1.20:2606', priority: 10 },
     ]);
-  });
-
-  it('folds in a relay candidate when the host relay is enabled', async () => {
-    const relayCandidate = {
-      type: 'relay',
-      relayUrl: 'wss://relay.example/ws',
-      serverId: 'srv_1',
-      hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'aaa', y: 'bbb' },
-      priority: 30,
-    };
-    const { app } = createPairingRouteApp({ getRelayPairingCandidate: vi.fn(async () => relayCandidate) });
-
-    const response = await request(app)
-      .post('/api/client-auth/pairing/sessions')
-      .set('Host', 'runtime.example')
-      .send({ label: 'Pair phone' })
-      .expect(201);
-
-    expect(response.body.server.candidates).toEqual([
-      { type: 'lan', url: 'http://runtime.example', priority: 10 },
-      relayCandidate,
-    ]);
-  });
-
-  it('still returns the direct candidate when the relay candidate lookup throws', async () => {
-    const { app } = createPairingRouteApp({
-      getRelayPairingCandidate: vi.fn(async () => { throw new Error('relay status read failed'); }),
-    });
-
-    const response = await request(app)
-      .post('/api/client-auth/pairing/sessions')
-      .set('Host', 'runtime.example')
-      .send({ label: 'Pair phone' })
-      .expect(201);
-
-    expect(response.body.server.candidates).toEqual([{ type: 'lan', url: 'http://runtime.example', priority: 10 }]);
   });
 
   it('requires owner auth before creating or cancelling pairing sessions', async () => {
@@ -571,17 +534,9 @@ describe('client auth routes', () => {
 
   it('reports current connection candidates with server identity for paired devices', async () => {
     const app = express();
-    const relayCandidate = {
-      type: 'relay',
-      relayUrl: 'wss://relay.example/ws',
-      serverId: 'server-abc',
-      hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' },
-      priority: 30,
-    };
     const dependencies = {
       ...createDependencies({ resolveAuthContext: async () => ({ type: 'client', clientId: 'client-1' }) }),
       getDirectCandidateUrls: () => ['http://192.168.1.20:3000', 'http://10.0.0.5:3000', 'not-a-url'],
-      getRelayPairingCandidate: async () => relayCandidate,
       getServerId: async () => 'server-abc',
       getServerLabel: () => 'my-host',
     };
@@ -595,19 +550,15 @@ describe('client auth routes', () => {
     expect(response.body.candidates).toEqual([
       { type: 'lan', url: 'http://192.168.1.20:3000', priority: 10 },
       { type: 'lan', url: 'http://10.0.0.5:3000', priority: 10 },
-      relayCandidate,
     ]);
   });
 
-  it('omits serverId and relay candidate when unavailable and survives failures', async () => {
+  it('omits serverId when unavailable and survives a candidate scan failure', async () => {
     const app = express();
     const dependencies = {
       ...createDependencies(),
       getDirectCandidateUrls: () => {
         throw new Error('scan failed');
-      },
-      getRelayPairingCandidate: async () => {
-        throw new Error('relay status failed');
       },
       getServerId: async () => null,
     };
