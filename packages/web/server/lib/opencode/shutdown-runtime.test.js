@@ -14,8 +14,7 @@ const createRuntime = (server) => createGracefulShutdownRuntime({
   scheduledTasksRuntime: { stop: vi.fn() },
   getHealthCheckInterval: () => null,
   clearHealthCheckInterval: vi.fn(),
-  getTerminalRuntime: () => null,
-  setTerminalRuntime: vi.fn(),
+
   getMessageStreamRuntime: () => null,
   setMessageStreamRuntime: vi.fn(),
   shouldSkipOpenCodeStop: () => true,

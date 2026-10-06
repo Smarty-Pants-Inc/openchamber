@@ -52,17 +52,17 @@ describe('createRuntimeUrlResolver', () => {
   test('converts absolute HTTP URLs to WebSocket URLs', () => {
     const urls = createRuntimeUrlResolver({ apiBaseUrl: 'https://api.example' });
 
-    expect(urls.websocket('http://remote.example/api/terminal/ws')).toBe('ws://remote.example/api/terminal/ws');
+    expect(urls.websocket('http://remote.example/api/global/event/ws')).toBe('ws://remote.example/api/global/event/ws');
     expect(urls.websocket('https://remote.example/api/global/event/ws', { lastEventId: '2' })).toBe(
       'wss://remote.example/api/global/event/ws?lastEventId=2',
     );
-    expect(urls.websocket('wss://remote.example/api/terminal/ws')).toBe('wss://remote.example/api/terminal/ws');
+    expect(urls.websocket('wss://remote.example/api/global/event/ws')).toBe('wss://remote.example/api/global/event/ws');
   });
 
   test('derives WebSocket origin from the current page for default relative URLs', () => {
     const urls = createRuntimeUrlResolver({ currentHref: () => 'http://localhost:5173/mobile.html' });
 
-    expect(urls.websocket('/api/terminal/ws')).toBe('ws://localhost:5173/api/terminal/ws');
+    expect(urls.websocket('/api/global/event/ws')).toBe('ws://localhost:5173/api/global/event/ws');
   });
 
   test('uses injected desktop API base URL for packaged WebSocket URLs', () => {

@@ -13,14 +13,13 @@ Use this guide when running Smarty Code behind Nginx, Nginx Proxy Manager, Caddy
 - WebSockets for live message transport:
   - `/api/event/ws`
   - `/api/global/event/ws`
-  - `/api/terminal/ws`
 - SSE without buffering:
   - `/api/event`
   - `/api/global/event`
   - `/api/notifications/stream`
   - `/api/openchamber/events`
 - Large request bodies for attachments and file operations
-- Long-lived read timeouts for live streams and terminal sessions
+- Long-lived read timeouts for live streams
 
 ## Rules that matter
 
@@ -59,16 +58,6 @@ proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Forwarded-Host $host;
 
 gzip off;
-
-location = /api/terminal/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-}
 
 location = /api/global/event/ws {
     proxy_pass http://127.0.0.1:3000;
@@ -135,17 +124,6 @@ proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Forwarded-Host $host;
 
 gzip off;
-
-location = /api/terminal/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
 
 location = /api/global/event/ws {
     proxy_pass http://127.0.0.1:3000;

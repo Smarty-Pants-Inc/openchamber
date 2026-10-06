@@ -309,7 +309,6 @@ const isUrlAuthWebSocketPath = (pathname) => {
   return pathname === '/api/event/ws'
     || pathname === '/api/global/event/ws'
     || pathname === '/api/openchamber/realtime-proxy/ws'
-    || pathname === '/api/terminal/ws'
     || pathname === '/api/dictation/ws'
     || pathname === '/api/dev-tunnel'
     || pathname.startsWith('/api/preview/proxy/');

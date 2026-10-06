@@ -303,17 +303,9 @@ describe('settings helpers', () => {
     });
   });
 
-  it('sanitizes the persisted terminal shell', () => {
+  it('ignores settings belonging to the removed web shell', () => {
     const helpers = createTestHelpers();
-
-    expect(helpers.sanitizeSettingsUpdate({ terminalShell: ' ZSH ' })).toEqual({ terminalShell: 'zsh' });
-    expect(helpers.sanitizeSettingsUpdate({ terminalShell: 'auto' })).toEqual({ terminalShell: 'auto' });
-    expect(helpers.sanitizeSettingsUpdate({ terminalShell: '/bin/zsh' })).toEqual({});
-    expect(helpers.sanitizeSettingsUpdate({ terminalShell: 'zsh -c whoami' })).toEqual({});
-    expect(helpers.sanitizeSettingsUpdate({ terminalLoginShells: [' ZSH ', 'bash', 'zsh', '/bin/fish', 42] })).toEqual({
-      terminalLoginShells: ['zsh', 'bash'],
-    });
-    expect(helpers.sanitizeSettingsUpdate({ terminalLoginShells: [] })).toEqual({ terminalLoginShells: [] });
+    expect(helpers.sanitizeSettingsUpdate({ terminalShell: 'zsh', terminalLoginShells: ['zsh'], terminalFontSize: 14 })).toEqual({});
   });
 
   it('accepts desktopLanAccessEnabled as a persisted shared setting', () => {

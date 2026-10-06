@@ -23,7 +23,7 @@ This module provides OpenCode server integration utilities for the web server ru
 - `packages/web/server/lib/opencode/snippets.js`: opencode-snippets-compatible snippet file CRUD, discovery, and hashtag expansion.
 - `packages/web/server/lib/opencode/cli-options.js`: CLI/environment option parsing for server startup arguments.
 - `packages/web/server/lib/opencode/core-routes.js`: server status/system routes, auth/access guard routes, and settings utility route registration.
-- `packages/web/server/lib/opencode/shutdown-runtime.js`: graceful shutdown orchestration runtime for watcher/session/terminal/process/server teardown.
+- `packages/web/server/lib/opencode/shutdown-runtime.js`: graceful shutdown orchestration runtime for watcher/session/process/server teardown.
 - `packages/web/server/lib/opencode/server-startup-runtime.js`: server listen/startup tunnel flow and process/signal handler orchestration runtime.
 - `packages/web/server/lib/opencode/static-routes-runtime.js`: static asset/SPA fallback route registration and manifest route wiring.
 - `packages/web/server/lib/opencode/feature-routes-runtime.js`: feature route composition runtime for dynamic import-backed config/skill/provider route registration.
@@ -32,7 +32,7 @@ This module provides OpenCode server integration utilities for the web server ru
 - `packages/web/server/lib/opencode/opencode-resolution-runtime.js`: OpenCode binary resolution snapshot runtime for settings routes and diagnostics.
 - `packages/web/server/lib/opencode/upgrade-capability.js`: authoritative upgrade ownership policy for the active OpenCode runtime. Bundled, external, and unresolved runtimes fail closed; only managed non-bundled runtimes delegate upgrades to OpenCode.
 - `packages/web/server/lib/opencode/tunnel-wiring-runtime.js`: tunnel service/routes composition runtime and active-port wiring for main server startup.
-- `packages/web/server/lib/opencode/startup-pipeline-runtime.js`: server startup tail orchestration runtime for terminal/proxy/static/start-listen flow.
+- `packages/web/server/lib/opencode/startup-pipeline-runtime.js`: server startup tail orchestration runtime for proxy/static/start-listen flow.
 - `packages/web/server/lib/opencode/startup-performance.js`: opt-in startup phase diagnostics with fixed labels and numeric metadata allowlists.
 - `packages/web/server/lib/agent-tool/runtime.js`: managed OpenCode custom-tool materialization, environment injection, loopback authentication, and fixed CLI action dispatch.
 - `packages/web/server/lib/system-prompt/runtime.js`: opt-in managed OpenCode system-prompt optimizer materialization and plugin injection.
@@ -404,9 +404,16 @@ reloaded, and historical bundles are not retained by this module.
   - `initialize(app, initialPort)`
 
 ## Public exports (startup-pipeline-runtime.js)
-- `createStartupPipelineRuntime(dependencies)`: creates runtime for terminal wiring, proxy/bootstrap scheduling, static route registration, and server startup/listen flow.
+- `createStartupPipelineRuntime(dependencies)`: creates runtime for proxy/bootstrap scheduling, static route registration, and server startup/listen flow.
 - Returned API:
   - `run(options)`
+
+Before the generic proxy, the pipeline installs the retired-route refusal from
+`../security/retired-routes.js`. The deleted web terminal's namespace
+(`/api/terminal` and everything below it, in any case, encoding, slash or dot
+spelling) gets a local 404 after authentication and never reaches the upstream
+proxy or the served index. Its upgrade listener is prepended, so it runs before
+every other upgrade listener: it writes a raw `404` and destroys the socket.
 
 The pipeline binds the OpenChamber listener and publishes its active port
 before starting managed OpenCode. The managed custom tool therefore receives

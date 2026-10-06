@@ -46,8 +46,6 @@ import {
 import type { SessionContextUsage } from '@/stores/types/sessionTypes';
 import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { OpenInAppButton } from '@/components/desktop/OpenInAppButton';
-import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
-import { useProjectActionsContext } from '@/hooks/useProjectActionsContext';
 import { SessionSwitcherDropdown } from '@/components/session/SessionSwitcherDropdown';
 import { SessionTabsStrip, type SessionTabMenuArgs } from './SessionTabsStrip';
 import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, isVSCodeRuntime, startDesktopWindowDrag, type UpdateInfo } from '@/lib/desktop';
@@ -271,7 +269,6 @@ const getActiveContextMode = (panelState: {
   const activeTab = panelState.tabs.find((tab) => tab.id === panelState.activeTabId) ?? panelState.tabs[panelState.tabs.length - 1];
   return activeTab?.mode ?? null;
 };
-
 
 type HeaderSessionSnapshot = {
   title: string | null;
@@ -589,7 +586,6 @@ export const Header: React.FC = () => {
     void loadQuotaSettings();
   }, [loadQuotaSettings]);
 
-
   const currentSessionSnapshot = currentSessionId
     ? currentGlobalSession ?? null
     : null;
@@ -749,7 +745,6 @@ export const Header: React.FC = () => {
   const showHeaderMetaRow = !isChatContext && !workStatusPanelVisible
     && Boolean(activeProjectLabel || currentBranchLabel || (!isNewSessionDraftOpen && worktreeBadgeKind));
 
-
   const currentSessionTitle = React.useMemo(() => {
     if (!currentSessionId) {
       return activeProjectLabel ?? PRODUCT_NAME;
@@ -772,7 +767,6 @@ export const Header: React.FC = () => {
   const [headerSessionTitleDraft, setHeaderSessionTitleDraft] = React.useState('');
   const [pendingHeaderRetentionAction, setPendingHeaderRetentionAction] = React.useState<{ action: 'archive' | 'delete'; sessionId: string } | null>(null);
   const headerRenameFormRef = React.useRef<HTMLFormElement | null>(null);
-
 
   const beginHeaderSessionRename = React.useCallback(() => {
     if (!currentSessionId) return;
@@ -979,15 +973,9 @@ export const Header: React.FC = () => {
     return null;
   }, [isArchiveSurfaceOpen, isMultiRunSurfaceOpen, isScheduledSurfaceOpen, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
 
-
   const actionDirectory = React.useMemo(() => {
     return normalize(openDirectory || activeProject?.path || '');
   }, [activeProject?.path, openDirectory]);
-
-  // Same resolution the titlebar overlay used to own: worktree → session →
-  // draft → project path, sticky across session switches.
-  const projectActionsContext = useProjectActionsContext();
-
 
   const planModeEnabled = useFeatureFlagsStore((state) => state.planModeEnabled);
   const isSessionPlanAvailable = useSessionUIStore((state) => state.isSessionPlanAvailable);
@@ -1014,9 +1002,6 @@ export const Header: React.FC = () => {
     currentSessionId,
     sessionDirectory,
   ]);
-
-
-
 
   const handleOpenDraftMiniChat = React.useCallback(() => {
     void invokeDesktop('desktop_open_draft_mini_chat_window', {
@@ -1064,8 +1049,6 @@ export const Header: React.FC = () => {
   }, [closeContextPanel, openContextOverview, openDirectory]);
 
   const isContextPanelActive = activeContextMode === 'context';
-
-
 
   const desktopHeaderIconButtonClass = DESKTOP_HEADER_ICON_BUTTON_CLASS;
   // Left padding the header needs to clear the OS window controls (macOS
@@ -1244,8 +1227,6 @@ export const Header: React.FC = () => {
     return formatShortcutForDisplay(getEffectiveShortcutCombo(actionId, shortcutOverrides));
   }, [shortcutOverrides]);
 
-
-
   useKeybinds({
     rename_current_session: () => {
       if (!currentSessionId || isMobile) return false;
@@ -1263,13 +1244,7 @@ export const Header: React.FC = () => {
 
   const desktopSidebarActions = (
     <>
-      {projectActionsContext ? (
-        <ProjectActionsButton
-          projectRef={projectActionsContext.projectRef}
-          directory={projectActionsContext.directory}
-          className="mr-2"
-        />
-      ) : null}
+
       <OpenInAppButton directory={actionDirectory} className="mr-1" />
       {/* Instances only exist in the desktop app. On web the menu was left
           holding a single dev-only shutdown action, which is not a reason to
@@ -1391,7 +1366,7 @@ export const Header: React.FC = () => {
         className="app-region-no-drag shrink-0 self-stretch transition-[width] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{ width: headerControlsSpacerWidth }}
       />
-      {/* Sidebar toggle + project actions live in the persistent
+      {/* Sidebar controls live in the persistent
           TitlebarLeftControls overlay; the spacers above reserve its footprint
           while the sidebar is closed. */}
       <div className="flex min-w-0 flex-1 items-center">

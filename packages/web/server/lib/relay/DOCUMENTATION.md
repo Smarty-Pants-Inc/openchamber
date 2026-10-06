@@ -41,7 +41,7 @@ Relay is not a separate link format: it is one transport candidate inside the un
 Everything a client normally sends to the single OpenChamber origin:
 - **HTTP** — REST endpoints and proxied OpenCode SDK calls under `/api/*`, plus `/auth/*` and `/health`.
 - **SSE** — long-lived streamed responses (the event stream and notifications). These are just HTTP responses whose body streams; the tunnel needs no special SSE handling.
-- **WebSocket** — the endpoints that use a real socket (the global event stream on platforms that support WS, terminal I/O, dictation, and desktop dev-server previews).
+- **WebSocket** — the endpoints that use a real socket (the global event stream on platforms that support WS, dictation, and desktop dev-server previews).
 
 The host dispatcher restricts tunneled traffic to explicit path allowlists (one for HTTP, one for WS).
 
@@ -107,4 +107,4 @@ Relay mode plugs into the existing client transport layer rather than a parallel
 - The tunnel is transparent to the app: adding relay support to a feature should not require the feature to know the relay exists — it goes through the shared runtime transport helpers.
 - The two implementations stay byte-compatible and the wire format is versioned/negotiated so mixed client/host app versions degrade gracefully rather than break.
 
-For the operational rules that keep future changes (new WebSocket endpoints, transport refactors, terminal/voice porting) from breaking this, load the `relay-transport` skill.
+For the operational rules that keep future changes (new WebSocket endpoints, transport refactors, voice porting) from breaking this, load the `relay-transport` skill.

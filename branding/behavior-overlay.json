@@ -20,9 +20,13 @@
       "path": "package.json",
       "brandingSha256": "10703a004c8983a720eb3de993ee9ba0a0261f8352b4d8ecd2827309fcb9803b",
       "behaviorSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
-      "combinedSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "combinedSha256": "3023929d712a4eead779e674d53cc0df7ef0d2d7061c06a56e7e1278a9487cda",
       "behaviorSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
-      "reason": "Pin Playwright 1.63.0 for isolated actual-component proof in the existing disposable hosted candidate job."
+      "reason": "Pin Playwright 1.63.0 for isolated actual-component proof in the existing disposable hosted candidate job.",
+      "preTerminalRemovalCombinedSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "terminalRemovalBaseSha256": "7fd0b9d93b766b72f410524bb2618cebcefe7b2cc23b4d00da27cb9205724fb7",
+      "terminalRemovalSha256": "3023929d712a4eead779e674d53cc0df7ef0d2d7061c06a56e7e1278a9487cda",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: bun-pty, node-pty, ghostty-web, node-addon-api, patch-package and the bun-pty patch are removed; the postinstall no longer runs patch-package."
     },
     {
       "path": ".github/workflows/oc-review.yml",
@@ -50,7 +54,7 @@
       "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
       "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
       "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "combinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
+      "combinedSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
       "preHumanHostBoundaryCombinedSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
       "humanHostBoundarySha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "humanHostBoundaryNote": "openchamber#380: the human-mode composition root requires configured application Host authority before early HTTP responses and runtime startup. Source 12463c2f is the initial Host patch, not security-finding closure or release acceptance.",
@@ -64,7 +68,11 @@
       "creationFieldsNote": "Packaged clients' CORS preflight allows X-Smarty-Creation-Fields (the page asks the gateway for stoppedBy, smarty-code#523/#548); branded strings unchanged.",
       "preNotificationAuthCombinedSha256": "3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2",
       "notificationAuthSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
-      "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged."
+      "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged.",
+      "preTerminalRemovalCombinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
+      "terminalRemovalBaseSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
+      "terminalRemovalSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained. Round 4 (Astra F3): a retired path's CORS preflight gets the retired-route 404, never 204."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
@@ -87,7 +95,7 @@
       "path": "packages/ui/src/lib/i18n/messages/de.ts",
       "brandingSha256": "f24b358ffa67700abc96b687682a30aa9298f77af43bb9ca4a5c2fa50d6673b2",
       "behaviorSha256": "c9a16f5ebe7a11aa345b0ddd64391c83e726a1b3025c59343ced92632b1b969a",
-      "combinedSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "combinedSha256": "dd86e23ec8f193666c0520ab3dd65e0292ab501bbae8d6c734da6b37be49c9a3",
       "nativeCreationSha256": "8a05a516720ee0bd082756b85d4041b8016ef6712ba5eb1baa4a69d6736a3e0d",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -107,13 +115,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "7f858ee5d349f7f390e635fac0f1b085356cdf6dc9426380c6ce23308fb2a88a",
       "inboxStepsSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "terminalRemovalBaseSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "terminalRemovalSha256": "dd86e23ec8f193666c0520ab3dd65e0292ab501bbae8d6c734da6b37be49c9a3",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/en.ts",
       "brandingSha256": "17c9771516e54f2b832631823f986e5da195944d1d08e0b0b07a19e336dcfda5",
       "behaviorSha256": "8741de7c0513f1593a645928c34ee0c862ad25748430ce15405087b220f1be89",
-      "combinedSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "combinedSha256": "4ce5fd5e775d543d0a22d9d82cd503cb43538dcae2dce8e6d43723001267fb47",
       "nativeCreationSha256": "a86429d854295c906fc64d9a4c2ecfb07a75e81fdc5b40f08a6ff85a0e392713",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -133,13 +145,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "35e6a3443db62d1eadc6a0f819d323977fd3fc400b464a7ec070209a435a09cb",
       "inboxStepsSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "terminalRemovalBaseSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "terminalRemovalSha256": "4ce5fd5e775d543d0a22d9d82cd503cb43538dcae2dce8e6d43723001267fb47",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/es.ts",
       "brandingSha256": "0606091c226d60ffb4a999037f432c41ab42ee2e7a3c5acaec6aa5682488f6be",
       "behaviorSha256": "4632e6c634b5cdb107c8b11d49385155de02d000e994e086d04874294190669d",
-      "combinedSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "combinedSha256": "85321a95f21c9a608ac270896cd9825e7eac51cf931eb1bbb72f2ef421d7eb1a",
       "nativeCreationSha256": "9ca217e2d77a162c516b2b8f32feb3ba558cb25411c132424e505788e3bb25d7",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -159,13 +175,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "e2eec7fe5d1da3c5fb330c2c12713e3497ab800d6373aabc6498fa9255b2c22c",
       "inboxStepsSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "terminalRemovalBaseSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "terminalRemovalSha256": "85321a95f21c9a608ac270896cd9825e7eac51cf931eb1bbb72f2ef421d7eb1a",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/fr.ts",
       "brandingSha256": "205cde414f524e654423f6fbb2a8cb6aad1d3bee0d6509ca66afdcc20c9c5599",
       "behaviorSha256": "daa8f2f1379d3982502522eea575825614603fec8554a210f95fc2b55c44f7a1",
-      "combinedSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "combinedSha256": "0a3126c029a8c6b89722acf52e2aadbad66247bcafc6a0584c4a89082d19e27d",
       "nativeCreationSha256": "d3403b6c4f7d8e139e73b98be10b1c7c28585e59aca18b7280c0696b535321bb",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -185,13 +205,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "4b7f6844d22ee5e84a81e2ff6d654e7e21761d530a9ccb614575885deb188015",
       "inboxStepsSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "terminalRemovalBaseSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "terminalRemovalSha256": "0a3126c029a8c6b89722acf52e2aadbad66247bcafc6a0584c4a89082d19e27d",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ja.ts",
       "brandingSha256": "07739efd656730d7f72f3c3c51b2a19412577fcc6e8acf1e20fd9fb8c2309b16",
       "behaviorSha256": "e286c7415a535c839a633e1f24c2fb73dac9187fd1c7d6a6cfc06c1d027ab1b3",
-      "combinedSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "combinedSha256": "8d6cb7c9b50323efef0f734cc93004cc444bc49f39134fd32f0ba75f1f061414",
       "nativeCreationSha256": "87c95552bf95dad3b25a1327fe1257360702b2e8e820986fa68c5d0c96552801",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -211,13 +235,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "4f4cd9056e8e7c722ca0b6b7bfecababec1e7bd5d49ca672acd2432da399d4eb",
       "inboxStepsSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "terminalRemovalBaseSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "terminalRemovalSha256": "8d6cb7c9b50323efef0f734cc93004cc444bc49f39134fd32f0ba75f1f061414",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ko.ts",
       "brandingSha256": "c2cd7b668ba1f67d78d015bcd2c89fc36517ed678997258ce221082fc707301d",
       "behaviorSha256": "2b6727053aa7135958fd87d1e420327772bed38eff009b1db313377cd51594da",
-      "combinedSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "combinedSha256": "8a9b64849caf73559f531d2166076f340d2f4799f7d3d0045503fc14b7a36753",
       "nativeCreationSha256": "e049a1a11f9903308d93865f3a4a5afb1396456b0617e54ac0c4fa09757b51d6",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -237,13 +265,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "aa0bdfbe2de0dbc73be06b3f55b7bf79c66dc5bd6ba8c4d14ac3f0e7899d7a27",
       "inboxStepsSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "terminalRemovalBaseSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "terminalRemovalSha256": "8a9b64849caf73559f531d2166076f340d2f4799f7d3d0045503fc14b7a36753",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pl.ts",
       "brandingSha256": "5fdd40b1b19216c305d3d85a01880fe3f19afa88d59e4e279270765a14b04590",
       "behaviorSha256": "3e5dca1d51e428e5ab6f838bfcf3abd863899bf2395b2e5108c2718e2907fbf6",
-      "combinedSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "combinedSha256": "6645c233e7416f113e1937d5eb35898a2f16b00b899646153a6db87dbe21fcec",
       "nativeCreationSha256": "bbff38094f3f0dd908dae8208b8cf0d9521d4f3c9c677394e0c4dae1633e4a0f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -263,13 +295,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "41b0073d36a6487ad422dc1e55973361caf4ad80ab38986c28eb9bb3d53fe12d",
       "inboxStepsSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "terminalRemovalBaseSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "terminalRemovalSha256": "6645c233e7416f113e1937d5eb35898a2f16b00b899646153a6db87dbe21fcec",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pt-BR.ts",
       "brandingSha256": "cbdfad3514dcf1e82cb487da88108d27027d6436f775e5ac4ecf6e0009970ba0",
       "behaviorSha256": "91c380be5f9e821a5798c5b2a04709d9a14c8f0bf147886c9606a43e79156c0f",
-      "combinedSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "combinedSha256": "e66acaf7676b8c898e3726a3c6424805700e16445b16561704a3cb3f7d938180",
       "nativeCreationSha256": "cefc79129c162faba2a7275e42c658c1f53c67255140f96b32a1adfd3a816286",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -289,13 +325,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "b0708ccf8e13ed3d0f83e919e8497bfdf77622d5281fbe387913cb5b1ba4e95f",
       "inboxStepsSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "terminalRemovalBaseSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "terminalRemovalSha256": "e66acaf7676b8c898e3726a3c6424805700e16445b16561704a3cb3f7d938180",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/uk.ts",
       "brandingSha256": "0a8fce805ddcbff7234f2fafcb38401ac05e748ef6ad3ff8a6546161aa5a4944",
       "behaviorSha256": "a2c6f1ee0a882ff442bdc7f4836fc1382b9bdc90e8878d2e92107ee133575722",
-      "combinedSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "combinedSha256": "0b5d774809d061864fed3437c09de63c195cbfbcfff5a0c824f4f0a263d017b3",
       "nativeCreationSha256": "72f99c33aafb64f7385f809e934a37c409adc190e9a7fe3ba6cfd8f604defb03",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -315,13 +355,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "af166eb216561dd1f418307a3d65c0825a4f33577df8f05c0369e20b8103d5b0",
       "inboxStepsSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "terminalRemovalBaseSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "terminalRemovalSha256": "0b5d774809d061864fed3437c09de63c195cbfbcfff5a0c824f4f0a263d017b3",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-CN.ts",
       "brandingSha256": "471034a8f6cfab71f307693d0ba8ad5583ccb621177fad40a2c353d190a7b54b",
       "behaviorSha256": "ca1c20d8ef3c9590a6ba4a5d1cc0fc86565ebd72e12809c34253f0fdece2762a",
-      "combinedSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "combinedSha256": "1846af1eb6ca3198bd82853e5e483f03a29d509d62e105517db573b2d98a03dd",
       "nativeCreationSha256": "27342a24a8139a3b9e96840218566d7d503473f7eed83773e0ad876d4e6a0837",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -341,13 +385,17 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "dd3418a5fee57757d65de53bf149ef079e890f5deb04a3ca8ceaab903571d5f9",
       "inboxStepsSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "terminalRemovalBaseSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "terminalRemovalSha256": "1846af1eb6ca3198bd82853e5e483f03a29d509d62e105517db573b2d98a03dd",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-TW.ts",
       "brandingSha256": "3af37b26f4055b3dd1264aa4ae6dc251fac6f9398b0f349f6c478c338191de5b",
       "behaviorSha256": "4af4bfd2dc1c985f45c4f5f88df6368a5ffad0a15756c7b3720798fc4ddbf199",
-      "combinedSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "combinedSha256": "d7851af76ffd31bfbd17c912269f679f3cc56dae618ed6366db9f3c5c8865969",
       "nativeCreationSha256": "22c9af32262a0635c1056abc7d1fa4e2f85d7f0656335af98533074652b4204f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -367,7 +415,11 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "6aa1b81c43561e39886f097890ea98269123829d8e6ec381b2c38affb0673d56",
       "inboxStepsSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preTerminalRemovalCombinedSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "terminalRemovalBaseSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "terminalRemovalSha256": "d7851af76ffd31bfbd17c912269f679f3cc56dae618ed6366db9f3c5c8865969",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: terminal, project-action and preview-console keys are deleted; no remaining dictionary text changes."
     },
     {
       "path": "packages/ui/src/sync/session-ui-store.ts",
@@ -458,12 +510,16 @@
       "path": "packages/web/package.json",
       "brandingSha256": "a785cbffe99e6f679157e4381b863cf42952bbad0879559bc06915cec901b4b7",
       "behaviorSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
-      "combinedSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
+      "combinedSha256": "d7184d800bde3d698aca7c705c9ea0ebea2292cc2c9dd5b69fb1a70bd80d6c41",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Better Auth web dependency and package version binding for the selected web runtime; package identity remains unchanged.",
       "preCoeditCombinedSha256": "e80f74f05189bf33b79a7d4861c802e5716617df011e316fe37ee7df51b8651f",
       "coeditSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
-      "coeditNote": "smartyfs#18 slice 1: the co-edit disk bridge adds the yjs and fast-diff dependencies. Package identity and branded strings are unchanged."
+      "coeditNote": "smartyfs#18 slice 1: the co-edit disk bridge adds the yjs and fast-diff dependencies. Package identity and branded strings are unchanged.",
+      "preTerminalRemovalCombinedSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
+      "terminalRemovalBaseSha256": "7a712a7cef7e620c7485bedffcabf7ecb91aa5a40bf140d0fed488622959bf6b",
+      "terminalRemovalSha256": "d7184d800bde3d698aca7c705c9ea0ebea2292cc2c9dd5b69fb1a70bd80d6c41",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: bun-pty, node-pty and ghostty-web dependencies are removed."
     },
     {
       "path": "packages/web/server/lib/notifications/apns-runtime.js",
@@ -477,9 +533,13 @@
       "path": "packages/web/server/lib/opencode/core-routes.js",
       "brandingSha256": "8641a72aa031573a76a3ed97d23689acdb1987b8d367a4df277ca1900d27e9b5",
       "behaviorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
-      "combinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "combinedSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior."
+      "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior.",
+      "preTerminalRemovalCombinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "terminalRemovalBaseSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "terminalRemovalSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal.websocket.v1 capability and the /api/terminal path exemption are removed."
     },
     {
       "path": "packages/web/server/lib/opencode/core-routes.test.js",
@@ -535,7 +595,7 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "combinedSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
@@ -545,7 +605,11 @@
       "contextWindowNote": "G14: the header context meter takes the window of the model the session runs (useSessionContextWindow) instead of the composer selection. Branded strings are unchanged.",
       "preDesign538CombinedSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
       "design538Sha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
-      "design538Note": "smarty-code#538: the top bar shows the signed-in HumanAccount avatar menu at the right when human auth is on (it left the composer). Branded strings are unchanged."
+      "design538Note": "smarty-code#538: the top bar shows the signed-in HumanAccount avatar menu at the right when human auth is on (it left the composer). Branded strings are unchanged.",
+      "preTerminalRemovalCombinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "terminalRemovalBaseSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "terminalRemovalSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal-backed Project Actions header button is removed; the #538 account menu and context window are retained."
     },
     {
       "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
@@ -563,11 +627,15 @@
       "brandingSha256": "f1f4217e69dc7f2ac54fc91ef226755f75a4635a8a36a0ae12bf99d65e9b2a81",
       "behaviorSha256": "f1f4217e69dc7f2ac54fc91ef226755f75a4635a8a36a0ae12bf99d65e9b2a81",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "8b5d2ccf2559ab8f35d5f4e96bd648d94432a7ff62b8a346d5f4d9e25cbf099d",
+      "combinedSha256": "4477c92d2eac3add760bf30ffc42cc0ad25771e69c361357b155a9289d746921",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "f1f4217e69dc7f2ac54fc91ef226755f75a4635a8a36a0ae12bf99d65e9b2a81",
-      "managedCatalogSha256": "8b5d2ccf2559ab8f35d5f4e96bd648d94432a7ff62b8a346d5f4d9e25cbf099d"
+      "managedCatalogSha256": "8b5d2ccf2559ab8f35d5f4e96bd648d94432a7ff62b8a346d5f4d9e25cbf099d",
+      "preTerminalRemovalCombinedSha256": "8b5d2ccf2559ab8f35d5f4e96bd648d94432a7ff62b8a346d5f4d9e25cbf099d",
+      "terminalRemovalBaseSha256": "8b5d2ccf2559ab8f35d5f4e96bd648d94432a7ff62b8a346d5f4d9e25cbf099d",
+      "terminalRemovalSha256": "4477c92d2eac3add760bf30ffc42cc0ad25771e69c361357b155a9289d746921",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the toggle-terminal menu actions are removed; managed catalog handling retained."
     },
     {
       "path": "packages/ui/src/hooks/useTraySync.ts",
@@ -616,7 +684,7 @@
       "path": "packages/web/server/lib/event-stream/runtime.js",
       "brandingSha256": "18af18e36357bccb319090554abc11218321d5801db0e7f1cc4d2eed730364c8",
       "behaviorSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099",
-      "combinedSha256": "1fbb464c5cee78f7eb24831557032332085403007f70180bd4f58cd2ee520c99",
+      "combinedSha256": "fc77fad0040700b61ff4b2e7dbed50af33b9834ac54153955c1b2f1f074ffe7e",
       "preHumanHostBoundaryCombinedSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099",
       "humanHostBoundarySha256": "74c761d0a040bf4d995358de63ca8db5ad522f10721489bb3d7c41c26b609d67",
       "humanHostBoundaryNote": "openchamber#380: global and directory event upgrades check application Host authority in human mode. The passwordless origin guard remains. Source 12463c2f does not close the inherited human-session lifetime finding.",
@@ -625,7 +693,11 @@
       "humanSessionLifetimeNote": "Security review P2 on 12463c2f: human global and directory event upgrades use requireUpgradeAuth for revocation, expiry and admission-race protection. Exact output recorded after the event writer released source custody; initial Host and origin predecessor hashes retained. Dictation is outside the existing branding ledger; no fabricated repair commit or security-closure claim.",
       "reason": "smarty-code#391: in the passwordless mode the message-stream WebSocket upgrade applies the browser-origin rule (lib/security/browser-origin.js); the donor file carries no branded strings.",
       "originGuardAdded": true,
-      "originGuardSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099"
+      "originGuardSha256": "7882f79295c7731d650f13951fab7016cae21b5c08f75333dc56d33bafa2c099",
+      "preTerminalRemovalCombinedSha256": "1fbb464c5cee78f7eb24831557032332085403007f70180bd4f58cd2ee520c99",
+      "terminalRemovalBaseSha256": "1fbb464c5cee78f7eb24831557032332085403007f70180bd4f58cd2ee520c99",
+      "terminalRemovalSha256": "fc77fad0040700b61ff4b2e7dbed50af33b9834ac54153955c1b2f1f074ffe7e",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: parseRequestPathname is inlined instead of imported from the deleted terminal protocol module; behavior unchanged."
     },
     {
       "path": "packages/web/server/lib/session-assist/runtime.js",
@@ -659,12 +731,16 @@
     {
       "path": ".github/workflows/build-macos-arm64-dmg.yml",
       "behaviorSha256": "282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357",
-      "combinedSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4",
+      "combinedSha256": "049d733db36c1506f0794b7c3791a17ebe76cf24507e1b5ff15365e7ad1e26c0",
       "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
       "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
       "forgeRunnerAdded": true,
       "forgeRunnerBaseSha256": "282ed681fea6df1cdebea58a80b2a2f086055af0559b77483f0ab43d7ce35357",
-      "forgeRunnerSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4"
+      "forgeRunnerSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4",
+      "preTerminalRemovalCombinedSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4",
+      "terminalRemovalBaseSha256": "973cf458a73a5d0d5486b15afb84e64e12c8e4038a8939091278e4151e8bcfa4",
+      "terminalRemovalSha256": "049d733db36c1506f0794b7c3791a17ebe76cf24507e1b5ff15365e7ad1e26c0",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the rebuild:native PTY steps are removed; Forge runner policy bytes otherwise retained."
     },
     {
       "path": ".github/workflows/mobile-ci.yml",
@@ -689,22 +765,30 @@
     {
       "path": ".github/workflows/release-desktop-smoke.yml",
       "behaviorSha256": "cf01032cba6a3c98ad164aba2aebfc593703bf084fd411f61691458cf654284f",
-      "combinedSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41",
+      "combinedSha256": "8e28d7f555e1d8e9c441b13bf0d31f608523119c0f5cfb64c8e20c7f5c0d23c5",
       "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
       "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
       "forgeRunnerAdded": true,
       "forgeRunnerBaseSha256": "cf01032cba6a3c98ad164aba2aebfc593703bf084fd411f61691458cf654284f",
-      "forgeRunnerSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41"
+      "forgeRunnerSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41",
+      "preTerminalRemovalCombinedSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41",
+      "terminalRemovalBaseSha256": "716438d63a512dc337715d92b9985dc0e813ee53e5c5fa290c1943539bfcff41",
+      "terminalRemovalSha256": "8e28d7f555e1d8e9c441b13bf0d31f608523119c0f5cfb64c8e20c7f5c0d23c5",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the rebuild:native PTY steps are removed; Forge runner policy bytes otherwise retained."
     },
     {
       "path": ".github/workflows/release.yml",
       "behaviorSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
-      "combinedSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "combinedSha256": "74daff9a2b89d5d12f6d32aa7361a32c3f4caf1dbd70101e81cca0815ac0c99e",
       "behaviorSource": "7f2d8f550b160e7e74026a58dcd693d4befb3072",
       "reason": "PR501 round 3: disable unused hosted and mobile build jobs in the Smarty fork; retain upstream inputs and runner selections.",
       "forgeRunnerAdded": true,
       "forgeRunnerBaseSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
-      "forgeRunnerSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44"
+      "forgeRunnerSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "preTerminalRemovalCombinedSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "terminalRemovalBaseSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44",
+      "terminalRemovalSha256": "74daff9a2b89d5d12f6d32aa7361a32c3f4caf1dbd70101e81cca0815ac0c99e",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the rebuild:native PTY steps are removed; Forge runner policy bytes otherwise retained."
     },
     {
       "path": "packages/ui/src/sync/bootstrap.ts",
@@ -745,6 +829,846 @@
       "reason": "PR486 #1115/#1116/#1129: exact existing ownership, in-flight event/deletion and omitted-sibling lifecycle regression record. Source provenance only; test cases and production behavior remain untouched.",
       "sessionStatusReadAdded": true,
       "sessionStatusReadSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36"
+    },
+    {
+      "path": "branding/generated.json",
+      "brandingSha256": "261686009c0da4840d6e8d72b414ebcb993b48b90ced362c738b4c0aa38559f0",
+      "behaviorSha256": "8a7c3861a2bd0de92ac5026255bc9ba39ae5543992293c26b40b2aea78eecaf4",
+      "combinedSha256": "8a7c3861a2bd0de92ac5026255bc9ba39ae5543992293c26b40b2aea78eecaf4",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the README sources changed, so the manifest is regenerated by scripts/apply-brand.mjs (bun run brand); only the README.md, docs/REVERSE_PROXY.md, packages/web/README.md, packages/electron/README.md and packages/electron/package.json hashes change; source digest and the 142-output membership are unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "20fc3389df019ea7c726d381356e6edc7ed5f9637fb6e9dfa6c3d89ad0f97fa1",
+      "terminalRemovalSha256": "8a7c3861a2bd0de92ac5026255bc9ba39ae5543992293c26b40b2aea78eecaf4"
+    },
+    {
+      "path": "Dockerfile",
+      "brandingSha256": "c42e47ff26d8f132a12f34f4f9656ac8a308d02fd996fd2735262b5cd4de89c6",
+      "behaviorSha256": "4ffcef00121c60f32560a6101584fe3485e1653e1b35366f07a52b802034243e",
+      "combinedSha256": "4ffcef00121c60f32560a6101584fe3485e1653e1b35366f07a52b802034243e",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the ghostty-web patch-package step and its builder-copy comment are removed; locale comment reworded.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "c42e47ff26d8f132a12f34f4f9656ac8a308d02fd996fd2735262b5cd4de89c6",
+      "terminalRemovalSha256": "4ffcef00121c60f32560a6101584fe3485e1653e1b35366f07a52b802034243e"
+    },
+    {
+      "path": "docs/REVERSE_PROXY.md",
+      "brandingSha256": "66036c2495f1764e69fe7d96a398e69bff1e068ef4838d06e3a16328e87b929f",
+      "behaviorSha256": "a7a66e67f74947c4e18d262c7ba78648b599baf64f955eb594d4139a325dfa0a",
+      "combinedSha256": "a7a66e67f74947c4e18d262c7ba78648b599baf64f955eb594d4139a325dfa0a",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "66036c2495f1764e69fe7d96a398e69bff1e068ef4838d06e3a16328e87b929f",
+      "terminalRemovalSha256": "a7a66e67f74947c4e18d262c7ba78648b599baf64f955eb594d4139a325dfa0a"
+    },
+    {
+      "path": "packages/docs/content/docs/de/environment.mdx",
+      "brandingSha256": "47d0d694d178569747ca0cd9a5857b780444c35e2402af467336984d9b8ad271",
+      "behaviorSha256": "23e2d7825fe18a9f425ff6dbf23b14651a162f3d72d6dea03348bc5c04c1519c",
+      "combinedSha256": "23e2d7825fe18a9f425ff6dbf23b14651a162f3d72d6dea03348bc5c04c1519c",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "47d0d694d178569747ca0cd9a5857b780444c35e2402af467336984d9b8ad271",
+      "terminalRemovalSha256": "23e2d7825fe18a9f425ff6dbf23b14651a162f3d72d6dea03348bc5c04c1519c"
+    },
+    {
+      "path": "packages/docs/content/docs/de/index.mdx",
+      "brandingSha256": "fa0ed9d445843114724f8106d04a8d1ed0677985c16106c4678b4fbbd86bdbcd",
+      "behaviorSha256": "76ae18856e890472a4967cb767f4d6118dcafb61b365213c3e5995e6ec974687",
+      "combinedSha256": "76ae18856e890472a4967cb767f4d6118dcafb61b365213c3e5995e6ec974687",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "fa0ed9d445843114724f8106d04a8d1ed0677985c16106c4678b4fbbd86bdbcd",
+      "terminalRemovalSha256": "76ae18856e890472a4967cb767f4d6118dcafb61b365213c3e5995e6ec974687"
+    },
+    {
+      "path": "packages/docs/content/docs/de/preview.mdx",
+      "brandingSha256": "db846d3e7f2b58834c840ca53736b19411d50020a61febabdce5159a2c8cad85",
+      "behaviorSha256": "64ceb12ea225c62106d45c97862dceff86face24282bbab92e6dc504580630cb",
+      "combinedSha256": "64ceb12ea225c62106d45c97862dceff86face24282bbab92e6dc504580630cb",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "db846d3e7f2b58834c840ca53736b19411d50020a61febabdce5159a2c8cad85",
+      "terminalRemovalSha256": "64ceb12ea225c62106d45c97862dceff86face24282bbab92e6dc504580630cb"
+    },
+    {
+      "path": "packages/docs/content/docs/de/project-actions.mdx",
+      "brandingSha256": "a3f227c3260d7bb4b684e7c2cf41eaba950ecdce21ed7469012e9ca28a6c2da7",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "a3f227c3260d7bb4b684e7c2cf41eaba950ecdce21ed7469012e9ca28a6c2da7",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/de/projects.mdx",
+      "brandingSha256": "0986786fb628d166506e8b175a3a45a8a512f400b0a3533761c027c1ae911aca",
+      "behaviorSha256": "fdc5a69fdafc3a9dd50eca2b88f05ee3a73d5ee4ac76f477a0d7b4c8a6e5b0a0",
+      "combinedSha256": "fdc5a69fdafc3a9dd50eca2b88f05ee3a73d5ee4ac76f477a0d7b4c8a6e5b0a0",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "0986786fb628d166506e8b175a3a45a8a512f400b0a3533761c027c1ae911aca",
+      "terminalRemovalSha256": "fdc5a69fdafc3a9dd50eca2b88f05ee3a73d5ee4ac76f477a0d7b4c8a6e5b0a0"
+    },
+    {
+      "path": "packages/docs/content/docs/de/reverse-proxy.mdx",
+      "brandingSha256": "c42ce8ceec8ac19db4aafa30c525f95450467d01de817cc759f2a0dac5c0d4f2",
+      "behaviorSha256": "666d2b6549be0dbc26c2fb6cc51847a633f8698a5a91410cb5726eaec96e4068",
+      "combinedSha256": "666d2b6549be0dbc26c2fb6cc51847a633f8698a5a91410cb5726eaec96e4068",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "c42ce8ceec8ac19db4aafa30c525f95450467d01de817cc759f2a0dac5c0d4f2",
+      "terminalRemovalSha256": "666d2b6549be0dbc26c2fb6cc51847a633f8698a5a91410cb5726eaec96e4068"
+    },
+    {
+      "path": "packages/docs/content/docs/environment.mdx",
+      "brandingSha256": "33897594debd921185bdc9e26ab1ea7f528c8e104667c283c9fbed977a5829aa",
+      "behaviorSha256": "9019f8790c7586df64eb58d2ff3f662acd3087e87a0bfd8cbcc35bd4c40d9dbf",
+      "combinedSha256": "9019f8790c7586df64eb58d2ff3f662acd3087e87a0bfd8cbcc35bd4c40d9dbf",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "33897594debd921185bdc9e26ab1ea7f528c8e104667c283c9fbed977a5829aa",
+      "terminalRemovalSha256": "9019f8790c7586df64eb58d2ff3f662acd3087e87a0bfd8cbcc35bd4c40d9dbf"
+    },
+    {
+      "path": "packages/docs/content/docs/es/environment.mdx",
+      "brandingSha256": "12eb0580728ec7e9a47beafda334b3882161a272e32b31156c16bde0455f4f61",
+      "behaviorSha256": "e348d7c714ba975c251bf52f9948f4fd47bc9fcfd6a496163bd76aaec5f1e539",
+      "combinedSha256": "e348d7c714ba975c251bf52f9948f4fd47bc9fcfd6a496163bd76aaec5f1e539",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "12eb0580728ec7e9a47beafda334b3882161a272e32b31156c16bde0455f4f61",
+      "terminalRemovalSha256": "e348d7c714ba975c251bf52f9948f4fd47bc9fcfd6a496163bd76aaec5f1e539"
+    },
+    {
+      "path": "packages/docs/content/docs/es/index.mdx",
+      "brandingSha256": "68126855430ff64bd42c79b1b6ba5593f39fe7745c9a88c4d24d74c8bb1b224f",
+      "behaviorSha256": "eee7fe90fac2c1e77895fc045fc4fce5fb91599a87026cee60b96678eed45de9",
+      "combinedSha256": "eee7fe90fac2c1e77895fc045fc4fce5fb91599a87026cee60b96678eed45de9",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "68126855430ff64bd42c79b1b6ba5593f39fe7745c9a88c4d24d74c8bb1b224f",
+      "terminalRemovalSha256": "eee7fe90fac2c1e77895fc045fc4fce5fb91599a87026cee60b96678eed45de9"
+    },
+    {
+      "path": "packages/docs/content/docs/es/preview.mdx",
+      "brandingSha256": "433a982226094eaa4c1de52e49f0f113ea66e6b325e3cd09f47a392d9705fb3b",
+      "behaviorSha256": "69104828f9fb15073939efea9966a3b39d75253a07419f67cd20bf72a5598ee2",
+      "combinedSha256": "69104828f9fb15073939efea9966a3b39d75253a07419f67cd20bf72a5598ee2",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "433a982226094eaa4c1de52e49f0f113ea66e6b325e3cd09f47a392d9705fb3b",
+      "terminalRemovalSha256": "69104828f9fb15073939efea9966a3b39d75253a07419f67cd20bf72a5598ee2"
+    },
+    {
+      "path": "packages/docs/content/docs/es/project-actions.mdx",
+      "brandingSha256": "7e7fc955c5bb087e2dde48f1dd529fff38923cf6d7032cc2e0f13dea799c7ba3",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "7e7fc955c5bb087e2dde48f1dd529fff38923cf6d7032cc2e0f13dea799c7ba3",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/es/projects.mdx",
+      "brandingSha256": "f683df7d7cdb9ca2cb3d18b46e82cd1666988106246af5035a94da54df2f87b0",
+      "behaviorSha256": "4dd33badfce003fae6ff8454bc4349e270839568e6278712c298731301834f2c",
+      "combinedSha256": "4dd33badfce003fae6ff8454bc4349e270839568e6278712c298731301834f2c",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "f683df7d7cdb9ca2cb3d18b46e82cd1666988106246af5035a94da54df2f87b0",
+      "terminalRemovalSha256": "4dd33badfce003fae6ff8454bc4349e270839568e6278712c298731301834f2c"
+    },
+    {
+      "path": "packages/docs/content/docs/es/reverse-proxy.mdx",
+      "brandingSha256": "208557ae4f12a49b7151ab427de9ad06fff8838bad9d40ac97f70760daca3777",
+      "behaviorSha256": "b4f830326641c96d10c4205741d006a96e81a3c9e18032d643e115526f7aef95",
+      "combinedSha256": "b4f830326641c96d10c4205741d006a96e81a3c9e18032d643e115526f7aef95",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "208557ae4f12a49b7151ab427de9ad06fff8838bad9d40ac97f70760daca3777",
+      "terminalRemovalSha256": "b4f830326641c96d10c4205741d006a96e81a3c9e18032d643e115526f7aef95"
+    },
+    {
+      "path": "packages/docs/content/docs/fr/environment.mdx",
+      "brandingSha256": "d87fb5d940d06fe11cce6ff3877e7957a50eab5bea2c37446f4d8cf3f0ab108b",
+      "behaviorSha256": "a6f557fda44f7f1c3cb7d6e4c8184ed201645843d8a13ed8dcf4f5a8a4287544",
+      "combinedSha256": "a6f557fda44f7f1c3cb7d6e4c8184ed201645843d8a13ed8dcf4f5a8a4287544",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "d87fb5d940d06fe11cce6ff3877e7957a50eab5bea2c37446f4d8cf3f0ab108b",
+      "terminalRemovalSha256": "a6f557fda44f7f1c3cb7d6e4c8184ed201645843d8a13ed8dcf4f5a8a4287544"
+    },
+    {
+      "path": "packages/docs/content/docs/fr/index.mdx",
+      "brandingSha256": "a67f7ace9c7b2cc6347a0ad3e1c0137b6080bae532d7aa9296ca617e9322f62e",
+      "behaviorSha256": "02dd7a2c2acda0186e043727647b808593379015272f69f8e4b4723c8bd6bd0c",
+      "combinedSha256": "02dd7a2c2acda0186e043727647b808593379015272f69f8e4b4723c8bd6bd0c",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "a67f7ace9c7b2cc6347a0ad3e1c0137b6080bae532d7aa9296ca617e9322f62e",
+      "terminalRemovalSha256": "02dd7a2c2acda0186e043727647b808593379015272f69f8e4b4723c8bd6bd0c"
+    },
+    {
+      "path": "packages/docs/content/docs/fr/preview.mdx",
+      "brandingSha256": "bd3f475349bfe64f4fcbc20f98ec236ff7c247a7aa40d1b487c71527e0a84095",
+      "behaviorSha256": "4633a9be2f423d05f83db0b5ded6bf93c0650dd2f20b0c48db83d07eec07d5dd",
+      "combinedSha256": "4633a9be2f423d05f83db0b5ded6bf93c0650dd2f20b0c48db83d07eec07d5dd",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "bd3f475349bfe64f4fcbc20f98ec236ff7c247a7aa40d1b487c71527e0a84095",
+      "terminalRemovalSha256": "4633a9be2f423d05f83db0b5ded6bf93c0650dd2f20b0c48db83d07eec07d5dd"
+    },
+    {
+      "path": "packages/docs/content/docs/fr/project-actions.mdx",
+      "brandingSha256": "f7255e4032bd348c3b84f36c1ffdbe4a6d09c7585b0688312e4baaf7cf5e4ba8",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "f7255e4032bd348c3b84f36c1ffdbe4a6d09c7585b0688312e4baaf7cf5e4ba8",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/fr/projects.mdx",
+      "brandingSha256": "115aedaeaea6e9ee1d3ed2d2f6a181d77dc5901463700ed55300fcd96ca55b0e",
+      "behaviorSha256": "fab268b8ac1091dc248174808218b55cac0ca11fd3eafb0e7a2eba96e2c4d42b",
+      "combinedSha256": "fab268b8ac1091dc248174808218b55cac0ca11fd3eafb0e7a2eba96e2c4d42b",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "115aedaeaea6e9ee1d3ed2d2f6a181d77dc5901463700ed55300fcd96ca55b0e",
+      "terminalRemovalSha256": "fab268b8ac1091dc248174808218b55cac0ca11fd3eafb0e7a2eba96e2c4d42b"
+    },
+    {
+      "path": "packages/docs/content/docs/fr/reverse-proxy.mdx",
+      "brandingSha256": "3d33b21d51a1e8cbd3e373549956e9639019cf915c1fde1924652cbd64053389",
+      "behaviorSha256": "d9d55757378db8ab3635a1c4daa5c491e7d13cc9a9e65bc4799b575a0285c0b2",
+      "combinedSha256": "d9d55757378db8ab3635a1c4daa5c491e7d13cc9a9e65bc4799b575a0285c0b2",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "3d33b21d51a1e8cbd3e373549956e9639019cf915c1fde1924652cbd64053389",
+      "terminalRemovalSha256": "d9d55757378db8ab3635a1c4daa5c491e7d13cc9a9e65bc4799b575a0285c0b2"
+    },
+    {
+      "path": "packages/docs/content/docs/index.mdx",
+      "brandingSha256": "0b62f9ac5e2eb86fc1e8bd116dd5b092af5ca41c51e980756dc4d47b38d3fe8b",
+      "behaviorSha256": "2640ddbbc1757686b18acff3f01478c78cc12658d0978f86e4fc4b34f4e4ae03",
+      "combinedSha256": "2640ddbbc1757686b18acff3f01478c78cc12658d0978f86e4fc4b34f4e4ae03",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "0b62f9ac5e2eb86fc1e8bd116dd5b092af5ca41c51e980756dc4d47b38d3fe8b",
+      "terminalRemovalSha256": "2640ddbbc1757686b18acff3f01478c78cc12658d0978f86e4fc4b34f4e4ae03"
+    },
+    {
+      "path": "packages/docs/content/docs/ja/environment.mdx",
+      "brandingSha256": "7da8650f30acce9d54a7fb1f7c4d891d1341d42a48a5ada07d351b95a44e8d92",
+      "behaviorSha256": "4ebeaeeee97bf9e7ed60cb769507822ae5d5d92a057c8e7888e2a15558fbb1ab",
+      "combinedSha256": "4ebeaeeee97bf9e7ed60cb769507822ae5d5d92a057c8e7888e2a15558fbb1ab",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "7da8650f30acce9d54a7fb1f7c4d891d1341d42a48a5ada07d351b95a44e8d92",
+      "terminalRemovalSha256": "4ebeaeeee97bf9e7ed60cb769507822ae5d5d92a057c8e7888e2a15558fbb1ab"
+    },
+    {
+      "path": "packages/docs/content/docs/ja/index.mdx",
+      "brandingSha256": "6af79f929d2a1b9868cf59446f8274fb2b6134835b1bae5429339c0f43d09536",
+      "behaviorSha256": "80b0be2c50b96e43927acd17ec1d1cb4e2901e4b2998c4c929d647c030572781",
+      "combinedSha256": "80b0be2c50b96e43927acd17ec1d1cb4e2901e4b2998c4c929d647c030572781",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "6af79f929d2a1b9868cf59446f8274fb2b6134835b1bae5429339c0f43d09536",
+      "terminalRemovalSha256": "80b0be2c50b96e43927acd17ec1d1cb4e2901e4b2998c4c929d647c030572781"
+    },
+    {
+      "path": "packages/docs/content/docs/ja/preview.mdx",
+      "brandingSha256": "aed08f842452cbd610eb252131b829089e5bff91fcd56f6e5eab3a01d817bde8",
+      "behaviorSha256": "98333137048f7adec4def251423a9535f72877f7dc712b6ae2260a27ef9ef487",
+      "combinedSha256": "98333137048f7adec4def251423a9535f72877f7dc712b6ae2260a27ef9ef487",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "aed08f842452cbd610eb252131b829089e5bff91fcd56f6e5eab3a01d817bde8",
+      "terminalRemovalSha256": "98333137048f7adec4def251423a9535f72877f7dc712b6ae2260a27ef9ef487"
+    },
+    {
+      "path": "packages/docs/content/docs/ja/project-actions.mdx",
+      "brandingSha256": "6250e532295ddad4f4be82a67aa9ee42e5a7b83141da1cb6f878786f3fc30f19",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "6250e532295ddad4f4be82a67aa9ee42e5a7b83141da1cb6f878786f3fc30f19",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/ja/projects.mdx",
+      "brandingSha256": "a7a766c69b876662137c8e16f19c9e7f87211349eb7fbd2bf80558a9710d4b0f",
+      "behaviorSha256": "79d8d143a02bf5b82174a5882bd50c1c64a1625a75996424f5592d3c3227e18b",
+      "combinedSha256": "79d8d143a02bf5b82174a5882bd50c1c64a1625a75996424f5592d3c3227e18b",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "a7a766c69b876662137c8e16f19c9e7f87211349eb7fbd2bf80558a9710d4b0f",
+      "terminalRemovalSha256": "79d8d143a02bf5b82174a5882bd50c1c64a1625a75996424f5592d3c3227e18b"
+    },
+    {
+      "path": "packages/docs/content/docs/ja/reverse-proxy.mdx",
+      "brandingSha256": "10a824fb5ae321115299477128fa2c17cf7a50bc31bbe8b30f0068d833a1e1c9",
+      "behaviorSha256": "76b6b32ed35a591b0a44064e124e9a64e3c83cea3a4c92db27716f8155ec926f",
+      "combinedSha256": "76b6b32ed35a591b0a44064e124e9a64e3c83cea3a4c92db27716f8155ec926f",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "10a824fb5ae321115299477128fa2c17cf7a50bc31bbe8b30f0068d833a1e1c9",
+      "terminalRemovalSha256": "76b6b32ed35a591b0a44064e124e9a64e3c83cea3a4c92db27716f8155ec926f"
+    },
+    {
+      "path": "packages/docs/content/docs/ko/environment.mdx",
+      "brandingSha256": "4d5dc6df4484faf6e6da993c958a978efd23091ea0e865e194c3f0444378527e",
+      "behaviorSha256": "5751d0fc0a6ea8faaf991ec48d026e93bc7f2c5e1950194ea95a7a23dd245ce4",
+      "combinedSha256": "5751d0fc0a6ea8faaf991ec48d026e93bc7f2c5e1950194ea95a7a23dd245ce4",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "4d5dc6df4484faf6e6da993c958a978efd23091ea0e865e194c3f0444378527e",
+      "terminalRemovalSha256": "5751d0fc0a6ea8faaf991ec48d026e93bc7f2c5e1950194ea95a7a23dd245ce4"
+    },
+    {
+      "path": "packages/docs/content/docs/ko/index.mdx",
+      "brandingSha256": "d31d5c09b8865597522a103645f204d4afbaf23178f641734e52ca93d358b43d",
+      "behaviorSha256": "5263cf2f000bfb9405aa701243b02f87039994f04c861845e92983935c5e4d04",
+      "combinedSha256": "5263cf2f000bfb9405aa701243b02f87039994f04c861845e92983935c5e4d04",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "d31d5c09b8865597522a103645f204d4afbaf23178f641734e52ca93d358b43d",
+      "terminalRemovalSha256": "5263cf2f000bfb9405aa701243b02f87039994f04c861845e92983935c5e4d04"
+    },
+    {
+      "path": "packages/docs/content/docs/ko/preview.mdx",
+      "brandingSha256": "97548defe1add95efd0ac99e4e432398e7ddd5e41a4ca7cb1beba0abfa62aa16",
+      "behaviorSha256": "ffa410cb550f104136e88a67ed7409500ea92e1236362b0d421ba9fb09761fef",
+      "combinedSha256": "ffa410cb550f104136e88a67ed7409500ea92e1236362b0d421ba9fb09761fef",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "97548defe1add95efd0ac99e4e432398e7ddd5e41a4ca7cb1beba0abfa62aa16",
+      "terminalRemovalSha256": "ffa410cb550f104136e88a67ed7409500ea92e1236362b0d421ba9fb09761fef"
+    },
+    {
+      "path": "packages/docs/content/docs/ko/project-actions.mdx",
+      "brandingSha256": "3ac8f5098ec47ced41a89381af95d5decb271b442037dd8ba581f70fc1d7bb6e",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "3ac8f5098ec47ced41a89381af95d5decb271b442037dd8ba581f70fc1d7bb6e",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/ko/projects.mdx",
+      "brandingSha256": "e1043339478067f753ea1c3f9248fd08a68a4a1e6937a6875a044ff0892441cc",
+      "behaviorSha256": "3c896131645382400fb61430593d436e68c6967c27a4b98ed1e80c701ad02f7c",
+      "combinedSha256": "3c896131645382400fb61430593d436e68c6967c27a4b98ed1e80c701ad02f7c",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "e1043339478067f753ea1c3f9248fd08a68a4a1e6937a6875a044ff0892441cc",
+      "terminalRemovalSha256": "3c896131645382400fb61430593d436e68c6967c27a4b98ed1e80c701ad02f7c"
+    },
+    {
+      "path": "packages/docs/content/docs/ko/reverse-proxy.mdx",
+      "brandingSha256": "15f4067fc4a756c3cc33b4aaae35cb2537d43730538480f3efce7fd034880fcf",
+      "behaviorSha256": "c8980c28503c8489450857aa5cd04838b3a4dd70641de117f8bd246c731935e6",
+      "combinedSha256": "c8980c28503c8489450857aa5cd04838b3a4dd70641de117f8bd246c731935e6",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "15f4067fc4a756c3cc33b4aaae35cb2537d43730538480f3efce7fd034880fcf",
+      "terminalRemovalSha256": "c8980c28503c8489450857aa5cd04838b3a4dd70641de117f8bd246c731935e6"
+    },
+    {
+      "path": "packages/docs/content/docs/pl/environment.mdx",
+      "brandingSha256": "3603803e6465c0af714429d81470146c5f0231a02bc12610203fb9c2e251fffd",
+      "behaviorSha256": "810544f1ad1610070bb449c405b921a93e3d9b5f9010fda061d01edec08811d3",
+      "combinedSha256": "810544f1ad1610070bb449c405b921a93e3d9b5f9010fda061d01edec08811d3",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "3603803e6465c0af714429d81470146c5f0231a02bc12610203fb9c2e251fffd",
+      "terminalRemovalSha256": "810544f1ad1610070bb449c405b921a93e3d9b5f9010fda061d01edec08811d3"
+    },
+    {
+      "path": "packages/docs/content/docs/pl/index.mdx",
+      "brandingSha256": "387f4534b45a102d2c8f2ffc80be0d099bc0f9ccd3f231585b41df1ee28297fc",
+      "behaviorSha256": "d77da460d8c6c004cc7306ebcb6c93a1e3428d80042c0859c1554a90d0a869e1",
+      "combinedSha256": "d77da460d8c6c004cc7306ebcb6c93a1e3428d80042c0859c1554a90d0a869e1",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "387f4534b45a102d2c8f2ffc80be0d099bc0f9ccd3f231585b41df1ee28297fc",
+      "terminalRemovalSha256": "d77da460d8c6c004cc7306ebcb6c93a1e3428d80042c0859c1554a90d0a869e1"
+    },
+    {
+      "path": "packages/docs/content/docs/pl/preview.mdx",
+      "brandingSha256": "a94eb477e9d84adcaa6b284df08606ae8f225252ce71f4c3d019c3cfd2e393b0",
+      "behaviorSha256": "7c778095b6792b465622e33738ee1030d787c3ef62739cfdc9960eab385a0bca",
+      "combinedSha256": "7c778095b6792b465622e33738ee1030d787c3ef62739cfdc9960eab385a0bca",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "a94eb477e9d84adcaa6b284df08606ae8f225252ce71f4c3d019c3cfd2e393b0",
+      "terminalRemovalSha256": "7c778095b6792b465622e33738ee1030d787c3ef62739cfdc9960eab385a0bca"
+    },
+    {
+      "path": "packages/docs/content/docs/pl/project-actions.mdx",
+      "brandingSha256": "2c5a76cd991ba368699bc38f4707ced1957a202968bb3599c1b725f530e10726",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "2c5a76cd991ba368699bc38f4707ced1957a202968bb3599c1b725f530e10726",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/pl/projects.mdx",
+      "brandingSha256": "025c845879f81625118ce5fc2b67cc1dbc554a3b5583c909978f31fb20c93f23",
+      "behaviorSha256": "1dc17ddb7bab05ce7c251d63c3c8d6f1e5740bf5b55284ebf81e428e782dea5f",
+      "combinedSha256": "1dc17ddb7bab05ce7c251d63c3c8d6f1e5740bf5b55284ebf81e428e782dea5f",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "025c845879f81625118ce5fc2b67cc1dbc554a3b5583c909978f31fb20c93f23",
+      "terminalRemovalSha256": "1dc17ddb7bab05ce7c251d63c3c8d6f1e5740bf5b55284ebf81e428e782dea5f"
+    },
+    {
+      "path": "packages/docs/content/docs/pl/reverse-proxy.mdx",
+      "brandingSha256": "4e9e8036a69ef6d1404fd8e25c14850c240eb730f0ba3403b79f44113773f8d1",
+      "behaviorSha256": "36f68fa853b45b8f22f3eef8fc227c58f3e015b31aeb33d4a4c48f38a5af35cc",
+      "combinedSha256": "36f68fa853b45b8f22f3eef8fc227c58f3e015b31aeb33d4a4c48f38a5af35cc",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "4e9e8036a69ef6d1404fd8e25c14850c240eb730f0ba3403b79f44113773f8d1",
+      "terminalRemovalSha256": "36f68fa853b45b8f22f3eef8fc227c58f3e015b31aeb33d4a4c48f38a5af35cc"
+    },
+    {
+      "path": "packages/docs/content/docs/preview.mdx",
+      "brandingSha256": "2aeb75b1798884e6daf7bf02b89528bd9582375335c59de41446e9facd155692",
+      "behaviorSha256": "3c399f104d3bb8c985a6717ca2411bfc04715418e50ee1d7fdcdc39b5e3a98a0",
+      "combinedSha256": "3c399f104d3bb8c985a6717ca2411bfc04715418e50ee1d7fdcdc39b5e3a98a0",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "2aeb75b1798884e6daf7bf02b89528bd9582375335c59de41446e9facd155692",
+      "terminalRemovalSha256": "3c399f104d3bb8c985a6717ca2411bfc04715418e50ee1d7fdcdc39b5e3a98a0"
+    },
+    {
+      "path": "packages/docs/content/docs/project-actions.mdx",
+      "brandingSha256": "4b76ef4c7931fa630e597e914004ad76803eab8f69643b6bdfb7f91169d48e60",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "4b76ef4c7931fa630e597e914004ad76803eab8f69643b6bdfb7f91169d48e60",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/projects.mdx",
+      "brandingSha256": "3bc62bc86c44de7f8fbc4be79d2fecd2e957d85ef69eea2542852281077ba925",
+      "behaviorSha256": "9edff69620b5b9bb2f3a38aaf23694cc459ece0479f1a8b54a2b8f2ab85b1f97",
+      "combinedSha256": "9edff69620b5b9bb2f3a38aaf23694cc459ece0479f1a8b54a2b8f2ab85b1f97",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "3bc62bc86c44de7f8fbc4be79d2fecd2e957d85ef69eea2542852281077ba925",
+      "terminalRemovalSha256": "9edff69620b5b9bb2f3a38aaf23694cc459ece0479f1a8b54a2b8f2ab85b1f97"
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/environment.mdx",
+      "brandingSha256": "769790dcd4ba05d3405a645f967283b8ee11f303c88137f4c8953435c023cdc8",
+      "behaviorSha256": "1f841f79138f2da02158132c38ac6199c2f3dcf755a85b09fd2e28008c1a3f37",
+      "combinedSha256": "1f841f79138f2da02158132c38ac6199c2f3dcf755a85b09fd2e28008c1a3f37",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "769790dcd4ba05d3405a645f967283b8ee11f303c88137f4c8953435c023cdc8",
+      "terminalRemovalSha256": "1f841f79138f2da02158132c38ac6199c2f3dcf755a85b09fd2e28008c1a3f37"
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/index.mdx",
+      "brandingSha256": "78051edd00bda1b7b6ca1c063796e6c8902a535ea61645e69221109b256b8c1c",
+      "behaviorSha256": "1b638c8fd97935dfea66f575720977ac6ed58d7e43fff9ce51d9caa0c62ea77a",
+      "combinedSha256": "1b638c8fd97935dfea66f575720977ac6ed58d7e43fff9ce51d9caa0c62ea77a",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "78051edd00bda1b7b6ca1c063796e6c8902a535ea61645e69221109b256b8c1c",
+      "terminalRemovalSha256": "1b638c8fd97935dfea66f575720977ac6ed58d7e43fff9ce51d9caa0c62ea77a"
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/preview.mdx",
+      "brandingSha256": "e5045ee2d7622d01f226bb3d1b34091771aa7838db79bb3c1729caf96b86a8c1",
+      "behaviorSha256": "01c6f2be706c3a2950d70f3ca6f3f7c6afc2e40b634d9205f2ad1506f8dcfbd9",
+      "combinedSha256": "01c6f2be706c3a2950d70f3ca6f3f7c6afc2e40b634d9205f2ad1506f8dcfbd9",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "e5045ee2d7622d01f226bb3d1b34091771aa7838db79bb3c1729caf96b86a8c1",
+      "terminalRemovalSha256": "01c6f2be706c3a2950d70f3ca6f3f7c6afc2e40b634d9205f2ad1506f8dcfbd9"
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/project-actions.mdx",
+      "brandingSha256": "a8f43dc91e17eac3c26be79aff1cfd25d1ee4b98ba53a277f0669a2356740e3e",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "a8f43dc91e17eac3c26be79aff1cfd25d1ee4b98ba53a277f0669a2356740e3e",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/projects.mdx",
+      "brandingSha256": "7a2a8eb24997e4f71cbae41ea88dbe326d57ae403870662d6b3ccb2e4e227100",
+      "behaviorSha256": "c801441473837f58239bb55a0ff6859a151c6778046e8fdf9a51c1ffb2a08552",
+      "combinedSha256": "c801441473837f58239bb55a0ff6859a151c6778046e8fdf9a51c1ffb2a08552",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "7a2a8eb24997e4f71cbae41ea88dbe326d57ae403870662d6b3ccb2e4e227100",
+      "terminalRemovalSha256": "c801441473837f58239bb55a0ff6859a151c6778046e8fdf9a51c1ffb2a08552"
+    },
+    {
+      "path": "packages/docs/content/docs/pt-br/reverse-proxy.mdx",
+      "brandingSha256": "35ebfc94207d53a5e294fa78fc265f87b75436b1d75a49752dffb280af31e62b",
+      "behaviorSha256": "8f5e3774ee154b432bb91294c46d865d9911c8ccccaed05db8f168fb7730ea87",
+      "combinedSha256": "8f5e3774ee154b432bb91294c46d865d9911c8ccccaed05db8f168fb7730ea87",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "35ebfc94207d53a5e294fa78fc265f87b75436b1d75a49752dffb280af31e62b",
+      "terminalRemovalSha256": "8f5e3774ee154b432bb91294c46d865d9911c8ccccaed05db8f168fb7730ea87"
+    },
+    {
+      "path": "packages/docs/content/docs/reverse-proxy.mdx",
+      "brandingSha256": "7febaff00caf8dd1d7f837fcd9ace5a3d14e882163621e9ea437fcb25c464763",
+      "behaviorSha256": "ddd905cb19e042aa6c72b51943f8d5c278376fafdae1b939aeaf7ff4f4e46216",
+      "combinedSha256": "ddd905cb19e042aa6c72b51943f8d5c278376fafdae1b939aeaf7ff4f4e46216",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "7febaff00caf8dd1d7f837fcd9ace5a3d14e882163621e9ea437fcb25c464763",
+      "terminalRemovalSha256": "ddd905cb19e042aa6c72b51943f8d5c278376fafdae1b939aeaf7ff4f4e46216"
+    },
+    {
+      "path": "packages/docs/content/docs/uk/environment.mdx",
+      "brandingSha256": "9d884336aa57cdf8666a2860cdd69f3b093170d9baed8564c0aa417c4010b211",
+      "behaviorSha256": "4e12f8bdc91d725afffab7c0700e129a8ee13ef96415c054d5100991a378a8a6",
+      "combinedSha256": "4e12f8bdc91d725afffab7c0700e129a8ee13ef96415c054d5100991a378a8a6",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "9d884336aa57cdf8666a2860cdd69f3b093170d9baed8564c0aa417c4010b211",
+      "terminalRemovalSha256": "4e12f8bdc91d725afffab7c0700e129a8ee13ef96415c054d5100991a378a8a6"
+    },
+    {
+      "path": "packages/docs/content/docs/uk/index.mdx",
+      "brandingSha256": "c607814ea16c7aa3dd7280a0812893dbc48f3b816c17ea37189b9daa22ec10db",
+      "behaviorSha256": "b52789a01f1d59ace77430892425a5148dc37f0d591a767a03a33920af6dbb2d",
+      "combinedSha256": "b52789a01f1d59ace77430892425a5148dc37f0d591a767a03a33920af6dbb2d",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "c607814ea16c7aa3dd7280a0812893dbc48f3b816c17ea37189b9daa22ec10db",
+      "terminalRemovalSha256": "b52789a01f1d59ace77430892425a5148dc37f0d591a767a03a33920af6dbb2d"
+    },
+    {
+      "path": "packages/docs/content/docs/uk/preview.mdx",
+      "brandingSha256": "491871874dc6e5442b6591ee67b234754c7b806c2697bd5446d837323564c212",
+      "behaviorSha256": "488fb8dcc3a81861b7ae5724775e65b9a683369b41b6616f4b739a700a5645bd",
+      "combinedSha256": "488fb8dcc3a81861b7ae5724775e65b9a683369b41b6616f4b739a700a5645bd",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "491871874dc6e5442b6591ee67b234754c7b806c2697bd5446d837323564c212",
+      "terminalRemovalSha256": "488fb8dcc3a81861b7ae5724775e65b9a683369b41b6616f4b739a700a5645bd"
+    },
+    {
+      "path": "packages/docs/content/docs/uk/project-actions.mdx",
+      "brandingSha256": "1eae832678811cd314965db96fc422bbcbe1279401c387895e013aa46d4584d5",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "1eae832678811cd314965db96fc422bbcbe1279401c387895e013aa46d4584d5",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/uk/projects.mdx",
+      "brandingSha256": "3694e15a4ae57775511425968010a4c86d061d2abb97f8335746c0bb661f5b7c",
+      "behaviorSha256": "06157ab5bd8cf8d02b806cc1fc1e408c5922aaaa9987cbf22e5e3b8d33f1042e",
+      "combinedSha256": "06157ab5bd8cf8d02b806cc1fc1e408c5922aaaa9987cbf22e5e3b8d33f1042e",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "3694e15a4ae57775511425968010a4c86d061d2abb97f8335746c0bb661f5b7c",
+      "terminalRemovalSha256": "06157ab5bd8cf8d02b806cc1fc1e408c5922aaaa9987cbf22e5e3b8d33f1042e"
+    },
+    {
+      "path": "packages/docs/content/docs/uk/reverse-proxy.mdx",
+      "brandingSha256": "f7899d1d7072d21d1b33942a358d1ea57fdc4b2e0eefe9c1e48c533624559c32",
+      "behaviorSha256": "d196928600a855ebadf6bce5a0fa74eee8d849e8b6f78450dc8053b7a6df5da0",
+      "combinedSha256": "d196928600a855ebadf6bce5a0fa74eee8d849e8b6f78450dc8053b7a6df5da0",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "f7899d1d7072d21d1b33942a358d1ea57fdc4b2e0eefe9c1e48c533624559c32",
+      "terminalRemovalSha256": "d196928600a855ebadf6bce5a0fa74eee8d849e8b6f78450dc8053b7a6df5da0"
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/environment.mdx",
+      "brandingSha256": "de282d4e6e16e8f090b3f02563fe5b5f054cf86a58377a8d0875e5283eefd8f3",
+      "behaviorSha256": "0f90f54a372e616ac393790a52d8ef4da5ea64aa169b092f2640f42541bfa2d2",
+      "combinedSha256": "0f90f54a372e616ac393790a52d8ef4da5ea64aa169b092f2640f42541bfa2d2",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL section is removed and the heading becomes Git; other variables retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "de282d4e6e16e8f090b3f02563fe5b5f054cf86a58377a8d0875e5283eefd8f3",
+      "terminalRemovalSha256": "0f90f54a372e616ac393790a52d8ef4da5ea64aa169b092f2640f42541bfa2d2"
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/index.mdx",
+      "brandingSha256": "0089e8dee845220bf4f51a4c98446fdb3c9b9cadb7d15bfbd4aff8c2cc626cc9",
+      "behaviorSha256": "11f7e6c1e4706b17a9a707bf4a499647877efdb621dd13ddb2649408e776809f",
+      "combinedSha256": "11f7e6c1e4706b17a9a707bf4a499647877efdb621dd13ddb2649408e776809f",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the overview paragraph that listed terminal management is removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "0089e8dee845220bf4f51a4c98446fdb3c9b9cadb7d15bfbd4aff8c2cc626cc9",
+      "terminalRemovalSha256": "11f7e6c1e4706b17a9a707bf4a499647877efdb621dd13ddb2649408e776809f"
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/preview.mdx",
+      "brandingSha256": "a7c6e666d632c020bf04535b90fa142fbcf8871aa9001cf49bf49b756acfb306",
+      "behaviorSha256": "aadd43746cbbd026e1e31f3308ac5285d43775a4946ade9f2f365c9945042c5a",
+      "combinedSha256": "aadd43746cbbd026e1e31f3308ac5285d43775a4946ade9f2f365c9945042c5a",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "a7c6e666d632c020bf04535b90fa142fbcf8871aa9001cf49bf49b756acfb306",
+      "terminalRemovalSha256": "aadd43746cbbd026e1e31f3308ac5285d43775a4946ade9f2f365c9945042c5a"
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/project-actions.mdx",
+      "brandingSha256": "6fb1aa0dd10fc5e8e3da15bcff1d22a527d5e42d242fea260f34466ed4b74a41",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Project Actions page documented terminal-backed project commands and is deleted; explicit deletion record.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalDeleted": true,
+      "terminalRemovalBaseSha256": "6fb1aa0dd10fc5e8e3da15bcff1d22a527d5e42d242fea260f34466ed4b74a41",
+      "terminalRemovalSha256": null
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/projects.mdx",
+      "brandingSha256": "e2821dca2b36d5e8b4537aedb54a1330ce48652a157bf9d99074d6748d44f3ba",
+      "behaviorSha256": "ee8d6c7684f468c911b945f3d5513f83a902a2d37ddae4d9f7088644b8a7d366",
+      "combinedSha256": "ee8d6c7684f468c911b945f3d5513f83a902a2d37ddae4d9f7088644b8a7d366",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: links to the deleted Project Actions page and terminal-started preview wording are removed; other text retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "e2821dca2b36d5e8b4537aedb54a1330ce48652a157bf9d99074d6748d44f3ba",
+      "terminalRemovalSha256": "ee8d6c7684f468c911b945f3d5513f83a902a2d37ddae4d9f7088644b8a7d366"
+    },
+    {
+      "path": "packages/docs/content/docs/zh-cn/reverse-proxy.mdx",
+      "brandingSha256": "9e64e1eafea706936f0a8827cc0d2d5118952a9c55e4a0bb616c38923f5e3279",
+      "behaviorSha256": "73d790c0ff858449596ac7c06991b2a1c59a850ec09be84a89205020a3686538",
+      "combinedSha256": "73d790c0ff858449596ac7c06991b2a1c59a850ec09be84a89205020a3686538",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the /api/terminal/ws proxy locations and terminal read-timeout wording are removed; all other proxy guidance retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "9e64e1eafea706936f0a8827cc0d2d5118952a9c55e4a0bb616c38923f5e3279",
+      "terminalRemovalSha256": "73d790c0ff858449596ac7c06991b2a1c59a850ec09be84a89205020a3686538"
+    },
+    {
+      "path": "packages/electron/package.json",
+      "brandingSha256": "7832d540edfbccaf6b748e7926a5c872a146988940a6391a5c24cb1df911938f",
+      "behaviorSha256": "14c5a550f4cf16f0084b9fab88674aae29e87c4943c0e9c0d843e80f314384ba",
+      "combinedSha256": "14c5a550f4cf16f0084b9fab88674aae29e87c4943c0e9c0d843e80f314384ba",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: @electron/rebuild, node-abi and the rebuild:native script are removed; branded fields unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "7832d540edfbccaf6b748e7926a5c872a146988940a6391a5c24cb1df911938f",
+      "terminalRemovalSha256": "14c5a550f4cf16f0084b9fab88674aae29e87c4943c0e9c0d843e80f314384ba"
+    },
+    {
+      "path": "packages/electron/README.md",
+      "brandingSha256": "59315dbda4a10c26d792749b5fa41d1d55b380f3e0beea60fd265855644c7935",
+      "behaviorSha256": "4d196cd56e42b8cab141a1f7a351140719608d1aab2adeb94247dd0403250c25",
+      "combinedSha256": "4d196cd56e42b8cab141a1f7a351140719608d1aab2adeb94247dd0403250c25",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the rebuild-native step and bun-pty/node-pty externals are removed from the desktop build notes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "59315dbda4a10c26d792749b5fa41d1d55b380f3e0beea60fd265855644c7935",
+      "terminalRemovalSha256": "4d196cd56e42b8cab141a1f7a351140719608d1aab2adeb94247dd0403250c25"
+    },
+    {
+      "path": "packages/electron/scripts/verify-linux-appimage.mjs",
+      "brandingSha256": "c7e05975e8a6dd689e37e2ccc304d3f5b54a3bd44cb2b5122d8abebe4b2a3466",
+      "behaviorSha256": "2a7c606097f343158dad91714b9df9d76292b5acd7e7020398e49a813ee771ca",
+      "combinedSha256": "2a7c606097f343158dad91714b9df9d76292b5acd7e7020398e49a813ee771ca",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal (SEC552 round 2 N1): the AppImage check no longer requires pty.node and rejects a packaged PTY provider.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "c7e05975e8a6dd689e37e2ccc304d3f5b54a3bd44cb2b5122d8abebe4b2a3466",
+      "terminalRemovalSha256": "2a7c606097f343158dad91714b9df9d76292b5acd7e7020398e49a813ee771ca"
+    },
+    {
+      "path": "packages/electron/scripts/verify-linux-appimage.test.mjs",
+      "brandingSha256": "9a6340ee5a76725783d6534ad5134050eed261d12cf7e89cc0945ef26c0a3119",
+      "behaviorSha256": "b6beb68b34668dc083e5eccf4e348f93a94e522d139f295c7b8120086acc20c2",
+      "combinedSha256": "b6beb68b34668dc083e5eccf4e348f93a94e522d139f295c7b8120086acc20c2",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal (SEC552 round 2 N1): the AppImage check no longer requires pty.node and rejects a packaged PTY provider.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "9a6340ee5a76725783d6534ad5134050eed261d12cf7e89cc0945ef26c0a3119",
+      "terminalRemovalSha256": "b6beb68b34668dc083e5eccf4e348f93a94e522d139f295c7b8120086acc20c2"
+    },
+    {
+      "path": "packages/ui/src/components/sections/openchamber/OpenChamberVisualSettings.tsx",
+      "brandingSha256": "25a62fee0e60121a079ecbb947055c28d06bdd242df5dd6ea0141816a2cb29aa",
+      "behaviorSha256": "a8075ad2a238a99baa523e73e1d0f2453dfbb16283331c7775437416d059f8bc",
+      "combinedSha256": "a8075ad2a238a99baa523e73e1d0f2453dfbb16283331c7775437416d059f8bc",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal appearance settings are removed; other visual settings retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "25a62fee0e60121a079ecbb947055c28d06bdd242df5dd6ea0141816a2cb29aa",
+      "terminalRemovalSha256": "a8075ad2a238a99baa523e73e1d0f2453dfbb16283331c7775437416d059f8bc"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/de.settings.ts",
+      "brandingSha256": "27834a8542174338dcb24895a08b428079c489ff5ef402fc44a6672386ed4975",
+      "behaviorSha256": "4555ab26998fab1d36780ddc1a80a6e4e6ce64457832690ba04aa026d0da8c89",
+      "combinedSha256": "4555ab26998fab1d36780ddc1a80a6e4e6ce64457832690ba04aa026d0da8c89",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "27834a8542174338dcb24895a08b428079c489ff5ef402fc44a6672386ed4975",
+      "terminalRemovalSha256": "4555ab26998fab1d36780ddc1a80a6e4e6ce64457832690ba04aa026d0da8c89"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/en.settings.ts",
+      "brandingSha256": "6f5b0aff3a827183c7918c92c172fbe3c5af46f5cfbf86e43301894f59b4a06a",
+      "behaviorSha256": "565b651f34e7a525f1bb648173163782b6eecbadee275e1c8225066499c50dd5",
+      "combinedSha256": "565b651f34e7a525f1bb648173163782b6eecbadee275e1c8225066499c50dd5",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "6f5b0aff3a827183c7918c92c172fbe3c5af46f5cfbf86e43301894f59b4a06a",
+      "terminalRemovalSha256": "565b651f34e7a525f1bb648173163782b6eecbadee275e1c8225066499c50dd5"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/es.settings.ts",
+      "brandingSha256": "e943c443bc12f3fee8dd7853e1e31b7cafb7449116ab01bdbccd6f9c2443426c",
+      "behaviorSha256": "5b09282e297ebe0ea056bffd82456e18077822e8fe97c042023a51371b388393",
+      "combinedSha256": "5b09282e297ebe0ea056bffd82456e18077822e8fe97c042023a51371b388393",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "e943c443bc12f3fee8dd7853e1e31b7cafb7449116ab01bdbccd6f9c2443426c",
+      "terminalRemovalSha256": "5b09282e297ebe0ea056bffd82456e18077822e8fe97c042023a51371b388393"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/fr.settings.ts",
+      "brandingSha256": "99bf0d02c48a94bd3d7c5f530d060e16d2e3f2a53c867e25a774f577c33df2d7",
+      "behaviorSha256": "f0cd8db94936572f9e56265cc1355deb2969e9e2bad4c9350325b716f053321f",
+      "combinedSha256": "f0cd8db94936572f9e56265cc1355deb2969e9e2bad4c9350325b716f053321f",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "99bf0d02c48a94bd3d7c5f530d060e16d2e3f2a53c867e25a774f577c33df2d7",
+      "terminalRemovalSha256": "f0cd8db94936572f9e56265cc1355deb2969e9e2bad4c9350325b716f053321f"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ja.settings.ts",
+      "brandingSha256": "8e8cc4b7a2a0c4334f854d8d98e779b956c4dcb517aed8f6ebe60c672895cced",
+      "behaviorSha256": "0dc90d950cd8749e11739b81543d1fd8dfcff4eb3aeb4926094ffa4db1d381c8",
+      "combinedSha256": "0dc90d950cd8749e11739b81543d1fd8dfcff4eb3aeb4926094ffa4db1d381c8",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "8e8cc4b7a2a0c4334f854d8d98e779b956c4dcb517aed8f6ebe60c672895cced",
+      "terminalRemovalSha256": "0dc90d950cd8749e11739b81543d1fd8dfcff4eb3aeb4926094ffa4db1d381c8"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/ko.settings.ts",
+      "brandingSha256": "db6b86f54c21dff42b4a639afa9cf943e8a32e25e36c3daec596d23a764812d2",
+      "behaviorSha256": "71087374e992ca23c71742cc16ea386a95bad9ca5751093444508997f846fafd",
+      "combinedSha256": "71087374e992ca23c71742cc16ea386a95bad9ca5751093444508997f846fafd",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "db6b86f54c21dff42b4a639afa9cf943e8a32e25e36c3daec596d23a764812d2",
+      "terminalRemovalSha256": "71087374e992ca23c71742cc16ea386a95bad9ca5751093444508997f846fafd"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pl.settings.ts",
+      "brandingSha256": "3e0ca5b22552687d0a41b7c0c94e58f3e144456c1e3d18e32664f3cd0b9c3706",
+      "behaviorSha256": "001676ff6b692c00a8f1745983ea321ef02499d3eca55b9b34d4d7c9b24e88ee",
+      "combinedSha256": "001676ff6b692c00a8f1745983ea321ef02499d3eca55b9b34d4d7c9b24e88ee",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "3e0ca5b22552687d0a41b7c0c94e58f3e144456c1e3d18e32664f3cd0b9c3706",
+      "terminalRemovalSha256": "001676ff6b692c00a8f1745983ea321ef02499d3eca55b9b34d4d7c9b24e88ee"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/pt-BR.settings.ts",
+      "brandingSha256": "1c5f590b916d3efd054d321fa843d0ec3ceb6c6bfc6cb9de9717ec6c90499a31",
+      "behaviorSha256": "a7b8bd8751e197e5c95be4231138088196de5d33412409ce38bb6741089b4476",
+      "combinedSha256": "a7b8bd8751e197e5c95be4231138088196de5d33412409ce38bb6741089b4476",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "1c5f590b916d3efd054d321fa843d0ec3ceb6c6bfc6cb9de9717ec6c90499a31",
+      "terminalRemovalSha256": "a7b8bd8751e197e5c95be4231138088196de5d33412409ce38bb6741089b4476"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/uk.settings.ts",
+      "brandingSha256": "d3a9d61026217e636b184ad484c38187fcb4fbea9c997a2818ad77bcf9b40d07",
+      "behaviorSha256": "166c56bf04f714a809aa3411bf3765351648218f5c5605f8b69ece92d5b01f02",
+      "combinedSha256": "166c56bf04f714a809aa3411bf3765351648218f5c5605f8b69ece92d5b01f02",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "d3a9d61026217e636b184ad484c38187fcb4fbea9c997a2818ad77bcf9b40d07",
+      "terminalRemovalSha256": "166c56bf04f714a809aa3411bf3765351648218f5c5605f8b69ece92d5b01f02"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-CN.settings.ts",
+      "brandingSha256": "d466fd9f526afe53be34bd6f44413d4ee483b9d17a554b09d1eb9dea3d7d7de5",
+      "behaviorSha256": "dcb0af767cf4567e26040595dcfe7ff87f6871842dccadfdf26e9b785a7d7422",
+      "combinedSha256": "dcb0af767cf4567e26040595dcfe7ff87f6871842dccadfdf26e9b785a7d7422",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "d466fd9f526afe53be34bd6f44413d4ee483b9d17a554b09d1eb9dea3d7d7de5",
+      "terminalRemovalSha256": "dcb0af767cf4567e26040595dcfe7ff87f6871842dccadfdf26e9b785a7d7422"
+    },
+    {
+      "path": "packages/ui/src/lib/i18n/messages/zh-TW.settings.ts",
+      "brandingSha256": "43cbe29814ce4e47fef2664922490615d5140a7f9af5cde59dd6ee3895c849d2",
+      "behaviorSha256": "cb2eb52bb07bf2cfb0834d70919290fdad6862d37118e91920cdc8a6ad70e7f2",
+      "combinedSha256": "cb2eb52bb07bf2cfb0834d70919290fdad6862d37118e91920cdc8a6ad70e7f2",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal and project-action settings keys are deleted; no remaining dictionary text changes.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "43cbe29814ce4e47fef2664922490615d5140a7f9af5cde59dd6ee3895c849d2",
+      "terminalRemovalSha256": "cb2eb52bb07bf2cfb0834d70919290fdad6862d37118e91920cdc8a6ad70e7f2"
+    },
+    {
+      "path": "packages/web/index.html",
+      "brandingSha256": "57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348",
+      "behaviorSha256": "dbce5c2cb35bcdc25165f4e9142cbea15dccc1fbad4cdbcf3eb97e08d6fe3d57",
+      "combinedSha256": "dbce5c2cb35bcdc25165f4e9142cbea15dccc1fbad4cdbcf3eb97e08d6fe3d57",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the inline Nerd Font faces used only by terminal icons are removed; loading screen retained.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348",
+      "terminalRemovalSha256": "dbce5c2cb35bcdc25165f4e9142cbea15dccc1fbad4cdbcf3eb97e08d6fe3d57"
+    },
+    {
+      "path": "packages/web/README.md",
+      "brandingSha256": "dc42ff2cc82dc12a1d7c8af175c3b1aff16c26443856a6166eb265de94b59c31",
+      "behaviorSha256": "17f00c860eeee9005f8f8da74861417b4b8689f221a5678ac77c37eb52e0d1dd",
+      "combinedSha256": "17f00c860eeee9005f8f8da74861417b4b8689f221a5678ac77c37eb52e0d1dd",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the OPENCHAMBER_TERMINAL_SHELL row is removed; the generated embedded response-policy section is unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "64288e3439fbf3611219b31efb7e94a4ffac9226f4145cc245deb3e3fc28aa21",
+      "terminalRemovalSha256": "17f00c860eeee9005f8f8da74861417b4b8689f221a5678ac77c37eb52e0d1dd"
+    },
+    {
+      "path": "README.md",
+      "brandingSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
+      "behaviorSha256": "671c0bb913b787e466bdf20ffda1ee7de2dc8606875282ffe479fce67a7d6e26",
+      "combinedSha256": "671c0bb913b787e466bdf20ffda1ee7de2dc8606875282ffe479fce67a7d6e26",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: terminal reattach/touch-terminal copy and the ghostty-web credit are removed from the hand-owned README source; brand heading regenerated unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
+      "terminalRemovalSha256": "671c0bb913b787e466bdf20ffda1ee7de2dc8606875282ffe479fce67a7d6e26"
+    },
+    {
+      "path": "packages/electron/main.mjs",
+      "brandingSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "behaviorSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "combinedSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Toggle Terminal Dock and Toggle Terminal Expanded menu items (both platform templates) are removed, since their handlers were deleted (Astra F2); the native Open in Terminal integration and branded strings are unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "terminalRemovalSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -797,5 +1721,11 @@
     "pullRequest": 486,
     "sourceHead": "f1a339a16dd4199c38cb033a607491a55cb1c6c7",
     "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
+  },
+  "terminalRemovalProvenance": {
+    "pullRequest": 552,
+    "issue": "smarty-code#1398",
+    "reviewedHead": "03fa2b8c0fb2cf36a55f74be65186e34a0622d64",
+    "sourceEvidence": "Web terminal removal bytes after the SEC552 round-2 review; bound by hash, deletions recorded explicitly. No installed acceptance claim."
   }
 }

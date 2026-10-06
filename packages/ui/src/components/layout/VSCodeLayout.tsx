@@ -27,7 +27,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useI18n } from '@/lib/i18n';
 import { toast } from '@/components/ui';
@@ -333,7 +332,6 @@ export const VSCodeLayout: React.FC = () => {
     }
   }, [collectSessionIdsWithDescendants, isSessionInActiveWorkspace, traversalSessions, t]);
 
-
   // Listen for connection status changes
   React.useEffect(() => {
     // Catch up with the latest status even if the extension posted the connection message
@@ -530,7 +528,6 @@ export const VSCodeLayout: React.FC = () => {
   }, [usesExpandedLayout, currentView, viewMode]);
 
   useSessionListSync({ isVSCode: true });
-  useTerminalSessionKeepalive();
 
   return (
     <>
@@ -664,7 +661,6 @@ interface VSCodeHeaderProps {
   showRateLimits?: boolean;
   enableSessionSwitcher?: boolean;
 }
-
 
 const VSCodeHeader: React.FC<VSCodeHeaderProps> = ({ title, showBack, onBack, onArchiveAll, onNewSession, onSettings, onAgentManager, showMcp, showContextUsage, showRateLimits, enableSessionSwitcher }) => {
   const { t } = useI18n();

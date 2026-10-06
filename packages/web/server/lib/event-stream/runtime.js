@@ -1,7 +1,6 @@
 import { applicationAuthority, browserRequestAllowed } from '../security/browser-origin.js';
 import { WebSocketServer } from 'ws';
 
-import { parseRequestPathname } from '../terminal/terminal-ws-protocol.js';
 import {
   MESSAGE_STREAM_DIRECTORY_WS_PATH,
   MESSAGE_STREAM_GLOBAL_WS_PATH,
@@ -15,6 +14,11 @@ import {
   DEFAULT_UPSTREAM_RECONNECT_DELAY_MS,
   DEFAULT_UPSTREAM_STALL_TIMEOUT_MS,
 } from './upstream-reader.js';
+
+const parseRequestPathname = (requestUrl) => {
+  try { return new URL(requestUrl ?? '', 'http://localhost').pathname; }
+  catch { return ''; }
+};
 
 export function createGlobalUiEventBroadcaster({
   sseClients,

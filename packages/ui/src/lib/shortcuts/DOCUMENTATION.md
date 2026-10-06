@@ -45,9 +45,9 @@ The settings recorder captures up to two chords with at most three simultaneous 
 
 Shared `DropdownMenu` and `Select` can opt into this boundary with `disableGlobalShortcuts`; they suspend while open for both controlled and uncontrolled popups and resume on close or unmount. Exact `Ctrl+N` and `Ctrl+P` chords are translated to menu navigation even when the native event reports IME composition; no other composing key is intercepted. Window capture stops an IME Escape before Base UI's document-level dismiss listener without preventing the native IME action. Controlled draft project and worktree pickers close on non-IME Escape from either the trigger or portaled popup.
 
-Terminal capture, Escape abort priming, and the shifted reverse-agent chord are input-boundary exceptions. They preserve their target-specific semantics and invoke the registered application handler rather than duplicating command behavior.
+Escape abort priming, and the shifted reverse-agent chord are input-boundary exceptions. They preserve their target-specific semantics and invoke the registered application handler rather than duplicating command behavior.
 
-Local key handling remains appropriate for text editing, IME composition, menu and list navigation, dialog confirmation, terminal input, and other interactions that do not represent configurable application commands. The settings recorder treats Enter and Escape as recordable keys; only its explicit Confirm and Cancel buttons apply or discard a recording.
+Local key handling remains appropriate for text editing, IME composition, menu and list navigation, dialog confirmation, and other interactions that do not represent configurable application commands. The settings recorder treats Enter and Escape as recordable keys; only its explicit Confirm and Cancel buttons apply or discard a recording.
 
 # Adding shortcuts
 

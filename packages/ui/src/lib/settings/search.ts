@@ -108,20 +108,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['font', 'text size', 'ui scale'],
     isAvailable: (ctx) => !ctx.isMobile,
   },
-  {
-    id: 'appearance.terminal-font-size',
-    page: 'appearance',
-    titleKey: 'settings.openchamber.visual.field.terminalFontSize',
-    keywords: ['terminal', 'font', 'text size'],
-  },
-  {
-    id: 'appearance.terminal-shell',
-    page: 'general',
-    titleKey: 'settings.openchamber.visual.field.terminalShell',
-    descriptionKey: 'settings.openchamber.visual.field.terminalShellHint',
-    keywords: ['terminal', 'shell', 'bash', 'zsh', 'fish', 'pwsh', 'powershell'],
-    isAvailable: (ctx) => !ctx.isVSCode,
-  },
+
   {
     id: 'appearance.editor-font-size',
     page: 'appearance',
@@ -164,14 +151,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['session', 'tabs', 'header', 'working set'],
     isAvailable: (ctx) => !ctx.isMobile && !ctx.isVSCode,
   },
-  {
-    id: 'appearance.terminal-quick-keys',
-    page: 'general',
-    titleKey: 'settings.openchamber.visual.field.terminalQuickKeys',
-    descriptionKey: 'settings.openchamber.visual.field.terminalQuickKeysTooltip',
-    keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
-    isAvailable: (ctx) => !ctx.isMobile && !ctx.isVSCode,
-  },
+
   {
     id: 'appearance.usage-reports',
     page: 'general',

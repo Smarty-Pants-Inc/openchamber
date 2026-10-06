@@ -92,12 +92,7 @@ allocate no lifetime resources. A transport that closes during the registered
 recheck releases its listeners, expiry timer and membership entry before admission
 returns. Record freshness still depends on the publisher's cadence.
 
-Terminal attach and write frames also recheck the original connection authority
-before their effect. A periodic sweep is not a native-effect permission lease.
-Frames remain ordered, and a closed connection cannot issue a queued effect.
-Connection closure removes presentation attachments; it does not stop the PTY,
-replace a Pi, change its journal or replay an uncertain action. Non-Node human
-mode retains session deletion and expiry tracking without a membership sweep.
+Non-Node human mode retains session deletion and expiry tracking without a membership sweep.
 
 Google is the only configured provider. Its default scopes are `openid email
 profile`; no Gmail, Workspace administration or offline scope is requested.
@@ -188,7 +183,7 @@ configuration, for example
 Loopback names and IP addresses pass only this Host layer, not human authentication.
 
 All runtime ingress handlers apply this human-only Host check directly before their
-other gates. Terminal checks it before Origin, dev-tunnel before authentication and
+other gates. Dev-tunnel checks it before authentication and
 port discovery, realtime-proxy before authentication, and session voice before
 parameter validation. Event-stream, including global and directory paths, and
 dictation check it before human `requireUpgradeAuth`. That adapter calls

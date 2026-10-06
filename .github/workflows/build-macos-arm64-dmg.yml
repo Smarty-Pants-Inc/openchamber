@@ -86,7 +86,6 @@ jobs:
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
           bun run bundle:main
-          bun run rebuild:native
           ./node_modules/.bin/electron-builder --mac --arm64 --publish=never
           bun run verify:opencode-cli:packaged
 

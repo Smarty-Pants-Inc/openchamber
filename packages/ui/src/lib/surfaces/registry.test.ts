@@ -83,3 +83,8 @@ describe('getVisibleContextRailSurfaces', () => {
     expect(getVisibleContextRailSurfaces({ ...baseOptions, linearConnected: true }).some((s) => s.id === 'linear')).toBe(true);
   });
 });
+
+test('no built-in terminal appears on the context rail, including old saved order', () => {
+  expect(CONTEXT_SURFACES.map(surface => surface.id)).not.toContain('terminal');
+  expect(getVisibleContextRailSurfaces({ ...baseOptions, railOrder: ['terminal', 'git'] }).map(surface => surface.id)).not.toContain('terminal');
+});

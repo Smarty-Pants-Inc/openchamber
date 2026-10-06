@@ -123,10 +123,6 @@ jobs:
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
           bun run bundle:main
-          # npmRebuild=false in package.json, so electron-builder won't
-          # recompile native deps on its own. Rebuild against the target
-          # Electron ABI before packaging, matching the release workflow.
-          bun run rebuild:native
           bunx electron-builder --mac --${{ matrix.arch }} --publish=never
           bun run verify:opencode-cli:packaged
 
@@ -249,17 +245,6 @@ jobs:
         working-directory: packages/electron
         run: bun run bundle:main
 
-      - name: Rebuild native modules
-        working-directory: packages/electron
-        shell: bash
-        env:
-          # Cross-compile for ARM64 target from x64 runner.
-          ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
-        # npmRebuild=false in package.json, so electron-builder won't
-        # recompile native deps on its own. Rebuild against the target
-        # Electron ABI before packaging, matching the release workflow.
-        run: node ./scripts/rebuild-native.mjs
-
       - name: Build Windows app
         working-directory: packages/electron
         shell: bash
@@ -354,7 +339,6 @@ jobs:
           bun run prepare:opencode-cli
           bun run verify:opencode-cli
           bun run bundle:main
-          bun run rebuild:native
           node ./scripts/package.mjs --linux --${{ matrix.arch }} --publish=never
           bun run verify:opencode-cli:packaged
           bun run verify:linux-appimage

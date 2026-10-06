@@ -26,7 +26,6 @@ import {
   useSessionTreeMoveConfirmation,
 } from '@/lib/worktrees/sessionWorktreeMove';
 import { useUpdatePolling } from '@/hooks/useUpdatePolling';
-import { useTerminalSessionKeepalive } from '@/hooks/useTerminalSessionKeepalive';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
@@ -41,13 +40,12 @@ const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/Se
 
 /**
  * Desktop-surface layout: the chat owns the main area, and every other
- * surface (git, diff, files, terminal, ...) opens in the ContextPanel via the
+ * surface (git, diff, files, ...) opens in the ContextPanel via the
  * rail. Phone-sized viewports run the separate MobileApp shell — a viewport
  * crossing the threshold reloads into it (see watchHostedSurfaceViewport).
  */
 export const MainLayout: React.FC = () => {
     useSessionListSync({ isVSCode: false });
-    useTerminalSessionKeepalive();
     const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
     const setIsMobile = useUIStore((state) => state.setIsMobile);
     const isSettingsDialogOpen = useUIStore((state) => state.isSettingsDialogOpen);
@@ -126,7 +124,7 @@ export const MainLayout: React.FC = () => {
                     onCancel={cancelSessionTreeMove}
                 />
 
-                {/* Persistent top-left controls (toggle + project actions) that
+                {/* Persistent top-left controls that
                     stay put while the sidebar/header animate beneath them. */}
                 <TitlebarLeftControls />
                 {/* Full-height Sidebar beside [Header above (chat | RightSidebar)] */}

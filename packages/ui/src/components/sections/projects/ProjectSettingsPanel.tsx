@@ -1,6 +1,5 @@
 import React from 'react';
 import { WorktreeSectionContent } from '@/components/sections/openchamber/WorktreeSectionContent';
-import { ProjectActionsSection } from '@/components/sections/projects/ProjectActionsSection';
 import { ProjectIdentityFields } from '@/components/sections/projects/ProjectIdentityFields';
 import {
   useProjectIdentityForm,
@@ -47,7 +46,6 @@ export const ProjectSettingsPanel: React.FC<ProjectSettingsPanelProps> = ({
   return (
     <div className="space-y-0">
       <ProjectIdentityFields form={form} />
-      <ProjectActionsSection projectRef={projectRef} />
       {showWorktrees ? <WorktreeSectionContent projectRef={projectRef} /> : null}
     </div>
   );

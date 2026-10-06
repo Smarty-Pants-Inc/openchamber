@@ -14,7 +14,11 @@ const ELF_MACHINE = { x64: 62, arm64: 183 };
 // sherpa-onnx-node loads this Node-API addon from its platform-specific prebuilt
 // package in the separate server worker, so verify its architecture here rather
 // than Electron-rebuilding it with the source-built modules.
-const REQUIRED_NATIVE_MODULES = ['pty.node', 'sherpa-onnx.node'];
+const REQUIRED_NATIVE_MODULES = ['sherpa-onnx.node'];
+// The web terminal and its PTY providers were deleted (openchamber#552); a
+// package that still ships them is stale.
+const REMOVED_PTY_PACKAGES = ['node-pty', 'bun-pty'];
+const REMOVED_NATIVE_MODULES = ['pty.node'];
 
 /** electron-builder AppImage arch token: x64 → x86_64, arm64 → arm64 */
 export const linuxAppImageArchSuffix = (architecture) => (
@@ -103,6 +107,13 @@ export const verifyExtractedPayload = ({
 
   const unpackedModules = path.join(root, 'resources', 'app.asar.unpacked', 'node_modules');
   if (!fs.existsSync(unpackedModules)) throw new Error(`Missing unpacked native modules: ${unpackedModules}`);
+  for (const removedPackage of REMOVED_PTY_PACKAGES) {
+    if (fs.existsSync(path.join(unpackedModules, removedPackage))) {
+      throw new Error(`Removed PTY module is packaged: ${removedPackage}`);
+    }
+  }
+  const removedAddon = collectFiles(unpackedModules, (name) => REMOVED_NATIVE_MODULES.includes(name))[0];
+  if (removedAddon) throw new Error(`Removed PTY module is packaged: ${removedAddon}`);
   const nativeModules = collectFiles(unpackedModules, (name, fullPath) => {
     if (!name.endsWith('.node')) return false;
     const normalizedPath = fullPath.split(path.sep).join('/');

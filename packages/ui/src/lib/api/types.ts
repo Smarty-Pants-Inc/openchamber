@@ -14,119 +14,6 @@ interface RuntimeDescriptor {
   label?: string;
 }
 
-interface Subscription {
-
-  close: () => void;
-}
-
-export interface TerminalSession {
-  sessionId: string;
-  cols: number;
-  rows: number;
-  status: 'running' | 'exited' | 'error';
-  mode?: 'interactive' | 'command';
-  purpose?: TerminalSessionPurpose;
-}
-
-export type TerminalSessionPurpose =
-  | { type: 'terminal' }
-  | { type: 'project-action'; actionId: string; executionId: string };
-
-export type TerminalShell = 'auto' | 'bash' | 'zsh' | 'sh' | 'fish' | 'pwsh' | 'powershell' | 'cmd' | 'dash' | 'ksh' | 'nu';
-
-export interface TerminalShellOption {
-  id: TerminalShell;
-  name: string;
-  supportsLogin: boolean;
-}
-
-export interface TerminalStreamEvent {
-  type: 'snapshot' | 'data' | 'exit' | 'reconnecting';
-  sequence?: number;
-  data?: string;
-  replayData?: string;
-  status?: 'running' | 'exited' | 'error';
-  exitCode?: number;
-  signal?: number | null;
-  attempt?: number;
-  maxAttempts?: number;
-
-  runtime?: 'node' | 'bun';
-  ptyBackend?: string;
-  mode?: 'interactive' | 'command';
-  purpose?: TerminalSessionPurpose;
-}
-
-export interface TerminalError extends Error {
-  code?: string;
-}
-
-interface BaseCreateTerminalOptions {
-  cwd: string;
-  sessionId?: string;
-  cols?: number;
-  rows?: number;
-  themeMode?: 'light' | 'dark';
-  terminalBackground?: string;
-  terminalForeground?: string;
-  shell?: TerminalShell;
-  loginShell?: boolean;
-  purpose?: TerminalSessionPurpose;
-}
-
-interface InteractiveCreateTerminalOptions extends BaseCreateTerminalOptions {
-  mode?: 'interactive';
-}
-
-interface CommandCreateTerminalOptions extends BaseCreateTerminalOptions {
-  mode: 'command';
-  command: string;
-}
-
-export type CreateTerminalOptions = InteractiveCreateTerminalOptions | CommandCreateTerminalOptions;
-export type RestartTerminalOptions = InteractiveCreateTerminalOptions;
-
-export interface ResizeTerminalPayload {
-  sessionId: string;
-  cols: number;
-  rows: number;
-}
-
-export interface TerminalHandlers {
-  onEvent: (event: TerminalStreamEvent) => void;
-  onError?: (error: TerminalError, fatal?: boolean) => void;
-}
-
-export interface ForceKillOptions {
-  sessionId?: string;
-  cwd?: string;
-}
-
-export interface TerminalServerSession {
-  sessionId: string;
-  cwd: string;
-  status: 'running' | 'exited';
-  createdAt: number | null;
-  mode?: 'interactive' | 'command';
-  purpose?: TerminalSessionPurpose;
-}
-
-export interface TerminalAPI {
-  listShells?(): Promise<TerminalShellOption[]>;
-  /** Server-side sessions for a working directory, or all directories when cwd is empty; absent on runtimes without a server terminal list. */
-  listSessions?(cwd: string): Promise<TerminalServerSession[]>;
-  /** Marks the sessions as active so the server's idle sweep does not reap terminals an open client still shows. */
-  touchSessions?(sessionIds: string[]): Promise<void>;
-  createSession(options: CreateTerminalOptions): Promise<TerminalSession>;
-  connect(sessionId: string, handlers: TerminalHandlers): Subscription;
-  sendInput(sessionId: string, input: string): Promise<void>;
-  resize(payload: ResizeTerminalPayload): Promise<void>;
-  updateAppearance?(sessionId: string, appearance: Pick<CreateTerminalOptions, 'themeMode' | 'terminalBackground' | 'terminalForeground'>): Promise<void>;
-  close(sessionId: string): Promise<void>;
-  restartSession?(currentSessionId: string, options: RestartTerminalOptions): Promise<TerminalSession>;
-  forceKill?(options: ForceKillOptions): Promise<void>;
-}
-
 interface GitStatusFile {
   path: string;
   index: string;
@@ -751,9 +638,6 @@ export interface SettingsPayload {
   mermaidRenderingMode?: 'svg' | 'ascii';
   showSplitAssistantMessageActions?: boolean;
   fontSize?: number;
-  terminalFontSize?: number;
-  terminalShell?: TerminalShell;
-  terminalLoginShells?: TerminalShell[];
   editorFontSize?: number;
   uiFont?: string;
   monoFont?: string;
@@ -1505,7 +1389,6 @@ export interface ClientAuthAPI {
 
 export interface RuntimeAPIs {
   runtime: RuntimeDescriptor;
-  terminal: TerminalAPI;
   git: GitAPI;
   files: FilesAPI;
   settings: SettingsAPI;

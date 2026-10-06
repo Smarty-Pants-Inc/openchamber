@@ -28,9 +28,3 @@ export const normalizePath = (value?: string | null): string | null => {
   return stripped || null;
 };
 
-/**
- * The directory key every terminal surface must agree on: the terminal store's
- * map keys, the server `cwd` values grouped from a session listing, and the
- * sidebar indicators. Empty when the value is not a usable path.
- */
-export const normalizeTerminalDirectory = (value: string): string => normalizePath(value) ?? '';

@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu';
 import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
 import { PullRequestView } from '@/components/views/PullRequestView';
-import { TerminalView } from '@/components/views/TerminalView';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 
 // Heavy views stay on-demand (same as MainLayout): importing DiffView/FilesView
@@ -50,7 +49,6 @@ import {
   type EmbeddedSessionRuntimeBootstrap,
 } from './contextPanelEmbeddedChat';
 import { getContextSurfaceWidthFraction } from '@/lib/surfaces/registry';
-import { isTerminalEventTarget } from '@/lib/terminalFocus';
 
 const CONTEXT_PANEL_MIN_WIDTH = 380;
 const CONTEXT_PANEL_MAX_WIDTH = 1400;
@@ -59,8 +57,6 @@ const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
 type TranslateFn = ReturnType<typeof useI18n>['t'];
 const EMPTY_SESSION_TITLE_MAP = new Map<string, string>();
-
-
 
 const normalizeDirectoryKey = (value: string): string => {
   if (!value) return '';
@@ -124,7 +120,6 @@ const getModeLabel = (
   if (mode === 'pr') return t('contextPanel.mode.pr');
   if (mode === 'linear') return t('contextPanel.mode.linear');
   if (mode === 'notes') return t('contextRail.surface.notes');
-  if (mode === 'terminal') return t('layout.mainTab.terminal');
   return t('contextPanel.mode.context');
 };
 
@@ -223,10 +218,6 @@ const getTabIcon = (
 
   if (tab.mode === 'notes') {
     return <Icon name="sticky-note" className="h-3.5 w-3.5" />;
-  }
-
-  if (tab.mode === 'terminal') {
-    return <Icon name="terminal-box" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'plan') {
@@ -435,7 +426,6 @@ const useSessionTitleMap = (directory: string | undefined, sessionIDs: readonly 
   );
 };
 
-
 const truncateTabLabel = (value: string, maxChars: number): string => {
   if (value.length <= maxChars) {
     return value;
@@ -443,7 +433,6 @@ const truncateTabLabel = (value: string, maxChars: number): string => {
 
   return `${value.slice(0, maxChars - 3)}...`;
 };
-
 
 export const ContextPanel: React.FC = () => {
   const { t } = useI18n();
@@ -676,13 +665,6 @@ export const ContextPanel: React.FC = () => {
 
   const handlePanelKeyDownCapture = React.useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape') {
-      return;
-    }
-
-    // Terminal owns Escape so the PTY receives it (e.g. Vim Normal mode).
-    // ghostty-web listens in the bubble phase; stopping capture here would
-    // swallow the key before the terminal ever sees it (issue #2644).
-    if (isTerminalEventTarget(event.target)) {
       return;
     }
 
@@ -967,10 +949,6 @@ export const ContextPanel: React.FC = () => {
   );
   const diffTabs = React.useMemo(
     () => tabs.filter((tab) => tab.mode === 'diff'),
-    [tabs],
-  );
-  const terminalTab = React.useMemo(
-    () => tabs.find((tab) => tab.mode === 'terminal') ?? null,
     [tabs],
   );
   // Keep-alive: the walkthrough holds reading progress and scroll position that
@@ -1283,11 +1261,7 @@ export const ContextPanel: React.FC = () => {
             </React.Suspense>
           </div>
         ))}
-        {terminalTab ? (
-          <div className={cn('absolute inset-0', activeTab?.mode === 'terminal' ? 'block' : 'hidden')}>
-            <TerminalView visible={isOpen && activeTab?.mode === 'terminal'} directory={terminalTab.targetDirectory} />
-          </div>
-        ) : null}
+
         {hasWalkthroughTab ? (
           <div className={cn('absolute inset-0', activeTab?.mode === 'walkthrough' ? 'block' : 'hidden')}>
             <React.Suspense fallback={null}>
@@ -1295,7 +1269,7 @@ export const ContextPanel: React.FC = () => {
             </React.Suspense>
           </div>
         ) : null}
-        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' && activeTab?.mode !== 'walkthrough' ? activeNonChatContent : null}
+        {activeTab?.mode !== 'chat' && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'walkthrough' ? activeNonChatContent : null}
       </div>
       </div>
     </aside>

@@ -277,7 +277,7 @@ export const decodeFrameBatch = (plaintext) => {
 };
 
 // Only high-volume body/stream data is buffered; setup/teardown/keepalive frames
-// flush immediately so TTFT, terminal echo, and liveness stay snappy.
+// flush immediately so TTFT and liveness stay snappy.
 const BUFFERED_FRAME_TYPES = new Set([
   TunnelFrameType.HttpBody,
   TunnelFrameType.WsText,

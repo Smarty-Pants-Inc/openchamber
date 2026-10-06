@@ -274,16 +274,16 @@ describe('updateDesktopSettings', () => {
 
   test('sanitizes a successful fallback settings response before applying it', async () => {
     const previousFetch = globalThis.fetch;
-    const fallbackFetch: typeof fetch = async () => new Response(JSON.stringify({ terminalShell: 'zsh' }), {
+    const fallbackFetch: typeof fetch = async () => new Response(JSON.stringify({ editorFontSize: 16 }), {
       headers: { 'Content-Type': 'application/json' },
     });
     try {
       globalThis.fetch = fallbackFetch;
-      useUIStore.getState().setTerminalShell('fish');
+      useUIStore.getState().setEditorFontSize(18);
 
-      await updateDesktopSettings({ terminalShell: 'zsh' });
+      await updateDesktopSettings({ editorFontSize: 16 });
 
-      expect(useUIStore.getState().terminalShell).toBe('zsh');
+      expect(useUIStore.getState().editorFontSize).toBe(16);
       expect(getSettingsSaveState()).toBe('idle');
     } finally {
       globalThis.fetch = previousFetch;
@@ -311,11 +311,11 @@ describe('updateDesktopSettings', () => {
     });
     try {
       globalThis.fetch = fallbackFetch;
-      useUIStore.getState().setTerminalShell('fish');
+      useUIStore.getState().setEditorFontSize(18);
 
-      await updateDesktopSettings({ terminalShell: 'zsh' });
+      await updateDesktopSettings({ editorFontSize: 16 });
 
-      expect(useUIStore.getState().terminalShell).toBe('fish');
+      expect(useUIStore.getState().editorFontSize).toBe(18);
       expect(states).toEqual(['saving', 'error']);
     } finally {
       unsubscribe();
@@ -331,7 +331,7 @@ describe('updateDesktopSettings', () => {
       conditions.push(options?.ifMatch);
       savedProjects.push(changes.projects?.map(project => project.path) ?? []);
       return changes;
-    }, async () => ({ settings: { projects: [{ id: 'home', path: '/home' }], terminalShell: 'fish' }, source: 'web', revision: '"new-preferences"' }));
+    }, async () => ({ settings: { projects: [{ id: 'home', path: '/home' }], editorFontSize: 18 }, source: 'web', revision: '"new-preferences"' }));
     const first = updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: baseline });
     baseline.push({ id: 'a', path: '/a' });
     const second = updateDesktopSettings({ projects: [{ id: 'a', path: '/a', label: 'Renamed' }] }, { expectedProjects: baseline });
@@ -477,7 +477,7 @@ describe('updateDesktopSettings', () => {
           switchRuntimeEndpoint({ apiBaseUrl: 'https://conflict-b.example', runtimeKey: 'conflict-b' });
           switchRuntimeEndpoint({ apiBaseUrl: 'https://conflict-a.example', runtimeKey: 'conflict-a' });
         } else {
-          newerEdit = updateDesktopSettings({ terminalShell: 'fish' });
+          newerEdit = updateDesktopSettings({ editorFontSize: 18 });
         }
       }
       return { settings: { projects: [] }, source: 'web', revision: loads === 1 ? '"before"' : '"after"' };
@@ -521,9 +521,9 @@ describe('updateDesktopSettings', () => {
     await updateDesktopSettings({ projects: [{ id: 'a', path: '/a' }] }, { expectedProjects: [] });
     expect(saved).toEqual([]);
     expect(getSettingsSaveState()).toBe('error');
-    await updateDesktopSettings({ terminalShell: 'fish' });
+    await updateDesktopSettings({ editorFontSize: 18 });
     expect(saved.length).toBe(1);
-    expect(saved[0]?.terminalShell).toBe('fish');
+    expect(saved[0]?.editorFontSize).toBe(18);
     expect(saved[0]?.projects).toBe(undefined);
   });
 
@@ -544,17 +544,17 @@ describe('updateDesktopSettings', () => {
       saveCalls.push(changes);
       return saveResult.promise;
     });
-    const update = updateDesktopSettings({ terminalShell: 'zsh' });
+    const update = updateDesktopSettings({ editorFontSize: 16 });
 
     switchRuntimeEndpoint({ apiBaseUrl: 'https://settings-b.example', runtimeKey: 'settings-b' });
     registerSettingsSave(async (changes) => changes as SettingsPayload);
-    useUIStore.getState().setTerminalShell('fish');
+    useUIStore.getState().setEditorFontSize(18);
 
-    expect(saveCalls).toEqual([{ terminalShell: 'zsh' }]);
-    saveResult.resolve({ terminalShell: 'zsh' });
+    expect(saveCalls).toEqual([{ editorFontSize: 16 }]);
+    saveResult.resolve({ editorFontSize: 16 });
     await update;
 
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
   });
 
   test('does not retry a failed old-runtime save against the new runtime', async () => {
@@ -569,7 +569,7 @@ describe('updateDesktopSettings', () => {
       }) as typeof fetch;
       switchRuntimeEndpoint({ apiBaseUrl: 'https://failed-save-a.example', runtimeKey: 'failed-save-a' });
       registerSettingsSave(() => saveResult.promise);
-      const update = updateDesktopSettings({ terminalShell: 'zsh' });
+      const update = updateDesktopSettings({ editorFontSize: 16 });
 
       switchRuntimeEndpoint({ apiBaseUrl: 'https://failed-save-b.example', runtimeKey: 'failed-save-b' });
       registerSettingsSave(async (changes) => changes as SettingsPayload);
@@ -587,16 +587,16 @@ describe('updateDesktopSettings', () => {
     let loads = 0;
     registerSettingsApi(async (changes) => changes, async () => {
       loads += 1;
-      return loads === 1 ? firstLoad.promise : { settings: { terminalShell: 'fish' }, source: 'web' };
+      return loads === 1 ? firstLoad.promise : { settings: { editorFontSize: 18 }, source: 'web' };
     });
     invalidateSettingsCache();
     const bootstrap = syncDesktopSettings();
     const refresh = refreshDesktopSettings();
     expect(loads).toBe(1);
-    firstLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    firstLoad.resolve({ settings: { editorFontSize: 14 }, source: 'web' });
     await Promise.all([bootstrap, refresh]);
     expect(loads).toBe(2);
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
   });
 
   test('external invalidation waits for a pending save echo before loading the newer snapshot', async () => {
@@ -609,15 +609,15 @@ describe('updateDesktopSettings', () => {
       if (saves !== 1) return changes;
       saving.resolve();
       return saved.promise;
-    }, async () => { loads += 1; return { settings: { terminalShell: 'fish' }, source: 'web' }; });
+    }, async () => { loads += 1; return { settings: { editorFontSize: 18 }, source: 'web' }; });
     const write = updateDesktopSettings({ gitChangesViewMode: 'tree' });
     const refresh = refreshDesktopSettings();
     await saving.promise;
     expect(loads).toBe(0);
-    saved.resolve({ terminalShell: 'bash' });
+    saved.resolve({ editorFontSize: 14 });
     await Promise.all([write, refresh]);
     expect(loads).toBe(1);
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
   });
 
   test('external invalidation does not wait for requests belonging to a disconnected runtime', async () => {
@@ -626,11 +626,11 @@ describe('updateDesktopSettings', () => {
     registerSettingsApi(async (changes) => changes, () => oldLoad.promise);
     const oldSync = syncDesktopSettings();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://waiting-new.example', runtimeKey: 'waiting-new' });
-    registerSettingsApi(async (changes) => changes, async () => ({ settings: { terminalShell: 'fish' }, source: 'web' }));
+    registerSettingsApi(async (changes) => changes, async () => ({ settings: { editorFontSize: 18 }, source: 'web' }));
     await refreshDesktopSettings();
-    oldLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    oldLoad.resolve({ settings: { editorFontSize: 14 }, source: 'web' });
     await oldSync;
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
   });
 
   test('external invalidation does not follow an old runtime into the next runtime', async () => {
@@ -645,7 +645,7 @@ describe('updateDesktopSettings', () => {
       newLoads += 1;
       return { settings: {}, source: 'web' };
     });
-    oldLoad.resolve({ settings: { terminalShell: 'bash' }, source: 'web' });
+    oldLoad.resolve({ settings: { editorFontSize: 14 }, source: 'web' });
     await Promise.all([bootstrap, refresh]);
     expect(newLoads).toBe(0);
   });
@@ -658,26 +658,26 @@ describe('updateDesktopSettings', () => {
 
     switchRuntimeEndpoint({ apiBaseUrl: 'https://load-b.example', runtimeKey: 'load-b' });
     registerSettingsApi(async () => ({}), async () => ({
-      settings: { terminalShell: 'fish', draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
+      settings: { editorFontSize: 18, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
       source: 'web',
     }));
     await syncDesktopSettings();
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
 
     switchRuntimeEndpoint({ apiBaseUrl: 'https://load-a.example', runtimeKey: 'load-a' });
     registerSettingsApi(async () => ({}), async () => ({
-      settings: { terminalShell: 'bash', draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
+      settings: { editorFontSize: 14, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
       source: 'web',
     }));
     await syncDesktopSettings();
-    expect(useUIStore.getState().terminalShell).toBe('bash');
+    expect(useUIStore.getState().editorFontSize).toBe(14);
 
     originalLoad.resolve({
-      settings: { terminalShell: 'zsh', draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
+      settings: { editorFontSize: 16, draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true },
       source: 'web',
     });
     await firstSync;
-    expect(useUIStore.getState().terminalShell).toBe('bash');
+    expect(useUIStore.getState().editorFontSize).toBe(14);
   });
 
   test('isolates local settings mirrors and removes values omitted by the next runtime', async () => {
@@ -719,7 +719,7 @@ describe('updateDesktopSettings', () => {
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
         showReasoningTraces: false,
-        terminalShell: 'fish',
+        editorFontSize: 18,
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4' }],
         toolJsonViewMode: 'raw',
         followUpBehavior: 'steer',
@@ -732,7 +732,7 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(useUIStore.getState().showReasoningTraces).toBe(false);
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
     expect(useUIStore.getState().favoriteModels).toHaveLength(1);
     expect(useUIStore.getState().toolJsonViewMode).toBe('raw');
     expect(useUIStore.getState().globalDraftStarters).toEqual([{ type: 'command', name: 'runtime-a' }]);
@@ -747,7 +747,7 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(useUIStore.getState().showReasoningTraces).toBe(true);
-    expect(useUIStore.getState().terminalShell).toBe('auto');
+    expect(useUIStore.getState().editorFontSize).toBe(13);
     expect(useUIStore.getState().favoriteModels).toEqual([]);
     expect(useUIStore.getState().toolJsonViewMode).toBe('summary');
     expect(useUIStore.getState().globalDraftStarters).toBeNull();
@@ -758,13 +758,13 @@ describe('updateDesktopSettings', () => {
   test('treats settings save responses as partial patches', async () => {
     getWindow();
     localStorage.setItem('selectedThemeId', 'existing-theme');
-    useUIStore.getState().setTerminalShell('fish');
+    useUIStore.getState().setEditorFontSize(18);
     registerSettingsSave(async () => ({ showReasoningTraces: false }));
 
     await updateDesktopSettings({ showReasoningTraces: false });
 
     expect(useUIStore.getState().showReasoningTraces).toBe(false);
-    expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().editorFontSize).toBe(18);
     expect(localStorage.getItem('selectedThemeId')).toBe('existing-theme');
   });
 
@@ -1099,7 +1099,7 @@ describe('updateDesktopSettings', () => {
     const startRead = () => {
       const old = ++loads === 1;
       reading.resolve();
-      const snapshot: SettingsPayload = { ...settings, terminalShell: old ? 'bash' : 'fish' };
+      const snapshot: SettingsPayload = { ...settings, editorFontSize: old ? 14 : 18 };
       return { snapshot, ready: old ? releaseOld.promise : releaseNew.promise };
     };
     if (transport === 'runtime') registerSettingsApi(async (changes) => changes, async () => {
@@ -1134,10 +1134,10 @@ describe('updateDesktopSettings', () => {
       expect(loads).toBe(2); // Its cleanup did not detach the newer pending read.
       releaseNew.resolve();
       await Promise.all([second, third]);
-      expect(useUIStore.getState().terminalShell).toBe('fish');
+      expect(useUIStore.getState().editorFontSize).toBe(18);
       await syncDesktopSettings();
       expect(loads).toBe(2);
-      expect(useUIStore.getState().terminalShell).toBe('fish');
+      expect(useUIStore.getState().editorFontSize).toBe(18);
     } finally {
       releaseOld.resolve();
       releaseNew.resolve();
@@ -1158,14 +1158,14 @@ describe('updateDesktopSettings', () => {
       throw new Error('conditional write rejected');
     }, async () => {
       loads += 1;
-      return { settings: { terminalShell: 'bash', autoSaveEnabled: true,
+      return { settings: { editorFontSize: 14, autoSaveEnabled: true,
         draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true,
         sidebarProjectDisplayMode: useSessionDisplayStore.getState().projectDisplayMode,
         sidebarSessionGroupingMode: useSessionDisplayStore.getState().sessionGroupingMode,
         sidebarProjectSortOrder: useSessionDisplayStore.getState().projectSortOrder,
         sidebarShowRecentSection: useSessionDisplayStore.getState().showRecentSection }, source: 'web' };
     });
-    const write = updateDesktopSettings({ terminalShell: 'fish' });
+    const write = updateDesktopSettings({ editorFontSize: 18 });
     await saving.promise;
     const bootstrap = syncDesktopSettings();
     try {
@@ -1177,7 +1177,7 @@ describe('updateDesktopSettings', () => {
     }
     expect(saves).toBe(1);
     expect(loads).toBe(1);
-    expect(useUIStore.getState().terminalShell).toBe('bash');
+    expect(useUIStore.getState().editorFontSize).toBe(14);
   });
 
   test('bootstrap waiting on a write cannot follow a runtime switch', async () => {
@@ -1189,14 +1189,14 @@ describe('updateDesktopSettings', () => {
       await releaseSave.promise;
       return changes;
     });
-    const write = updateDesktopSettings({ terminalShell: 'fish' });
+    const write = updateDesktopSettings({ editorFontSize: 18 });
     await saving.promise;
     const oldBootstrap = syncDesktopSettings();
     switchRuntimeEndpoint({ apiBaseUrl: 'https://pending-write-b.example', runtimeKey: 'pending-write-b' });
     let loads = 0;
     registerSettingsApi(async (changes) => changes, async () => {
       loads += 1;
-      return { settings: { terminalShell: 'bash', autoSaveEnabled: true,
+      return { settings: { editorFontSize: 14, autoSaveEnabled: true,
         draftStartersCraftGoalAdded: true, draftStartersScheduleTaskAdded: true }, source: 'web' };
     });
     try {
@@ -1207,7 +1207,7 @@ describe('updateDesktopSettings', () => {
       await Promise.all([write, oldBootstrap]);
     }
     expect(loads).toBe(1); // Old waiter never loads the new runtime.
-    expect(useUIStore.getState().terminalShell).toBe('bash');
+    expect(useUIStore.getState().editorFontSize).toBe(14);
   });
 
   test('does not broadcast a stale loaded project selection over a newer pending update', async () => {
@@ -1373,20 +1373,18 @@ describe('updateDesktopSettings', () => {
     expect(state.recentEfforts).toEqual(settings.recentEfforts);
   });
 
-  test('applies the persisted terminal shell from server settings', async () => {
+  test('applies the persisted editor font size from server settings', async () => {
     getWindow();
     invalidateSettingsCache();
-    useUIStore.getState().setTerminalShell('auto');
-    useUIStore.getState().setTerminalLoginShells([]);
+    useUIStore.getState().setEditorFontSize(13);
     registerSettingsApi(async () => ({}), async () => ({
-      settings: { terminalShell: 'zsh', terminalLoginShells: ['zsh', 'fish'] },
+      settings: { editorFontSize: 16 },
       source: 'web',
     }));
 
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().terminalShell).toBe('zsh');
-    expect(useUIStore.getState().terminalLoginShells).toEqual(['zsh', 'fish']);
+    expect(useUIStore.getState().editorFontSize).toBe(16);
   });
 
   test('autosaves all model selector settings fields', async () => {
@@ -1430,8 +1428,7 @@ describe('updateDesktopSettings', () => {
 
   test('autosaves appearance preferences to shared settings', async () => {
     getWindow();
-    useUIStore.getState().setTerminalShell('auto');
-    useUIStore.getState().setTerminalLoginShells([]);
+    useUIStore.getState().setEditorFontSize(13);
     const saveCalls: Array<Partial<SettingsPayload>> = [];
     registerSettingsSave(async (changes) => {
       saveCalls.push(changes);
@@ -1439,13 +1436,11 @@ describe('updateDesktopSettings', () => {
     });
     startAppearanceAutoSave();
 
-    useUIStore.getState().setTerminalShell('zsh');
-    useUIStore.getState().setTerminalLoginShells(['zsh']);
+    useUIStore.getState().setEditorFontSize(16);
     useUIStore.getState().setToolJsonViewMode('formatted');
     await delay(500);
 
-    expect(saveCalls.some((changes) => changes.terminalShell === 'zsh')).toBe(true);
-    expect(saveCalls.some((changes) => changes.terminalLoginShells?.includes('zsh'))).toBe(true);
+    expect(saveCalls.some((changes) => changes.editorFontSize === 16)).toBe(true);
     expect(saveCalls.some((changes) => changes.toolJsonViewMode === 'formatted')).toBe(true);
   });
 

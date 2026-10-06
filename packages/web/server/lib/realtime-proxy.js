@@ -13,8 +13,7 @@ const isAllowedSsePath = (pathname) => {
 
 const isAllowedWebSocketPath = (pathname) => {
   return pathname === '/api/event/ws'
-    || pathname === '/api/global/event/ws'
-    || pathname === '/api/terminal/ws';
+    || pathname === '/api/global/event/ws';
 };
 
 const normalizeBaseUrl = (value) => {

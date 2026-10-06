@@ -4,7 +4,7 @@ export const IPAD_LEFT_SIDEBAR_WIDTH = 320;
 export const IPAD_RIGHT_SIDEBAR_WIDTH = 380;
 const IPAD_SIDEBAR_MIN_WIDTH = 280;
 const IPAD_SIDEBAR_MAX_WIDTH = 560;
-/** The workspace panel holds diffs, a file editor and a terminal, so it earns
+/** The workspace panel holds diffs and a file editor, so it earns
     far more room than the sessions list ever needs. */
 export const IPAD_WORKSPACE_SIDEBAR_MAX_WIDTH = 900;
 

@@ -3,7 +3,6 @@ import { isApplyingServerSettings, updateDesktopSettings } from '@/lib/persisten
 import type { DesktopSettings } from '@/lib/desktop';
 import type { MonoFontOption, UiFontOption } from '@/lib/fontOptions';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
-import type { TerminalShell } from '@/lib/api/types';
 
 type AppearanceSlice = {
   showReasoningTraces: boolean;
@@ -39,9 +38,6 @@ type AppearanceSlice = {
   autoDeleteAfterDays: number;
   sessionRetentionAction: 'archive' | 'delete';
   fontSize: number;
-  terminalFontSize: number;
-  terminalShell: TerminalShell;
-  terminalLoginShells: TerminalShell[];
   editorFontSize: number;
   uiFont: UiFontOption;
   monoFont: MonoFontOption;
@@ -92,9 +88,7 @@ export const startAppearanceAutoSave = (): void => {
     autoDeleteAfterDays: useUIStore.getState().autoDeleteAfterDays,
     sessionRetentionAction: useUIStore.getState().sessionRetentionAction,
     fontSize: useUIStore.getState().fontSize,
-    terminalFontSize: useUIStore.getState().terminalFontSize,
-    terminalShell: useUIStore.getState().terminalShell,
-    terminalLoginShells: useUIStore.getState().terminalLoginShells,
+
     editorFontSize: useUIStore.getState().editorFontSize,
     uiFont: useUIStore.getState().uiFont,
     monoFont: useUIStore.getState().monoFont,
@@ -137,9 +131,7 @@ export const startAppearanceAutoSave = (): void => {
       autoDeleteAfterDays: state.autoDeleteAfterDays,
       sessionRetentionAction: state.sessionRetentionAction,
       fontSize: state.fontSize,
-      terminalFontSize: state.terminalFontSize,
-      terminalShell: state.terminalShell,
-      terminalLoginShells: state.terminalLoginShells,
+
       editorFontSize: state.editorFontSize,
       uiFont: state.uiFont,
       monoFont: state.monoFont,
@@ -244,15 +236,6 @@ export const startAppearanceAutoSave = (): void => {
     }
     if (current.fontSize !== previous.fontSize) {
       diff.fontSize = current.fontSize;
-    }
-    if (current.terminalFontSize !== previous.terminalFontSize) {
-      diff.terminalFontSize = current.terminalFontSize;
-    }
-    if (current.terminalShell !== previous.terminalShell) {
-      diff.terminalShell = current.terminalShell;
-    }
-    if (current.terminalLoginShells !== previous.terminalLoginShells) {
-      diff.terminalLoginShells = current.terminalLoginShells;
     }
     if (current.editorFontSize !== previous.editorFontSize) {
       diff.editorFontSize = current.editorFontSize;

@@ -74,3 +74,8 @@ describe('settings search', () => {
     expect(ids(false)).not.toContain('chat.session-recap'); expect(ids(false)).not.toContain('chat.session-suggestion');
   });
 });
+
+test('search offers no settings for the removed web shell', () => {
+  const results = buildSettingsSearchResults({ query: 'terminal', runtimeCtx, t, getPageTitle: page => page });
+  expect(results.filter(result => result.id.startsWith('appearance.terminal-'))).toEqual([]);
+});

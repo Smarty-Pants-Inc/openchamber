@@ -12,7 +12,6 @@ import { createUiAuth } from './ui-auth.js';
 import { configureApplicationHosts } from '../security/browser-origin.js';
 import { createRequestSecurityRuntime } from '../security/request-security.js';
 import { createMessageStreamWsRuntime } from '../event-stream/runtime.js';
-import { createTerminalRuntime } from '../terminal/runtime.js';
 import { createDictationRuntime } from '../dictation/runtime.js';
 import { createDevTunnelRuntime } from '../dev-tunnel/runtime.js';
 import { attachRealtimeProxy } from '../realtime-proxy.js';
@@ -78,7 +77,7 @@ test('central human upgrade adds Host authority without changing issuer Origin o
 });
 
 async function runtimeFixture(f) {
-  const effects = { tcp: 0, streams: 0, sockets: 0, pty: 0, gateway: 0, discovery: 0 };
+  const effects = { tcp: 0, streams: 0, sockets: 0, gateway: 0, discovery: 0 };
   const upstream = createServer((_req, res) => {
     effects.streams++;
     res.writeHead(200, { 'Content-Type': 'text/event-stream' }); res.write(': private fixture\n\n');
@@ -94,9 +93,6 @@ async function runtimeFixture(f) {
   const shared = { server, app, uiAuthController: f.controller, ...security };
   const events = createMessageStreamWsRuntime({ ...shared, buildOpenCodeUrl: p => `${base}${p}`,
     getOpenCodeAuthHeaders: () => ({}), processForwardedEventPayload() {}, wsClients: new Set(), upstreamReconnectDelayMs: 60_000 });
-  const terminal = createTerminalRuntime({ ...shared, fs: {}, path: {}, buildAugmentedPath: () => '',
-    searchPathFor: () => null, isExecutable: () => false, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000,
-    loadPtyProvider: async () => { effects.pty++; throw new Error('PTY forbidden in private upgrade fixture'); } });
   const dictation = createDictationRuntime({ ...shared, express, modelsDir: '/unused-private-upgrade-fixture' });
   const tunnel = createDevTunnelRuntime({ ...shared, discoverDevServers: async () => {
     effects.discovery++; return { ok: true, servers: [{ port: upstreamPort }] };
@@ -108,8 +104,8 @@ async function runtimeFixture(f) {
     getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer private-fixture-only' }) });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  const paths = ['/api/global/event/ws', '/api/event/ws?directory=/private', '/api/terminal/ws', '/api/dictation/ws',
-    `/api/dev-tunnel?port=${upstreamPort}`, `/api/openchamber/realtime-proxy/ws?url=${encodeURIComponent(`ws://127.0.0.1:${upstreamPort}/api/terminal/ws`)}`,
+  const paths = ['/api/global/event/ws', '/api/event/ws?directory=/private', '/api/dictation/ws',
+    `/api/dev-tunnel?port=${upstreamPort}`, `/api/openchamber/realtime-proxy/ws?url=${encodeURIComponent(`ws://127.0.0.1:${upstreamPort}/api/global/event/ws`)}`,
     '/api/session/private-fixture/voice/socket?directory=/private'];
   const open = (path, headers) => new Promise((resolve, reject) => {
     const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`, { headers, handshakeTimeout: 3000 });
@@ -123,7 +119,7 @@ async function runtimeFixture(f) {
   });
   return { effects, paths, open, async close() {
     voice.stop(); proxy.stop(); tunnel.dispose(); dictation.stop();
-    await events.close(); await terminal.shutdown();
+    await events.close();
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     for (const socket of upstreamWs.clients) socket.terminate();
     await new Promise(resolve => upstreamWs.close(resolve));
@@ -140,11 +136,10 @@ for (const index of [0, 2]) test(`raw human WS control ${index}: served aliases 
       assert.equal((await runtime.open(runtime.paths[index], { Host, Origin: issuer })).code, 401);
       assert.equal((await runtime.open(runtime.paths[index], { ...f.headers, Host, Origin: 'https://attacker.test' })).code, 403);
     }
-    assert.equal(runtime.effects.pty, 0);
   } finally { await runtime.close(); restore(); f.close(); }
 });
 
-for (let index = 0; index < 7; index++) test(`raw human WS ingress ${index}: unbound Host cannot set up capability; served hosts still work`, async () => {
+for (let index = 0; index < 6; index++) test(`raw human WS ingress ${index}: unbound Host cannot set up capability; served hosts still work`, async () => {
   const f = await humanFixture(), restore = configureHosts();
   const runtime = await runtimeFixture(f);
   try {
@@ -153,9 +148,9 @@ for (let index = 0; index < 7; index++) test(`raw human WS ingress ${index}: unb
     for (const extra of [{}, { 'X-Forwarded-Host': 'code.smartypants.ai', Forwarded: 'host=code.smartypants.ai' }]) {
       assert.deepEqual(await runtime.open(path, { ...headers, ...extra }), { code: 403, reason: hostReason }, path);
     }
-    const invalidPaths = index === 4 ? ['/api/dev-tunnel', '/api/dev-tunnel?port=bad', '/api/dev-tunnel?port=1']
-      : index === 5 ? ['/api/openchamber/realtime-proxy/ws', '/api/openchamber/realtime-proxy/ws?url=bad']
-      : index === 6 ? ['/api/session/private-fixture/voice/socket', '/api/session/%ZZ/voice/socket?directory=/private']
+    const invalidPaths = index === 3 ? ['/api/dev-tunnel', '/api/dev-tunnel?port=bad', '/api/dev-tunnel?port=1']
+      : index === 4 ? ['/api/openchamber/realtime-proxy/ws', '/api/openchamber/realtime-proxy/ws?url=bad']
+      : index === 5 ? ['/api/session/private-fixture/voice/socket', '/api/session/%ZZ/voice/socket?directory=/private']
       : index === 1 ? ['/api/event/ws', '/api/event/ws?directory='] : [];
     for (const requestPath of [path, ...invalidPaths]) {
       for (const session of [f.headers, {}]) {
@@ -166,12 +161,12 @@ for (let index = 0; index < 7; index++) test(`raw human WS ingress ${index}: unb
         }
       }
     }
-    assert.deepEqual(runtime.effects, { tcp: 0, streams: 0, sockets: 0, pty: 0, gateway: 0, discovery: 0 });
-    if ([2, 4, 5, 6].includes(index)) {
+    assert.deepEqual(runtime.effects, { tcp: 0, streams: 0, sockets: 0, gateway: 0, discovery: 0 });
+    if ([3, 4, 5].includes(index)) {
       configureApplicationHosts(async () => null); // Fault injection at Host configuration, not human identity.
-      assert.deepEqual(await runtime.open(path, headers), index === 5
+      assert.deepEqual(await runtime.open(path, headers), index === 4
         ? { code: 401, reason: 'Unauthorized' } : { code: 500, reason: 'Upgrade failed' });
-      assert.deepEqual(runtime.effects, { tcp: 0, streams: 0, sockets: 0, pty: 0, gateway: 0, discovery: 0 });
+      assert.deepEqual(runtime.effects, { tcp: 0, streams: 0, sockets: 0, gateway: 0, discovery: 0 });
       configureApplicationHosts(async () => (process.env.OPENCHAMBER_ALLOWED_HOSTS ?? '').split(','));
     }
     for (const host of [...aliases.split(','), '127.0.0.1', 'localhost']) {
@@ -180,15 +175,14 @@ for (let index = 0; index < 7; index++) test(`raw human WS ingress ${index}: unb
       for (const Origin of ['https://attacker.test', 'null']) {
         assert.equal((await runtime.open(path, { ...headers, Host: host, Origin })).code, 403, path);
       }
-      if (index === 4 || index === 6) {
+      if (index === 3 || index === 5) {
         for (const invalidPath of invalidPaths) {
-          const reason = index === 6 ? 'Voice needs a session and a project directory'
+          const reason = index === 5 ? 'Voice needs a session and a project directory'
             : invalidPath.endsWith('port=1') ? 'That port is not an available dev server' : 'Invalid port';
           assert.deepEqual(await runtime.open(invalidPath, { ...headers, Host: host }),
             { code: reason === 'That port is not an available dev server' ? 403 : 400, reason }, invalidPath);
         }
       }
     }
-    assert.equal(runtime.effects.pty, 0);
   } finally { await runtime.close(); restore(); f.close(); }
 });

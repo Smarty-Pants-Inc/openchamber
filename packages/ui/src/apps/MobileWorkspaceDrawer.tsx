@@ -7,7 +7,6 @@ import { McpDropdownContent } from '@/components/mcp/McpDropdown';
 import { ProjectContextPanel } from '@/components/layout/RightSidebarTabs';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/sortable-tabs-strip';
-import { TerminalView } from '@/components/views/TerminalView';
 import { useI18n } from '@/lib/i18n';
 import type { ProjectRef } from '@/lib/projectContextApi';
 import { cn } from '@/lib/utils';
@@ -25,7 +24,7 @@ const ENTER_DELAY_MS = 16;
 const ENTER_DURATION_MS = 320;
 const DRAWER_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
-export type MobileWorkspaceTab = 'changes' | 'files' | 'terminal' | 'notes' | 'mcp';
+export type MobileWorkspaceTab = 'changes' | 'files' | 'notes' | 'mcp';
 
 /** Quick MCP enable/disable toggles as a workspace pane, with its own slim
     action row (add server → settings, refresh) replacing the old fullscreen
@@ -86,7 +85,7 @@ const McpWorkspacePane: React.FC<{ onOpenMcpSettings: () => void }> = ({ onOpenM
   );
 };
 
-/** The workspace surfaces as tabs (Changes / Files / Terminal / Notes / MCP).
+/** The workspace surfaces as tabs (Changes / Files / Notes / MCP).
 
     Two hosts, same content and same state:
      - `drawer` (default) covers the app and slides in from the right edge —
@@ -96,7 +95,7 @@ const McpWorkspacePane: React.FC<{ onOpenMcpSettings: () => void }> = ({ onOpenM
        beside the chat (tablet, landscape). The caller owns the width and the
        open/close animation there; this component only fills it.
 
-    Closes via the header X, Escape (unless the terminal tab owns the keys), or
+    Closes via the header X, Escape, or
     the Android back button (handled by MobileShell). */
 export const MobileWorkspaceDrawer: React.FC<{
   open: boolean;
@@ -165,8 +164,7 @@ export const MobileWorkspaceDrawer: React.FC<{
     const previousOverflow = document.body.style.overflow;
     if (variant === 'drawer') document.body.style.overflow = 'hidden';
     const handleKeyDown = (event: KeyboardEvent) => {
-      // The terminal owns Escape (it goes to the PTY) — don't hijack it.
-      if (event.key === 'Escape' && tabRef.current !== 'terminal') onCloseRef.current();
+      if (event.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
@@ -180,7 +178,7 @@ export const MobileWorkspaceDrawer: React.FC<{
   const tabItems: SortableTabsStripItem[] = [
     { id: 'changes', label: t('mobile.menu.changes'), icon: <Icon name="git-branch" className="h-3.5 w-3.5" /> },
     { id: 'files', label: t('mobile.menu.files'), icon: <Icon name="file-text" className="h-3.5 w-3.5" /> },
-    { id: 'terminal', label: t('mobile.menu.terminal'), icon: <Icon name="terminal" className="h-3.5 w-3.5" /> },
+
     { id: 'notes', label: t('contextRail.surface.notes'), icon: <Icon name="sticky-note" className="h-3.5 w-3.5" /> },
     { id: 'mcp', label: t('mobile.menu.mcp'), icon: <McpIcon className="h-3.5 w-3.5" /> },
   ];
@@ -220,7 +218,7 @@ export const MobileWorkspaceDrawer: React.FC<{
       <div className="min-h-0 flex-1 overflow-hidden">
         {/* Panes stay MOUNTED once visited (hidden when inactive/closed), so
             reopening the drawer lands exactly where the user left off — an
-            open diff, an edited file, an attached terminal. */}
+            open diff, an edited file. */}
         {visitedTabs.has('changes') ? (
           <div
             // A newly requested per-file diff remounts the pane so
@@ -243,13 +241,7 @@ export const MobileWorkspaceDrawer: React.FC<{
             </ErrorBoundary>
           </div>
         ) : null}
-        {visitedTabs.has('terminal') ? (
-          <div className={cn('h-full', tab !== 'terminal' && 'hidden')}>
-            <ErrorBoundary>
-              <TerminalView visible={open && tab === 'terminal'} />
-            </ErrorBoundary>
-          </div>
-        ) : null}
+
         {visitedTabs.has('notes') ? (
           <div className={cn('h-full', tab !== 'notes' && 'hidden')}>
             <ErrorBoundary>

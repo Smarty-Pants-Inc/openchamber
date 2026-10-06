@@ -49,9 +49,8 @@ the `openContext*` actions in `useUIStore`.
 
 - Opening a surface must never require a control outside the rail, the
   command palette, or an in-content link.
-- Multi-instance and session-holding surfaces (file/editor, diff, browser,
-  terminal) are keep-alive panes in `ContextPanel.tsx`. Switching these
-  surfaces must not reset their state (open tabs, xterm session, scroll
+- Multi-instance and session-holding surfaces (file/editor, diff, browser) are keep-alive panes in `ContextPanel.tsx`. Switching these
+  surfaces must not reset their state (open tabs, scroll
   positions). Chat tab records stay open, but only the active chat iframe is
   mounted while the panel is open. A selected chat restores its state from
   the session stores. A closed panel mounts no chat iframe.

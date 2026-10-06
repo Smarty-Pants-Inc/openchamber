@@ -149,20 +149,12 @@ export const createSettingsRuntime = (deps) => {
       ...(mergeByKey(oldValue.projectTodos, newValue.projectTodos, (item) => item.id).length > 0
         ? { projectTodos: mergeByKey(oldValue.projectTodos, newValue.projectTodos, (item) => item.id) }
         : {}),
-      ...(mergeByKey(oldValue.projectActions, newValue.projectActions, (item) => item.id).length > 0
-        ? { projectActions: mergeByKey(oldValue.projectActions, newValue.projectActions, (item) => item.id) }
-        : {}),
       ...(mergeByKey(oldValue.scheduledTasks, newValue.scheduledTasks, (item) => item.id).length > 0
         ? { scheduledTasks: mergeByKey(oldValue.scheduledTasks, newValue.scheduledTasks, (item) => item.id) }
         : {}),
       ...(mergeByKey(oldPlanFiles, newPlanFiles, (item) => item.id || item.path).length > 0
         ? { projectPlanFiles: mergeByKey(oldPlanFiles, newPlanFiles, (item) => item.id || item.path) }
         : {}),
-      ...(typeof newValue.projectActionsPrimaryId === 'string' && newValue.projectActionsPrimaryId.trim().length > 0
-        ? { projectActionsPrimaryId: newValue.projectActionsPrimaryId }
-        : typeof oldValue.projectActionsPrimaryId === 'string' && oldValue.projectActionsPrimaryId.trim().length > 0
-          ? { projectActionsPrimaryId: oldValue.projectActionsPrimaryId }
-          : {}),
     };
   };
 
@@ -384,6 +376,8 @@ export const createSettingsRuntime = (deps) => {
       const hasContent = [
         typeof content.projectNotes === 'string' && content.projectNotes.trim().length > 0,
         Array.isArray(content.projectTodos) && content.projectTodos.length > 0,
+        // Read-only migration hint (openchamber#552 Astra r2 F5): legacy saved actions still identify an orphan
+        // project's config so its notes, todos and plans move; nothing reads or runs these actions.
         Array.isArray(content.projectActions) && content.projectActions.length > 0,
         Array.isArray(content['setup-worktree']) && content['setup-worktree'].length > 0,
         Array.isArray(content.projectPlanFiles) && content.projectPlanFiles.length > 0,
@@ -404,6 +398,7 @@ export const createSettingsRuntime = (deps) => {
     const extractRootRelPaths = (orphan) => {
       const commands = [
         ...(Array.isArray(orphan.content['setup-worktree']) ? orphan.content['setup-worktree'] : []),
+        // Read-only migration hint (F5 above).
         ...(Array.isArray(orphan.content.projectActions) ? orphan.content.projectActions.map((a) => typeof a?.command === 'string' ? a.command : '') : []),
       ].filter((s) => typeof s === 'string');
       const results = new Set();
@@ -438,6 +433,7 @@ export const createSettingsRuntime = (deps) => {
       if (!name) return false;
       const haystacks = [
         ...(Array.isArray(orphan.content['setup-worktree']) ? orphan.content['setup-worktree'] : []),
+        // Read-only migration hint (F5 above).
         ...(Array.isArray(orphan.content.projectActions) ? orphan.content.projectActions.map((a) => `${a?.name || ''} ${a?.command || ''}`) : []),
       ].join(' ').toLowerCase();
       return haystacks.includes(name);

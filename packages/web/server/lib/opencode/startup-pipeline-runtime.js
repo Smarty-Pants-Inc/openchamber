@@ -1,9 +1,10 @@
 import { recordStartupPerformance } from './startup-performance.js';
 import { registerOrgEntryRoutes } from './org-entry.js';
+import { installRetiredRouteRefusal } from '../security/retired-routes.js';
 
 export const createStartupPipelineRuntime = (dependencies) => {
   const {
-    createTerminalRuntime,
+
     createDictationRuntime,
     createMessageStreamWsRuntime,
     createServerStartupRuntime,
@@ -16,12 +17,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
       app,
       server,
       express,
-      fs,
-      path,
       uiAuthController,
-      buildAugmentedPath,
-      searchPathFor,
-      isExecutable,
       isRequestOriginAllowed,
       rejectWebSocketUpgrade,
       buildOpenCodeUrl,
@@ -31,9 +27,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
       messageStreamWsClients,
       triggerHealthCheck,
       upstreamStallTimeoutMs,
-      terminalHeartbeatIntervalMs,
-      terminalRebindWindowMs,
-      terminalMaxRebindsPerWindow,
+
       setupProxy,
       scheduleOpenCodeApiDetection,
       bootstrapOpenCodeAtStartup,
@@ -61,23 +55,6 @@ export const createStartupPipelineRuntime = (dependencies) => {
       dictationModelsDir,
     } = options;
 
-    const terminalRuntime = createTerminalRuntime({
-      app,
-      server,
-      express,
-      fs,
-      path,
-      uiAuthController,
-      buildAugmentedPath,
-      searchPathFor,
-      isExecutable,
-      isRequestOriginAllowed,
-      rejectWebSocketUpgrade,
-      TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: terminalHeartbeatIntervalMs,
-      TERMINAL_INPUT_WS_REBIND_WINDOW_MS: terminalRebindWindowMs,
-      TERMINAL_INPUT_WS_MAX_REBINDS_PER_WINDOW: terminalMaxRebindsPerWindow,
-    });
-
     const dictationRuntime = createDictationRuntime({
       app,
       server,
@@ -102,6 +79,8 @@ export const createStartupPipelineRuntime = (dependencies) => {
       upstreamStallTimeoutMs,
     });
 
+    // The deleted terminal's namespace is refused locally, never proxied upstream.
+    installRetiredRouteRefusal({ app, server });
     setupProxy(app);
     registerOrgEntryRoutes(app);
 
@@ -145,7 +124,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
     serverStartupRuntime.attachProcessHandlers({ attachSignals });
 
     return {
-      terminalRuntime,
+
       dictationRuntime,
       messageStreamRuntime,
     };

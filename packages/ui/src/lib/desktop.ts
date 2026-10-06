@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ProjectEntry, RuntimeAPIs, TerminalShell } from '@/lib/api/types';
+import type { ProjectEntry, RuntimeAPIs } from '@/lib/api/types';
 import { getInjectedBootOutcome } from '@/lib/desktopBoot';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { InputHistoryScope } from '@/lib/inputHistoryScope';
@@ -191,9 +191,6 @@ export type DesktopSettings = {
   wideChatLayoutEnabled?: boolean;
   showSplitAssistantMessageActions?: boolean;
   fontSize?: number;
-  terminalFontSize?: number;
-  terminalShell?: TerminalShell;
-  terminalLoginShells?: TerminalShell[];
   editorFontSize?: number;
   uiFont?: string;
   monoFont?: string;
