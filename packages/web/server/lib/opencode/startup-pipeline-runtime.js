@@ -1,5 +1,6 @@
 import { recordStartupPerformance } from './startup-performance.js';
 import { registerOrgEntryRoutes } from './org-entry.js';
+import { installRetiredRouteRefusal } from '../security/retired-routes.js';
 
 export const createStartupPipelineRuntime = (dependencies) => {
   const {
@@ -78,6 +79,8 @@ export const createStartupPipelineRuntime = (dependencies) => {
       upstreamStallTimeoutMs,
     });
 
+    // The deleted terminal's namespace is refused locally, never proxied upstream.
+    installRetiredRouteRefusal({ app, server });
     setupProxy(app);
     registerOrgEntryRoutes(app);
 

@@ -35,15 +35,36 @@ beforeAll(async () => {
   } finally { fs.rmSync(root, {recursive:true,force:true}); }
 }, 60_000);
 
+test('the retired-namespace refusal is the first upgrade listener', () => {
+  assert.equal(receipt.firstUpgradeListener, 'refuseRetiredRouteUpgrade');
+});
+
+test('no retired request or upgrade reaches the upstream proxy target', () => {
+  assert.deepEqual(receipt.upstreamRetired, []);
+});
+
 for (const label of ['signed-in', 'signed-out']) {
-  test(`${label}: every former terminal HTTP path is refused`, () => {
-    const rows = receipt.results.filter(row => row.label === label && row.method !== 'WS');
-    assert.equal(rows.length, 10);
-    for (const row of rows) assert.equal(row.status, label === 'signed-in' ? 404 : 401, row.route);
+  test(`${label}: every former terminal HTTP path is refused locally`, () => {
+    const rows = receipt.results.filter(row => row.label === label && !['WS', 'CONTROL-WS'].includes(row.method));
+    assert.equal(rows.length, 15);
+    for (const row of rows) {
+      assert.equal(row.leaked, false, `${row.method} ${row.route} returned the upstream or index sentinel`);
+      // Canonical paths keep the authentication contract: 401 signed out, 404 signed in.
+      const expected = label === 'signed-in' ? [404] : row.variant ? [401, 404] : [401];
+      assert.ok(expected.includes(row.status), `${row.method} ${row.route} => ${row.status}`);
+    }
   });
-  test(`${label}: upgrades to every former terminal path are rejected`, () => {
+  test(`${label}: the server refuses and closes upgrades to every former terminal path`, () => {
     const rows = receipt.results.filter(row => row.label === label && row.method === 'WS');
-    assert.equal(rows.length, 10);
-    for (const row of rows) assert.notEqual(row.status, 101, row.route);
+    assert.equal(rows.length, 15);
+    for (const row of rows) {
+      // A client deadline ('timeout') fails: only a server-written 404 plus a server close passes.
+      assert.equal(row.status, 404, row.route);
+      assert.equal(row.closedByServer, true, row.route);
+    }
+  });
+  test(`${label}: the remaining event WebSocket keeps its authentication`, () => {
+    const row = receipt.results.find(value => value.label === label && value.method === 'CONTROL-WS');
+    assert.equal(row?.status, label === 'signed-in' ? 101 : 401);
   });
 }

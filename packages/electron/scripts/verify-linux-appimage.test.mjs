@@ -22,9 +22,7 @@ const createPayload = () => {
   ].join('\n'));
   writeElf(path.join(root, 'openchamber'), 'x64');
   writeElf(path.join(root, 'resources/opencode-cli/opencode'), 'x64');
-  for (const name of ['pty.node', 'sherpa-onnx.node']) {
-    writeElf(path.join(root, 'resources/app.asar.unpacked/node_modules', name), 'x64');
-  }
+  writeElf(path.join(root, 'resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64/sherpa-onnx.node'), 'x64');
   return root;
 };
 
@@ -57,7 +55,7 @@ test('verifies identity, version, and native payload architecture', () => {
       expectedOpenCodeVersion: '1.17.18',
       runCliVersion: () => '1.17.18',
     });
-    assert.equal(result.nativeModuleCount, 2);
+    assert.equal(result.nativeModuleCount, 1);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -83,15 +81,38 @@ test('fails when the desktop entry does not launch AppRun', () => {
 test('fails on a missing native module', () => {
   const root = createPayload();
   try {
-    fs.rmSync(path.join(root, 'resources/app.asar.unpacked/node_modules/pty.node'));
+    fs.rmSync(path.join(root, 'resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64/sherpa-onnx.node'));
     assert.throws(() => verifyExtractedPayload({
       root,
       targetArchitecture: 'x64',
       expectedOpenCodeVersion: '1.17.18',
       runCliVersion: () => '1.17.18',
-    }), /Missing packaged native module: pty\.node/);
+    }), /Missing packaged native module: sherpa-onnx\.node/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// The web terminal and its PTY providers were deleted (openchamber#552).
+test('fails when a removed PTY provider or addon is packaged', () => {
+  for (const removed of ['node-pty/build/Release/pty.node', 'bun-pty/package.json', 'node-pty/package.json']) {
+    const root = createPayload();
+    try {
+      const target = path.join(root, 'resources/app.asar.unpacked/node_modules', removed);
+      if (removed.endsWith('.node')) writeElf(target, 'x64');
+      else {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, '{}');
+      }
+      assert.throws(() => verifyExtractedPayload({
+        root,
+        targetArchitecture: 'x64',
+        expectedOpenCodeVersion: '1.17.18',
+        runCliVersion: () => '1.17.18',
+      }), /Removed PTY module is packaged/, removed);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -104,7 +125,7 @@ test('fails on wrong CLI version or native architecture', () => {
       expectedOpenCodeVersion: '1.17.18',
       runCliVersion: () => '1.17.17',
     }), /OpenCode CLI version mismatch/);
-    writeElf(path.join(root, 'resources/app.asar.unpacked/node_modules/pty.node'), 'arm64');
+    writeElf(path.join(root, 'resources/app.asar.unpacked/node_modules/sherpa-onnx-linux-x64/sherpa-onnx.node'), 'arm64');
     assert.throws(() => verifyExtractedPayload({
       root,
       targetArchitecture: 'x64',

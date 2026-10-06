@@ -408,6 +408,13 @@ reloaded, and historical bundles are not retained by this module.
 - Returned API:
   - `run(options)`
 
+Before the generic proxy, the pipeline installs the retired-route refusal from
+`../security/retired-routes.js`. The deleted web terminal's namespace
+(`/api/terminal` and everything below it, in any case, encoding, slash or dot
+spelling) gets a local 404 after authentication and never reaches the upstream
+proxy or the served index. Its upgrade listener is prepended, so it runs before
+every other upgrade listener: it writes a raw `404` and destroys the socket.
+
 The pipeline binds the OpenChamber listener and publishes its active port
 before starting managed OpenCode. The managed custom tool therefore receives
 an authoritative loopback callback URL even when OpenChamber binds port `0`.

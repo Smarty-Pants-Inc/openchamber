@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createStartupPipelineRuntime } from './startup-pipeline-runtime.js';
@@ -19,9 +20,11 @@ describe('startup pipeline runtime', () => {
       }),
     });
 
+    const server = http.createServer();
+    server.on('upgrade', () => {});
     await runtime.run({
-      app: { get: vi.fn() },
-      setupProxy: vi.fn(),
+      app: { get: vi.fn(), use: () => order.push('retired-route-refusal') },
+      setupProxy: () => order.push('proxy'),
       staticRoutesRuntime: { registerStaticRoutes: vi.fn() },
       apiOnly: false,
       tunnelRuntimeContext: {
@@ -31,10 +34,11 @@ describe('startup pipeline runtime', () => {
       bootstrapOpenCodeAtStartup: () => order.push('bootstrap'),
       process: {},
       crypto: {},
-      server: {},
+      server,
       attachSignals: false,
     });
 
-    expect(order).toEqual(['listen', 'port:3901', 'detect', 'bootstrap']);
+    expect(order).toEqual(['retired-route-refusal', 'proxy', 'listen', 'port:3901', 'detect', 'bootstrap']);
+    expect(server.listeners('upgrade')[0].name).toBe('refuseRetiredRouteUpgrade');
   });
 });
