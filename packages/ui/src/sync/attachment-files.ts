@@ -377,6 +377,8 @@ const convertHeicToJpeg = async (file: File): Promise<File | undefined> => {
 export const prepareAttachmentFile = (
   file: File,
 ): PreparedAttachmentFile | Promise<PreparedAttachmentFile | undefined> | undefined => {
+  // ZIP is refused here, before declared-MIME or content-sniffing fallbacks could accept it.
+  if (getAttachmentRejection(file) === "zip") return
   const extension = extensionOf(file.name)
   const type = declaredMimeOf(file)
   if (type === "image/heic" || type === "image/heif" || extension === "heic" || extension === "heif") {

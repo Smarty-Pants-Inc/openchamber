@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { spawn } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import { strToU8, zipSync } from "fflate"
 import { extractDocumentAttachments } from "./document-attachments"
 import { PRODUCT_NAME } from '@/lib/brand.generated'
@@ -320,4 +322,184 @@ describe("document attachment extraction", () => {
     expect(text.includes("[long-image-1.png]")).toBe(false)
     expect(result?.images).toEqual([])
   })
+})
+
+// SEC551: hostile workbooks must finish within a fixed bound. Extraction runs in a child
+// process so a non-terminating loop or super-linear regex fails the test instead of hanging it.
+const EXTRACTION_DEADLINE_MS = 5_000
+const SLOW_TEST_TIMEOUT_MS = 30_000
+const MAX_INTERMEDIATE_TEXT_CHARS = 1_000_000
+
+type BoundedExtraction = {
+  error?: string
+  head?: string
+  length?: number
+  truncated?: boolean
+  longestJoin: number
+}
+
+const extractionScript = (modulePath: string, name: string) => `
+const { extractDocumentAttachments } = await import(${JSON.stringify(modulePath)})
+let longestJoin = 0
+const join = Array.prototype.join
+Array.prototype.join = function (...args) {
+  const output = join.apply(this, args)
+  if (output.length > longestJoin) longestJoin = output.length
+  return output
+}
+const chunks = []
+for await (const chunk of process.stdin) chunks.push(chunk)
+try {
+  const result = await extractDocumentAttachments(new File([Buffer.concat(chunks)], ${JSON.stringify(name)}))
+  const text = result ? await result.textFile.text() : ""
+  console.log(JSON.stringify({ head: text.slice(0, 4000), length: text.length, truncated: text.includes("[Document text truncated by"), longestJoin }))
+} catch (error) {
+  console.log(JSON.stringify({ error: error instanceof Error ? error.message : String(error), longestJoin }))
+}
+`
+
+const boundedExtraction = async (file: File): Promise<BoundedExtraction> => {
+  const modulePath = fileURLToPath(new URL("./document-attachments.ts", import.meta.url))
+  const child = spawn(process.execPath, ["-e", extractionScript(modulePath, file.name)], {
+    cwd: fileURLToPath(new URL("../..", import.meta.url)),
+    stdio: ["pipe", "pipe", "pipe"],
+  })
+  let stdout = ""
+  let stderr = ""
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { stdout += chunk })
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk })
+  const exited = new Promise<number | null>((resolve) => child.on("close", (code) => resolve(code)))
+  let timedOut = false
+  const deadline = setTimeout(() => {
+    timedOut = true
+    child.kill("SIGKILL")
+  }, EXTRACTION_DEADLINE_MS)
+  child.stdin.end(new Uint8Array(await file.arrayBuffer()))
+  const code = await exited
+  clearTimeout(deadline)
+  if (timedOut) throw new Error(`extraction exceeded the ${EXTRACTION_DEADLINE_MS} ms completion bound`)
+  if (code !== 0) throw new Error(`extraction process failed (${code}): ${stderr.slice(0, 2000)}`)
+  const result: BoundedExtraction = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}")
+  return result
+}
+
+const readableWorksheet = `<worksheet xmlns:r="${officeRelationshipsNamespace}"><sheetData><row r="1"><c r="A1"><v>42</v></c></row></sheetData><drawing r:id="drawing"/></worksheet>`
+
+const hostileWorkbook = (
+  worksheet: string,
+  extra: Record<string, string> = {},
+  sheets = '<sheet name="Data" r:id="sheet"/>',
+) => zippedFile("hostile.xlsx", {
+  "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets>${sheets}</sheets></workbook>`,
+  "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }]),
+  "xl/worksheets/sheet1.xml": worksheet,
+  ...extra,
+})
+
+describe("SEC551 bounded extraction", () => {
+  for (const [column, row] of [["9".repeat(400), "0"], ["16384", "0"], ["0", "1048576"], ["-1", "0"]]) {
+    test(`SEC551 P2.1 rejects drawing coordinate ${column.slice(0, 12)} / ${row} within deadline`, async () => {
+      const result = await boundedExtraction(hostileWorkbook(readableWorksheet, {
+        "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.xml" }]),
+        "xl/drawings/drawing1.xml": `<d:wsDr><d:oneCellAnchor><d:from><d:col>${column}</d:col><d:row>${row}</d:row></d:from></d:oneCellAnchor></d:wsDr>`,
+      }))
+      expect(result.error).toContain("coordinate")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  for (const reference of ["XFE1", "A1048577", `${"Z".repeat(400)}1`, `A${"9".repeat(400)}`, "A0"]) {
+    test(`SEC551 P2.1 rejects cell coordinate ${reference.slice(0, 12)} within deadline`, async () => {
+      const result = await boundedExtraction(hostileWorkbook(`<worksheet><sheetData><row><c r="${reference}"><v>1</v></c></row></sheetData></worksheet>`))
+      expect(result.error).toContain("coordinate")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  test("SEC551 P2.1 keeps the last valid XLSX cell and drawing coordinates", async () => {
+    const result = await boundedExtraction(hostileWorkbook(
+      `<worksheet xmlns:r="${officeRelationshipsNamespace}"><sheetData><row><c r="XFD1048576"><v>7</v></c></row></sheetData><drawing r:id="drawing"/></worksheet>`,
+      {
+        "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.xml" }]),
+        "xl/drawings/drawing1.xml": "<d:wsDr><d:oneCellAnchor><d:from><d:col>16383</d:col><d:row>1048575</d:row></d:from></d:oneCellAnchor></d:wsDr>",
+      },
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.head).toContain("Range: XFD1048576:XFD1048576\n7")
+    expect(result.head).toContain("Image at XFD1048576: [Embedded image reference could not be resolved]")
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  const whitespace = " ".repeat(1_000_000)
+  for (const [name, file] of [
+    ["missing row closers", hostileWorkbook(`<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row>${"<row><c>".repeat(200_000)}</sheetData></worksheet>`)],
+    ["incomplete relationship whitespace", hostileWorkbook(readableWorksheet, {
+      "xl/_rels/workbook.xml.rels": `${relationships([{ id: "sheet", target: "worksheets/sheet1.xml" }])}<Relationship${whitespace}`,
+    })],
+    ["incomplete sheet whitespace", hostileWorkbook(readableWorksheet, {
+      "xl/workbook.xml": `<workbook xmlns:r="${officeRelationshipsNamespace}"><sheets><sheet name="Data" r:id="sheet"/></sheets></workbook><sheet${whitespace}`,
+    })],
+    ["incomplete drawing whitespace", hostileWorkbook(`${readableWorksheet}<drawing${whitespace}`)],
+  ] satisfies Array<[string, File]>) {
+    test(`SEC551 P2.2 completes XLSX with ${name} within deadline`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toBeUndefined()
+      expect(result.head).toContain("Range: A1:A1\n42")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  for (const [name, file, expected] of [
+    ["DOCX missing text closers", zippedFile("open.docx", {
+      "word/document.xml": `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>ok</w:t>${"<w:t>".repeat(200_000)}</w:r></w:p></w:body></w:document>`,
+    }), "ok"],
+    ["DOCX escaped angle brackets without closers", zippedFile("angles.docx", {
+      "word/document.xml": `<w:document xmlns:w="w"><w:body><w:p><w:r><w:t>ok${"&lt;".repeat(300_000)}</w:t></w:r></w:p></w:body></w:document>`,
+    }), "ok<<<"],
+    ["ODT missing paragraph closers", zippedFile("open.odt", {
+      "content.xml": `<office:document xmlns:office="office" xmlns:text="text"><text:p>ok</text:p>${"<text:p>".repeat(200_000)}</office:document>`,
+    }), "ok"],
+  ] satisfies Array<[string, File, string]>) {
+    test(`SEC551 P2.2 completes ${name} within deadline`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toBeUndefined()
+      expect(result.head).toContain(expected)
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
+
+  test("SEC551 P2.3 bounds intermediate output for shared-string reuse", async () => {
+    const rows = Array.from({ length: 4_000 }, (_, index) => `<row r="${index + 1}"><c r="A${index + 1}" t="s"><v>0</v></c></row>`).join("")
+    const result = await boundedExtraction(hostileWorkbook(`<worksheet><sheetData>${rows}</sheetData></worksheet>`, {
+      "xl/sharedStrings.xml": `<sst><si><t>${"&quot;".repeat(8_192)}</t></si></sst>`,
+    }))
+    expect(result.error).toBeUndefined()
+    expect(result.truncated).toBe(true)
+    expect(result.length).toBeLessThanOrEqual(500_000)
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  test("SEC551 P2.3 parses a worksheet repeated by many sheet entries once", async () => {
+    const emptyRows = Array.from({ length: 50_000 }, (_, index) => `<row r="${index + 2}"><c r="A${index + 2}"/></row>`).join("")
+    const result = await boundedExtraction(hostileWorkbook(
+      `<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row>${emptyRows}</sheetData></worksheet>`,
+      {},
+      '<sheet name="Data" r:id="sheet"/>'.repeat(5_000),
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.head?.split("## Sheet: Data").length).toBe(2)
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
+  const oversizedXml = (body: string) => `${" ".repeat(9 * 1024 * 1024)}${body}`
+  for (const [name, file] of [
+    ["worksheet", hostileWorkbook(readableWorksheet, {
+      "xl/_rels/workbook.xml.rels": relationships([{ id: "sheet", target: "worksheets/sheet1.png" }]),
+      "xl/worksheets/sheet1.png": oversizedXml(readableWorksheet),
+    })],
+    ["drawing", hostileWorkbook(readableWorksheet, {
+      "xl/worksheets/_rels/sheet1.xml.rels": relationships([{ id: "drawing", target: "../drawings/drawing1.png" }]),
+      "xl/drawings/drawing1.png": oversizedXml("<d:wsDr/>"),
+    })],
+  ] satisfies Array<[string, File]>) {
+    test(`SEC551 P2.4 guards ${name} XML with an image suffix`, async () => {
+      const result = await boundedExtraction(file)
+      expect(result.error).toContain("XML that is too large")
+    }, SLOW_TEST_TIMEOUT_MS)
+  }
 })

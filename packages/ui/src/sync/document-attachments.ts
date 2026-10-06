@@ -11,6 +11,8 @@ const MAX_EMBEDDED_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_EMBEDDED_IMAGES_BYTES = 40 * 1024 * 1024
 const MAX_EXTRACTED_TEXT_CHARS = 500_000
 const MAX_ODF_SPACES_PER_ELEMENT = 100
+const MAX_SPREADSHEET_COLUMNS = 16_384
+const MAX_SPREADSHEET_ROWS = 1_048_576
 const TEXT_TRUNCATION_NOTICE = `\n\n[Document text truncated by ${PRODUCT_NAME}]\n`
 
 const OFFICE_EXTENSIONS = new Set(["docx", "pptx", "xlsx", "odt", "odp", "ods"])
@@ -95,26 +97,113 @@ const attributeByLocalName = (tag: string, name: string): string | undefined => 
   return decodeXml(match?.[1] ?? match?.[2] ?? "") || undefined
 }
 
-const tagBlocks = (xml: string, tag: string): string[] => {
-  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const qualified = tag.includes(":") ? escaped : `(?:[A-Za-z_][\\w.-]*:)?${escaped}`
-  return Array.from(xml.matchAll(new RegExp(`<${qualified}(?=[\\s>])[^>]*(?<!/)>[\\s\\S]*?<\\/${qualified}\\s*>`, "gi")), (match) => match[0])
+type XmlTag = {
+  /** Lowercase qualified name, such as `w:t` or `row`. */
+  name: string
+  start: number
+  end: number
+  closing: boolean
+  selfClosing: boolean
+  source: string
 }
+
+const isTagNameEnd = (code: number): boolean => code === 32 || code === 9 || code === 10 || code === 13 || code === 47 || code === 62
+
+// Linear tag scan for hostile XML (SEC551). Each character is visited a bounded number of
+// times; an unterminated tag ends the scan instead of causing a rescan from every later "<".
+function* xmlTags(source: string): Generator<XmlTag> {
+  let index = 0
+  while (index < source.length) {
+    const first = source.indexOf("<", index)
+    if (first === -1) return
+    const close = source.indexOf(">", first + 1)
+    if (close === -1) return
+    index = close + 1
+    const start = source.lastIndexOf("<", close)
+    const closing = source.charCodeAt(start + 1) === 47
+    const nameStart = closing ? start + 2 : start + 1
+    let nameEnd = nameStart
+    while (nameEnd < close && !isTagNameEnd(source.charCodeAt(nameEnd))) nameEnd += 1
+    yield {
+      name: source.slice(nameStart, nameEnd).toLowerCase(),
+      start,
+      end: close + 1,
+      closing,
+      selfClosing: !closing && source.charCodeAt(close - 1) === 47,
+      source: source.slice(start, close + 1),
+    }
+  }
+}
+
+/** A qualified wanted name must match exactly; an unqualified one matches any namespace prefix. */
+const matchesTagName = (name: string, wanted: string): boolean => wanted.includes(":")
+  ? name === wanted
+  : name.slice(name.lastIndexOf(":") + 1) === wanted
+
+const openTags = (source: string, wanted: string): XmlTag[] => {
+  const tags: XmlTag[] = []
+  for (const tag of xmlTags(source)) {
+    if (!tag.closing && matchesTagName(tag.name, wanted)) tags.push(tag)
+  }
+  return tags
+}
+
+/** Non-self-closing elements, each ending at the first closer with the opener's name. */
+const tagBlocks = (source: string, ...tags: string[]): string[] => {
+  const wanted = tags.map((tag) => tag.toLowerCase())
+  const blocks: string[] = []
+  let open: { start: number; tag: string } | undefined
+  for (const tag of xmlTags(source)) {
+    if (open) {
+      if (tag.closing && matchesTagName(tag.name, open.tag)) {
+        blocks.push(source.slice(open.start, tag.end))
+        open = undefined
+      }
+      continue
+    }
+    if (tag.closing || tag.selfClosing) continue
+    const match = wanted.find((name) => matchesTagName(tag.name, name))
+    if (match) open = { start: tag.start, tag: match }
+  }
+  return blocks
+}
+
+const innerXml = (block: string): string => block.slice(block.indexOf(">") + 1, block.lastIndexOf("<"))
+
+const stripTags = (value: string): string => {
+  let output = ""
+  let index = 0
+  for (const tag of xmlTags(value)) {
+    output += value.slice(index, tag.start)
+    if (tag.end === tag.start + 2) output += "<>"
+    index = tag.end
+  }
+  return output + value.slice(index)
+}
+
+const trimLineEnds = (value: string): string => value.split("\n").map((line) => {
+  let end = line.length
+  while (end > 0 && (line.charCodeAt(end - 1) === 32 || line.charCodeAt(end - 1) === 9)) end -= 1
+  return line.slice(0, end)
+}).join("\n")
 
 const textDecoder = new TextDecoder()
 const xml = (archive: Unzipped, path: string): string => {
   const bytes = archive[path]
-  return bytes ? textDecoder.decode(bytes) : ""
+  if (!bytes) return ""
+  // Relationship targets choose which entry is parsed, so the XML limit follows use, not filename.
+  if (bytes.byteLength > MAX_XML_ENTRY_BYTES) throw new Error("Document contains XML that is too large to process safely")
+  return textDecoder.decode(bytes)
 }
 
 const parseRelationships = (archive: Unzipped, sourcePath: string): Relationships => {
   const result: Relationships = new Map()
   const source = xml(archive, relationshipsPath(sourcePath))
-  for (const match of source.matchAll(/<(?:[A-Za-z_][\w.-]*:)?Relationship\b[^>]*\/?\s*>/gi)) {
-    const id = attribute(match[0], "Id")
-    const target = attribute(match[0], "Target")
+  for (const tag of openTags(source, "relationship")) {
+    const id = attribute(tag.source, "Id")
+    const target = attribute(tag.source, "Target")
     if (!id || !target) continue
-    result.set(id, { target, type: attribute(match[0], "Type") ?? "" })
+    result.set(id, { target, type: attribute(tag.source, "Type") ?? "" })
   }
   return result
 }
@@ -220,6 +309,11 @@ const relationshipTarget = (sourcePath: string, relationships: Relationships, id
   return relationship ? resolveArchivePath(sourcePath, relationship.target) : undefined
 }
 
+const INLINE_TEXT_TAGS = new Set(["w:t", "a:t", "text:span"])
+const INLINE_TAB_TAGS = new Set(["w:tab", "text:tab"])
+const INLINE_BREAK_TAGS = new Set(["w:br", "a:br", "text:line-break"])
+const INLINE_IMAGE_TAGS = new Set(["a:blip", "v:imagedata", "draw:image"])
+
 const inlineText = (
   block: string,
   sourcePath: string,
@@ -227,28 +321,37 @@ const inlineText = (
   images: EmbeddedImages,
 ): string => {
   const pieces: string[] = []
-  const tokenPattern = /<(?:w:t|a:t|text:span)\b[^>]*>([\s\S]*?)<\/(?:w:t|a:t|text:span)>|<(?:w:tab|text:tab)\b[^>]*\/?>|<(?:w:br|a:br|text:line-break)\b[^>]*\/?>|<(?:a:blip|v:imagedata)\b[^>]*>|<draw:image\b[^>]*>/gi
-  for (const match of block.matchAll(tokenPattern)) {
-    if (match[1] !== undefined) {
-      pieces.push(decodeXml(match[1]).replace(/<[^>]+>/g, ""))
+  let textStart: number | undefined
+  for (const tag of xmlTags(block)) {
+    if (textStart !== undefined) {
+      if (tag.closing && INLINE_TEXT_TAGS.has(tag.name)) {
+        pieces.push(stripTags(decodeXml(block.slice(textStart, tag.start))))
+        textStart = undefined
+      }
       continue
     }
-    if (/tab/i.test(match[0])) {
+    if (tag.closing) continue
+    if (INLINE_TEXT_TAGS.has(tag.name)) {
+      if (!tag.selfClosing) textStart = tag.end
+      continue
+    }
+    if (INLINE_TAB_TAGS.has(tag.name)) {
       pieces.push("\t")
       continue
     }
-    if (/br|line-break/i.test(match[0])) {
+    if (INLINE_BREAK_TAGS.has(tag.name)) {
       pieces.push("\n")
       continue
     }
-    const relationshipId = attribute(match[0], "r:embed") ?? attribute(match[0], "r:id")
-    const directPath = attribute(match[0], "xlink:href")
+    if (!INLINE_IMAGE_TAGS.has(tag.name)) continue
+    const relationshipId = attribute(tag.source, "r:embed") ?? attribute(tag.source, "r:id")
+    const directPath = attribute(tag.source, "xlink:href")
     const target = directPath
       ? resolveArchivePath(sourcePath, directPath)
       : relationshipTarget(sourcePath, relationships, relationshipId)
     pieces.push(`\n${images.citation(target)}\n`)
   }
-  return pieces.join("").replace(/[ \t]+\n/g, "\n").trim()
+  return trimLineEnds(pieces.join("")).trim()
 }
 
 const paragraphs = (
@@ -292,10 +395,9 @@ const extractPptx = (archive: Unzipped, images: EmbeddedImages): string | undefi
 
   slidePaths.forEach((slidePath, index) => {
     const relationships = parseRelationships(archive, slidePath)
-    const content = Array.from(
-      xml(archive, slidePath).matchAll(/<a:p\b[^>]*>[\s\S]*?<\/a:p>|<p:pic\b[^>]*>[\s\S]*?<\/p:pic>/gi),
-      (match) => inlineText(match[0], slidePath, relationships, images),
-    ).filter(Boolean)
+    const content = tagBlocks(xml(archive, slidePath), "a:p", "p:pic")
+      .map((block) => inlineText(block, slidePath, relationships, images))
+      .filter(Boolean)
     sections.push(`## Slide ${index + 1}`, ...(content.length > 0 ? content : ["[Empty slide]"]))
 
     const notesRelationship = Array.from(relationships.values()).find((relationship) => relationship.type.endsWith("/notesSlide"))
@@ -307,7 +409,14 @@ const extractPptx = (archive: Unzipped, images: EmbeddedImages): string | undefi
   return `${sections.join("\n\n")}\n`
 }
 
+const invalidCoordinateError = (): Error => {
+  const error = new Error("Couldn't read this workbook: invalid cell coordinate")
+  error.name = "WorkbookReadError"
+  return error
+}
+
 const columnName = (index: number): string => {
+  if (!Number.isSafeInteger(index) || index < 0 || index >= MAX_SPREADSHEET_COLUMNS) throw invalidCoordinateError()
   let value = index + 1
   let result = ""
   while (value > 0) {
@@ -329,14 +438,23 @@ const tsvValue = (value: string): string => {
   return `"${value.replace(/"/g, '""')}"`
 }
 
+const cellCoordinates = (reference: string) => {
+  const coordinates = /^([a-z]{1,3})([1-9]\d{0,6})$/i.exec(reference)
+  const column = coordinates ? columnIndex(coordinates[1]) : -1
+  const row = coordinates ? Number(coordinates[2]) : 0
+  if (column < 0 || column >= MAX_SPREADSHEET_COLUMNS || row > MAX_SPREADSHEET_ROWS) throw invalidCoordinateError()
+  return { column, row }
+}
+
 const spreadsheetText = (source: string): string => tagBlocks(source, "t")
-  .map((text) => decodeXml(text.replace(/<[^>]+>/g, "")))
+  .map((text) => decodeXml(stripTags(text)))
   .join("")
 
 const cellValue = (cell: string, sharedStrings: string[]): string => {
   const type = attribute(cell.match(/^<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/i)?.[0] ?? "", "t")
   if (type === "inlineStr") return spreadsheetText(cell)
-  const value = cell.match(/<(?:[A-Za-z_][\w.-]*:)?v\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?v\s*>/i)?.[1] ?? ""
+  const valueBlock = tagBlocks(cell, "v")[0]
+  const value = valueBlock === undefined ? "" : innerXml(valueBlock)
   if (!value) return ""
   if (type === "s") return sharedStrings[Number(value)] ?? ""
   if (type === "b") return value === "1" ? "TRUE" : "FALSE"
@@ -347,7 +465,21 @@ type SpreadsheetCell = {
   reference: string
   column: number
   row: number
-  value: string
+  /** TSV-quoted value. */
+  text: string
+}
+
+/** Charges spreadsheet output as it is built, so oversized results stop before they are joined. */
+class TextBudget {
+  private used = 0
+
+  charge(characters: number): void {
+    this.used += characters
+  }
+
+  get exhausted(): boolean {
+    return this.used > MAX_EXTRACTED_TEXT_CHARS
+  }
 }
 
 type SpreadsheetRow = {
@@ -363,29 +495,29 @@ const isDenseSpreadsheetRow = (row: SpreadsheetRow): boolean => {
 }
 
 const serializeDenseSpreadsheetRow = (row: SpreadsheetRow): string => {
-  const valuesByColumn = new Map(row.cells.map((cell) => [cell.column, cell.value]))
+  const valuesByColumn = new Map(row.cells.map((cell) => [cell.column, cell.text]))
   return Array.from(
     { length: row.lastColumn - row.firstColumn + 1 },
-    (_, offset) => tsvValue(valuesByColumn.get(row.firstColumn + offset) ?? ""),
+    (_, offset) => valuesByColumn.get(row.firstColumn + offset) ?? "",
   ).join("\t")
 }
 
-const spreadsheetRows = (worksheet: string, sharedStrings: string[]): SpreadsheetRow[] => {
+const spreadsheetRows = (worksheet: string, sharedStrings: string[], budget: TextBudget): SpreadsheetRow[] => {
   const rows: SpreadsheetRow[] = []
   for (const rowXml of tagBlocks(worksheet, "row")) {
+    if (budget.exhausted) break
     const cells: SpreadsheetCell[] = []
     for (const cell of tagBlocks(rowXml, "c")) {
+      if (budget.exhausted) break
       const tag = cell.match(/^<(?:[A-Za-z_][\w.-]*:)?c\b[^>]*>/i)?.[0] ?? ""
       const reference = attribute(tag, "r")
-      const coordinates = reference?.match(/^([a-z]+)([1-9]\d*)$/i)
+      if (!reference) continue
+      const { column, row } = cellCoordinates(reference)
       const value = cellValue(cell, sharedStrings)
-      if (!reference || !coordinates || !value) continue
-      cells.push({
-        reference,
-        column: columnIndex(coordinates[1]),
-        row: Number(coordinates[2]),
-        value,
-      })
+      if (!value) continue
+      const text = tsvValue(value)
+      cells.push({ reference, column, row, text })
+      budget.charge(reference.length + text.length + 4)
     }
     cells.sort((left, right) => left.column - right.column)
     const first = cells[0]
@@ -415,7 +547,7 @@ const serializeSpreadsheetRows = (rows: SpreadsheetRow[]): string[] => {
     const previous = denseBlock.at(-1)
     if (!isDenseSpreadsheetRow(row)) {
       flushDenseBlock()
-      sections.push(`Cells: ${row.cells.map((cell) => `${cell.reference}\t${tsvValue(cell.value)}`).join(" | ")}`)
+      sections.push(`Cells: ${row.cells.map((cell) => `${cell.reference}\t${cell.text}`).join(" | ")}`)
       continue
     }
     if (
@@ -432,51 +564,74 @@ const serializeSpreadsheetRows = (rows: SpreadsheetRow[]): string[] => {
   return sections
 }
 
+/** Zero-based drawing anchor coordinate; a missing element keeps the historical default of 0. */
+const drawingCoordinate = (anchor: string, tag: string, limit: number): number => {
+  const block = tagBlocks(anchor, tag)[0]
+  if (block === undefined) return 0
+  const text = innerXml(block).trim()
+  const value = /^\d{1,7}$/.test(text) ? Number(text) : -1
+  if (value < 0 || value >= limit) throw invalidCoordinateError()
+  return value
+}
+
 const drawingCitations = (
   archive: Unzipped,
   worksheetPath: string,
   images: EmbeddedImages,
+  budget: TextBudget,
+  seenDrawings: Set<string>,
 ): string[] => {
   const worksheetXml = xml(archive, worksheetPath)
   const worksheetRelationships = parseRelationships(archive, worksheetPath)
   const output: string[] = []
-  for (const drawing of worksheetXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*\/?\s*>/gi)) {
-    const drawingId = attributeByLocalName(drawing[0], "id")
+  for (const drawing of openTags(worksheetXml, "drawing")) {
+    const drawingId = attributeByLocalName(drawing.source, "id")
     const drawingPath = relationshipTarget(worksheetPath, worksheetRelationships, drawingId)
-    if (!drawingPath) continue
+    // Each drawing part is read once, however many worksheet references repeat it.
+    if (!drawingPath || seenDrawings.has(drawingPath)) continue
+    seenDrawings.add(drawingPath)
     const drawingXml = xml(archive, drawingPath)
     const drawingRelationships = parseRelationships(archive, drawingPath)
-    for (const anchor of drawingXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?(?:oneCellAnchor|twoCellAnchor)\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?(?:oneCellAnchor|twoCellAnchor)\s*>/gi)) {
-      const content = anchor[1]
-      const column = Number(content.match(/<(?:[A-Za-z_][\w.-]*:)?col\b[^>]*>(\d+)<\/(?:[A-Za-z_][\w.-]*:)?col\s*>/i)?.[1] ?? 0)
-      const row = Number(content.match(/<(?:[A-Za-z_][\w.-]*:)?row\b[^>]*>(\d+)<\/(?:[A-Za-z_][\w.-]*:)?row\s*>/i)?.[1] ?? 0)
-      const imageTag = content.match(/<(?:[A-Za-z_][\w.-]*:)?blip\b[^>]*>/i)?.[0]
-      const imageId = imageTag ? attributeByLocalName(imageTag, "embed") : undefined
+    for (const anchor of tagBlocks(drawingXml, "oneCellAnchor", "twoCellAnchor")) {
+      if (budget.exhausted) return output
+      const column = drawingCoordinate(anchor, "col", MAX_SPREADSHEET_COLUMNS)
+      const row = drawingCoordinate(anchor, "row", MAX_SPREADSHEET_ROWS)
+      const imageTag = openTags(anchor, "blip")[0]
+      const imageId = imageTag ? attributeByLocalName(imageTag.source, "embed") : undefined
       const target = relationshipTarget(drawingPath, drawingRelationships, imageId)
-      output.push(`Image at ${columnName(column)}${row + 1}: ${images.citation(target)}`)
+      const line = `Image at ${columnName(column)}${row + 1}: ${images.citation(target)}`
+      output.push(line)
+      budget.charge(line.length + 2)
     }
   }
   return output
 }
 
-const extractXlsx = (archive: Unzipped, images: EmbeddedImages): string | undefined => {
+const extractXlsx = (archive: Unzipped, images: EmbeddedImages, budget: TextBudget): string | undefined => {
   const workbookPath = "xl/workbook.xml"
   const workbookXml = xml(archive, workbookPath)
   const workbookRelationships = parseRelationships(archive, workbookPath)
   const sharedStrings = tagBlocks(xml(archive, "xl/sharedStrings.xml"), "si").map(spreadsheetText)
   const sections: string[] = ["# Workbook"]
+  const seenWorksheets = new Set<string>()
+  const seenDrawings = new Set<string>()
   let hasReadableCells = false
 
-  for (const sheet of workbookXml.matchAll(/<(?:[A-Za-z_][\w.-]*:)?sheet\b[^>]*\/?\s*>/gi)) {
-    const name = attribute(sheet[0], "name") ?? "Sheet"
-    const relationshipId = attributeByLocalName(sheet[0], "id")
+  for (const sheet of openTags(workbookXml, "sheet")) {
+    if (budget.exhausted) break
+    const name = attribute(sheet.source, "name") ?? "Sheet"
+    const relationshipId = attributeByLocalName(sheet.source, "id")
     const worksheetPath = relationshipTarget(workbookPath, workbookRelationships, relationshipId)
-    if (!worksheetPath) continue
+    // Each worksheet part is read once, however many sheet entries repeat its target.
+    if (!worksheetPath || seenWorksheets.has(worksheetPath)) continue
+    seenWorksheets.add(worksheetPath)
     sections.push(`## Sheet: ${name}`)
+    budget.charge(name.length + 12)
 
-    const rows = serializeSpreadsheetRows(spreadsheetRows(xml(archive, worksheetPath), sharedStrings))
+    const rows = serializeSpreadsheetRows(spreadsheetRows(xml(archive, worksheetPath), sharedStrings, budget))
     if (rows.length > 0) hasReadableCells = true
-    sections.push(...(rows.length > 0 ? rows : ["[Empty sheet]"]), ...drawingCitations(archive, worksheetPath, images))
+    sections.push(...(rows.length > 0 ? rows : ["[Empty sheet]"]))
+    if (!budget.exhausted) sections.push(...drawingCitations(archive, worksheetPath, images, budget, seenDrawings))
   }
   if (!hasReadableCells) {
     const error = new Error("Couldn't read this workbook: no sheets or cells found")
@@ -499,24 +654,39 @@ const expandOdfSpaces = (tag: string): string => {
   return `${" ".repeat(MAX_ODF_SPACES_PER_ELEMENT)}[${omitted}]`
 }
 
-const odfInlineText = (source: string, sourcePath: string, images: EmbeddedImages): string => source
-    .replace(/<draw:image\b[^>]*>/gi, (tag) => {
-      const target = resolveArchivePath(sourcePath, attribute(tag, "xlink:href") ?? "")
-      return `\n${images.citation(target)}\n`
-    })
-    .replace(/<text:tab\b[^>]*\/?\s*>/gi, "\t")
-    .replace(/<text:line-break\b[^>]*\/?\s*>/gi, "\n")
-    .replace(/<text:s\b[^>]*\/?\s*>/gi, expandOdfSpaces)
-    .replace(/<[^>]+>/g, "")
+const odfImageCitation = (tag: string, sourcePath: string, images: EmbeddedImages): string =>
+  images.citation(resolveArchivePath(sourcePath, attribute(tag, "xlink:href") ?? ""))
+
+const odfInlineText = (source: string, sourcePath: string, images: EmbeddedImages): string => {
+  let output = ""
+  let index = 0
+  for (const tag of xmlTags(source)) {
+    output += source.slice(index, tag.start)
+    index = tag.end
+    if (tag.closing) continue
+    if (tag.name === "draw:image") output += `\n${odfImageCitation(tag.source, sourcePath, images)}\n`
+    else if (tag.name === "text:tab") output += "\t"
+    else if (tag.name === "text:line-break") output += "\n"
+    else if (tag.name === "text:s") output += expandOdfSpaces(tag.source)
+  }
+  return output + source.slice(index)
+}
 
 const odfContent = (source: string, sourcePath: string, images: EmbeddedImages): string[] => {
   const output: string[] = []
-  const contentPattern = /<text:(p|h)\b[^>]*>[\s\S]*?<\/text:\1>|<draw:image\b[^>]*>/gi
-  for (const match of source.matchAll(contentPattern)) {
-    const content = /^<draw:image\b/i.test(match[0])
-      ? images.citation(resolveArchivePath(sourcePath, attribute(match[0], "xlink:href") ?? ""))
-      : decodeXml(odfInlineText(match[0], sourcePath, images)).replace(/[ \t]+\n/g, "\n").trim()
-    if (content) output.push(content)
+  let open: { start: number; name: string } | undefined
+  for (const tag of xmlTags(source)) {
+    if (open) {
+      if (tag.closing && tag.name === open.name) {
+        const content = trimLineEnds(decodeXml(odfInlineText(source.slice(open.start, tag.end), sourcePath, images))).trim()
+        if (content) output.push(content)
+        open = undefined
+      }
+      continue
+    }
+    if (tag.closing) continue
+    if ((tag.name === "text:p" || tag.name === "text:h") && !tag.selfClosing) open = { start: tag.start, name: tag.name }
+    else if (tag.name === "draw:image") output.push(odfImageCitation(tag.source, sourcePath, images))
   }
   return output
 }
@@ -646,14 +816,19 @@ const unzipDocument = async (file: File): Promise<Unzipped> => {
   return archive
 }
 
-const extractDocumentText = (extension: string, archive: Unzipped, images: EmbeddedImages): string | undefined => {
+const extractDocumentText = (
+  extension: string,
+  archive: Unzipped,
+  images: EmbeddedImages,
+  budget: TextBudget,
+): string | undefined => {
   switch (extension) {
     case "docx":
       return extractDocx(archive, images)
     case "pptx":
       return extractPptx(archive, images)
     case "xlsx":
-      return extractXlsx(archive, images)
+      return extractXlsx(archive, images, budget)
     case "odt":
       return extractOdt(archive, images)
     case "odp":
@@ -665,10 +840,10 @@ const extractDocumentText = (extension: string, archive: Unzipped, images: Embed
   }
 }
 
-const boundExtractedText = (text: string, imageFilenames: Set<string>): string => {
-  if (text.length <= MAX_EXTRACTED_TEXT_CHARS) return text
+const boundExtractedText = (text: string, imageFilenames: Set<string>, truncated: boolean): string => {
+  if (!truncated && text.length <= MAX_EXTRACTED_TEXT_CHARS) return text
 
-  let end = MAX_EXTRACTED_TEXT_CHARS - TEXT_TRUNCATION_NOTICE.length
+  let end = Math.min(text.length, MAX_EXTRACTED_TEXT_CHARS - TEXT_TRUNCATION_NOTICE.length)
   const lastOpenBracket = text.lastIndexOf("[", end - 1)
   const lastCloseBracket = text.lastIndexOf("]", end - 1)
   if (lastOpenBracket > lastCloseBracket) {
@@ -679,12 +854,6 @@ const boundExtractedText = (text: string, imageFilenames: Set<string>): string =
   return `${text.slice(0, end)}${TEXT_TRUNCATION_NOTICE}`
 }
 
-const citedImageFilenames = (text: string): Set<string> => {
-  const filenames = new Set<string>()
-  for (const match of text.matchAll(/\[([^\]\r\n]+)\]/g)) filenames.add(match[1])
-  return filenames
-}
-
 export const extractDocumentAttachments = async (
   file: File,
   reservedFilenames: Iterable<string> = [],
@@ -693,14 +862,14 @@ export const extractDocumentAttachments = async (
   if (!OFFICE_EXTENSIONS.has(extension)) return
   const archive = await unzipDocument(file)
   const images = new EmbeddedImages(archive, file.name, reservedFilenames)
-  const text = extractDocumentText(extension, archive, images)
+  const budget = new TextBudget()
+  const text = extractDocumentText(extension, archive, images, budget)
   if (!text) return
   const extractedImages = images.all()
   const imageFilenames = new Set(extractedImages.map((image) => image.name))
-  const boundedText = boundExtractedText(text, imageFilenames)
-  const citations = citedImageFilenames(boundedText)
+  const boundedText = boundExtractedText(text, imageFilenames, budget.exhausted)
   return {
     textFile: new File([boundedText], file.name, { type: "text/plain" }),
-    images: extractedImages.filter((image) => citations.has(image.name)),
+    images: extractedImages.filter((image) => boundedText.includes(`[${image.name}]`)),
   }
 }

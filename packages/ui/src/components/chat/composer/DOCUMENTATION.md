@@ -58,7 +58,14 @@ including in a batch where another file succeeds. Pasted images keep their
 citations. Unsupported files never gain a chip; valid files are not discarded
 because another file was rejected. `sync/attachment-files.ts` still owns content
 validation and the picker allowlist. Its rejection classification selects UI
-copy only and does not grant attachment support.
+copy only and does not grant attachment support; preparation itself refuses ZIP
+names and types before any MIME or text fallback.
+
+Each picker, drop, or paste batch captures the attachment owner
+(`captureAttachmentOwner` in `sync/input-store.ts`) before its first wait.
+Opening another draft or session clears or replaces attachments, which ends that
+owner. The batch then stops: no remaining file is prepared, no pasted text or
+citation is inserted, and no rejection toast is shown for the dropped rest.
 
 The focused Chromium fixture in `scripts/attachment-proof/` mounts the actual
 composer, file store, chip renderer, and Send path against synthetic HTTP.

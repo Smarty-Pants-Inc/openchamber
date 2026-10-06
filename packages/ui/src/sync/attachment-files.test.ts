@@ -64,6 +64,12 @@ describe("attachment file preparation", () => {
     expect((await prepare(new File(["readable context"], "context.unknown")))?.mimeType).toBe("text/plain")
   })
 
+  test("SEC551 P3 rejects ZIP inputs before declared-MIME or text fallback", async () => {
+    expect(await prepare(new File(["not really text"], "archive.ZIP", { type: "text/plain" }))).toBeUndefined()
+    expect(await prepare(new File(["plain words"], "archive", { type: "application/zip" }))).toBeUndefined()
+    expect((await prepare(new File(["plain words"], "notes.txt", { type: "text/plain" })))?.mimeType).toBe("text/plain")
+  })
+
   test("identifies Office and OpenDocument filenames for shared mention preparation", () => {
     expect(isDocumentAttachmentFilename("reports/BUDGET.XLSX")).toBe(true)
     expect(isDocumentAttachmentFilename("notes.txt")).toBe(false)

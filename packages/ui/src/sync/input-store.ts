@@ -56,6 +56,16 @@ const readFileAsDataUrl = (file: File, mime: string): Promise<string> => new Pro
   reader.readAsDataURL(file)
 })
 
+/**
+ * Captures the composer's current attachment owner. Opening another draft or session clears or
+ * replaces attachments, which advances the generation; a multi-file batch checks the returned
+ * predicate after every wait and stops once it is false, so nothing reaches the new owner.
+ */
+export const captureAttachmentOwner = (): (() => boolean) => {
+  const generation = attachmentReadGeneration
+  return () => generation === attachmentReadGeneration
+}
+
 export const prepareLocalAttachments = async (
   file: File,
   reservedFilenames: Iterable<string> = [],

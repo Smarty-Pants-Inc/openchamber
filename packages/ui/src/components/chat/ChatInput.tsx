@@ -19,7 +19,7 @@ import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, crea
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { consumeCatalogDraftTransfer, markDraftInputEdited, useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
+import { captureAttachmentOwner, prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
     ATTACHMENT_ACCEPT,
@@ -2642,11 +2642,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
     }, [clearDropTextSuppression, clearFileMentionPasteSuppression]);
 
-    const attachFiles = React.useCallback(async (files: FileList | File[]) => {
+    // Resolves false when the composer's owner changed mid-batch (SEC551): the rest of the
+    // batch is dropped without a toast, so nothing prepared for one draft reaches another.
+    const attachFiles = React.useCallback(async (
+        files: FileList | File[],
+        isCurrentOwner: () => boolean = captureAttachmentOwner(),
+    ): Promise<boolean> => {
         const list = Array.isArray(files) ? files : Array.from(files);
         for (const file of list) {
+            if (!isCurrentOwner()) return false;
             try {
                 const attached = await addAttachedFile(file);
+                if (!isCurrentOwner()) return false;
                 if (!attached) {
                     const rejection = getAttachmentRejection(file);
                     toast.error(rejection === 'zip'
@@ -2654,12 +2661,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         : t('chat.chatInput.toast.attachmentUnsupported', { name: file.name }));
                 }
             } catch (error) {
+                if (!isCurrentOwner()) return false;
                 console.error('File attach failed', error);
                 toast.error(error instanceof Error && error.name === 'WorkbookReadError'
                     ? t('chat.fileAttachment.toast.workbookUnreadable')
                     : t('chat.chatInput.toast.attachmentUnsupported', { name: file.name }));
             }
         }
+        return isCurrentOwner();
     }, [addAttachedFile, t]);
 
     const handlePaste = React.useCallback(async (event: ClipboardEvent) => {
@@ -2711,12 +2720,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const pastedText = e.clipboardData.getData('text');
         const sessionReady = Boolean(currentSessionId || newSessionDraftOpen);
 
+        const isCurrentOwner = captureAttachmentOwner();
         const otherFiles = clipboardFiles.filter(file => !file.type.startsWith('image/'));
         if (otherFiles.length > 0 && sessionReady) {
             // Consume the paste before awaiting reads; otherwise the editor
             // can insert text while an unsupported-file refusal is pending.
             e.preventDefault();
-            await attachFiles(otherFiles);
+            // Another draft opened during the wait: its editor must not get this paste.
+            if (!(await attachFiles(otherFiles, isCurrentOwner))) return;
             if (imageFiles.length === 0) return;
         }
 
@@ -2875,7 +2886,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const file = renameFileForAttachmentCitation(imageFiles[index], filename);
             pendingPastedAttachmentFilenamesRef.current.add(filename);
             try {
-                await attachFiles([file]);
+                if (!(await attachFiles([file], isCurrentOwner))) return;
             } catch (error) {
                 console.error('Clipboard image attach failed', error);
                 toast.error(error instanceof Error ? error.message : t('chat.chatInput.toast.clipboardAttachFailed'));
@@ -3221,6 +3232,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
 
     const handleVSCodePickFiles = React.useCallback(async () => {
+        const isCurrentOwner = captureAttachmentOwner();
         try {
             const data = (await vscodeApi?.pickFiles?.({ extensions: ACCEPTED_ATTACHMENT_EXTENSIONS })) as {
                 files?: Array<{ name: string; mimeType?: string; dataUrl?: string }>;
@@ -3258,7 +3270,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 .filter(Boolean) as File[];
 
             if (asFiles.length > 0) {
-                await attachFiles(asFiles);
+                await attachFiles(asFiles, isCurrentOwner);
             }
         } catch (error) {
             console.error('VS Code file pick failed', error);
