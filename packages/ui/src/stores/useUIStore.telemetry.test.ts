@@ -19,12 +19,12 @@ describe('telemetry settings migration', () => {
       await useUIStore.persist.rehydrate();
       expect(useUIStore.getState().workStatusHiddenSections).toEqual(['mcp', 'telemetry']);
       expect(useUIStore.getState().workStatusHiddenSectionsExplicit).toBe(false);
-      expect(useUIStore.persist.getOptions().version).toBe(20);
+      expect(useUIStore.persist.getOptions().version).toBe(21);
     });
   }
 
   test('explicit opt-in round-trips through the actual persisted projection and hydration', async () => {
-    let saved: Parameters<NonNullable<typeof originalOptions.storage>['setItem']>[1] = { state: useUIStore.getInitialState(), version: 20 };
+    let saved: Parameters<NonNullable<typeof originalOptions.storage>['setItem']>[1] = { state: useUIStore.getInitialState(), version: 21 };
     useUIStore.persist.setOptions({ storage: {
       getItem: () => saved,
       setItem: (_name, value) => { saved = value; },

@@ -166,9 +166,9 @@ test('the terminal-removal layer binds openchamber#552 over every changed donor 
   const prefix = 'openchamber#552 (smarty-code#1398): web terminal removal';
   const coverage = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   const layer = overlay.files.filter(entry => 'terminalRemovalSha256' in entry);
-  assert.equal(layer.length, 103);
+  assert.equal(layer.length, 104);
   assert.equal(sha256(JSON.stringify(layer.map(entry => [entry.path, entry.terminalRemovalBaseSha256, entry.terminalRemovalSha256]))),
-    '40c908370348f7b466f636d73244aec274575265eafd397e672202171e9a9483');
+    'c6cdf19b9abd2ed68f6c3af9be5f3e57480a7d3c403d520583e7c0aa338adedf');
   // Existing overlaps keep every earlier field; the layer records the exact predecessor bytes and its successor.
   const extended = layer.filter(entry => !entry.terminalRemovalAdded);
   assert.deepEqual(extended.map(entry => entry.path), [
@@ -190,7 +190,7 @@ test('the terminal-removal layer binds openchamber#552 over every changed donor 
   }
   // Donor outputs outside the earlier overlay are added once, retaining the original donor hash.
   const added = layer.filter(entry => entry.terminalRemovalAdded);
-  assert.equal(added.length, 82);
+  assert.equal(added.length, 83);
   for (const entry of added) {
     const donor = coverage.get(entry.path);
     assert.ok(donor, entry.path);

@@ -54,7 +54,7 @@
       "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
       "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
       "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "combinedSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
+      "combinedSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
       "preHumanHostBoundaryCombinedSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
       "humanHostBoundarySha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "humanHostBoundaryNote": "openchamber#380: the human-mode composition root requires configured application Host authority before early HTTP responses and runtime startup. Source 12463c2f is the initial Host patch, not security-finding closure or release acceptance.",
@@ -71,8 +71,8 @@
       "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged.",
       "preTerminalRemovalCombinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "terminalRemovalBaseSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
-      "terminalRemovalSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
-      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained."
+      "terminalRemovalSha256": "1bce2a8047533969747b5b41b571a32499a61859a93f135331e816b8fc1c2f7d",
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained. Round 4 (Astra F3): a retired path's CORS preflight gets the retired-route 404, never 204."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
@@ -1659,6 +1659,16 @@
       "terminalRemovalAdded": true,
       "terminalRemovalBaseSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
       "terminalRemovalSha256": "671c0bb913b787e466bdf20ffda1ee7de2dc8606875282ffe479fce67a7d6e26"
+    },
+    {
+      "path": "packages/electron/main.mjs",
+      "brandingSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "behaviorSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "combinedSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
+      "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Toggle Terminal Dock and Toggle Terminal Expanded menu items (both platform templates) are removed, since their handlers were deleted (Astra F2); the native Open in Terminal integration and branded strings are unchanged.",
+      "terminalRemovalAdded": true,
+      "terminalRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "terminalRemovalSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",

@@ -22,6 +22,7 @@ import { createCloudflareTunnelProvider } from './lib/tunnels/providers/cloudfla
 import { createNgrokTunnelProvider } from './lib/tunnels/providers/ngrok.js';
 import { createRequestSecurityRuntime } from './lib/security/request-security.js';
 import { applicationAuthority } from './lib/security/browser-origin.js';
+import { isRetiredRoutePath } from './lib/security/retired-routes.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -1703,6 +1704,11 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
       res.setHeader('Access-Control-Expose-Headers', exposedProxyResponseHeaders);
       res.vary('Origin');
       if (req.method === 'OPTIONS') {
+        // A retired route gets the same refusal as any other method, never a successful preflight (#552 F3).
+        if (isRetiredRoutePath(req.originalUrl ?? req.url)) {
+          res.status(404).json({ error: 'Not Found' });
+          return;
+        }
         res.status(204).end();
         return;
       }

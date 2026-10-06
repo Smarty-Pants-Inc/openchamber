@@ -45,7 +45,7 @@ test('no retired request or upgrade reaches the upstream proxy target', () => {
 
 for (const label of ['signed-in', 'signed-out']) {
   test(`${label}: every former terminal HTTP path is refused locally`, () => {
-    const rows = receipt.results.filter(row => row.label === label && !['WS', 'CONTROL-WS'].includes(row.method));
+    const rows = receipt.results.filter(row => row.label === label && !['WS', 'CONTROL-WS', 'PREFLIGHT', 'CONTROL-PREFLIGHT'].includes(row.method));
     assert.equal(rows.length, 15);
     for (const row of rows) {
       assert.equal(row.leaked, false, `${row.method} ${row.route} returned the upstream or index sentinel`);
@@ -62,6 +62,13 @@ for (const label of ['signed-in', 'signed-out']) {
       assert.equal(row.status, 404, row.route);
       assert.equal(row.closedByServer, true, row.route);
     }
+  });
+  test(`${label}: a packaged client's preflight to a former terminal path is refused, never 204`, () => {
+    const rows = receipt.results.filter(row => row.label === label && row.method === 'PREFLIGHT');
+    assert.equal(rows.length, 15);
+    for (const row of rows) assert.equal(row.status, 404, row.route);
+    const control = receipt.results.find(row => row.label === label && row.method === 'CONTROL-PREFLIGHT');
+    assert.equal(control?.status, 204, 'a remaining route keeps its preflight');
   });
   test(`${label}: the remaining event WebSocket keeps its authentication`, () => {
     const row = receipt.results.find(value => value.label === label && value.method === 'CONTROL-WS');
