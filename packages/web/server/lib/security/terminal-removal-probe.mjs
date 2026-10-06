@@ -132,9 +132,6 @@ try {
    results.push({label,method:'CONTROL-WS',route:'/api/global/event/ws',status:control});
    console.log(`CONTROL ${label} WS /api/global/event/ws => ${control}`);
  }
- const { isAllowedRelayWebSocketPath } = await import(`${source}/packages/web/server/lib/relay/tunnel-host.js`);
- assert.equal(isAllowedRelayWebSocketPath('/api/terminal/ws'), false);
- assert.equal(isAllowedRelayWebSocketPath('/api/global/event/ws'), true);
  assert.equal(externalAttempts, 0);
 } finally {
  console.log('UPSTREAM_RETIRED='+JSON.stringify(upstreamRetired));

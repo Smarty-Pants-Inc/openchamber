@@ -32,8 +32,6 @@ import {
   TUNNEL_MODE_MANAGED_REMOTE,
   TUNNEL_MODE_QUICK,
   TUNNEL_PROVIDER_CLOUDFLARE,
-  TunnelServiceError,
-  isSupportedTunnelMode,
   normalizeOptionalPath,
   normalizeTunnelStartRequest,
   normalizeTunnelMode,
@@ -108,12 +106,11 @@ import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { attachRealtimeProxy } from './lib/realtime-proxy.js';
 import { attachSessionVoiceSocket } from './lib/opencode/session-voice-socket.js';
-import { createRelayService } from './lib/relay/service.js';
-import { createRelayHostLock } from './lib/relay/host-lock.js';
+import { deriveServerId, getOrCreateRelaySigningKeypair } from './lib/security/server-signing-key.js';
+import { isRetiredRouteRequest, sendRetiredRouteRefusal } from './lib/security/retired-routes.js';
 import { createAgentToolRuntime } from './lib/agent-tool/runtime.js';
 import { createBrowserControlBroker } from './lib/browser-control/broker.js';
 import { createDevServerScanner } from './lib/dev-servers/routes.js';
-import { createDevTunnelRuntime } from './lib/dev-tunnel/runtime.js';
 import { registerBrowserControlRoutes } from './lib/browser-control/routes.js';
 import { createSystemPromptRuntime } from './lib/system-prompt/runtime.js';
 import { createMcpReconnectRuntime } from './lib/mcp-reconnect/runtime.js';
@@ -333,10 +330,8 @@ const managedTunnelConfigRuntime = createManagedTunnelConfigRuntime({
   },
 });
 
-const readManagedRemoteTunnelConfigFromDisk = (...args) => managedTunnelConfigRuntime.readManagedRemoteTunnelConfigFromDisk(...args);
 const syncManagedRemoteTunnelConfigWithPresets = (...args) => managedTunnelConfigRuntime.syncManagedRemoteTunnelConfigWithPresets(...args);
 const upsertManagedRemoteTunnelToken = (...args) => managedTunnelConfigRuntime.upsertManagedRemoteTunnelToken(...args);
-const resolveManagedRemoteTunnelToken = (...args) => managedTunnelConfigRuntime.resolveManagedRemoteTunnelToken(...args);
 
 const settingsHelpers = createSettingsHelpers({
   normalizePathForPersistence,
@@ -548,8 +543,6 @@ const tunnelProviderRegistry = createTunnelProviderRegistry([
 ]);
 tunnelProviderRegistry.seal();
 const tunnelAuthController = createTunnelAuth();
-let runtimeManagedRemoteTunnelToken = '';
-let runtimeManagedRemoteTunnelHostname = '';
 let dictationRuntime = null;
 let messageStreamRuntime = null;
 const userProvidedOpenCodePassword = hmrStateRuntime.getUserProvidedOpenCodePassword(hmrState);
@@ -1060,37 +1053,13 @@ const bootstrapRuntime = createBootstrapRuntime({
   express,
 });
 const tunnelWiringRuntime = createTunnelWiringRuntime({
-  crypto,
-  URL,
   tunnelProviderRegistry,
-  tunnelAuthController,
-  readSettingsFromDiskMigrated,
-  readManagedRemoteTunnelConfigFromDisk,
-  normalizeTunnelProvider,
-  normalizeTunnelMode,
-  normalizeOptionalPath,
-  normalizeManagedRemoteTunnelHostname,
-  normalizeTunnelBootstrapTtlMs,
-  normalizeTunnelSessionTtlMs,
-  isSupportedTunnelMode,
   upsertManagedRemoteTunnelToken,
-  resolveManagedRemoteTunnelToken,
-  TUNNEL_MODE_QUICK,
-  TUNNEL_MODE_MANAGED_LOCAL,
   TUNNEL_MODE_MANAGED_REMOTE,
   TUNNEL_PROVIDER_CLOUDFLARE,
-  TunnelServiceError,
   getActiveTunnelController: () => activeTunnelController,
   setActiveTunnelController: (value) => {
     activeTunnelController = value;
-  },
-  getRuntimeManagedRemoteTunnelHostname: () => runtimeManagedRemoteTunnelHostname,
-  setRuntimeManagedRemoteTunnelHostname: (value) => {
-    runtimeManagedRemoteTunnelHostname = value;
-  },
-  getRuntimeManagedRemoteTunnelToken: () => runtimeManagedRemoteTunnelToken,
-  setRuntimeManagedRemoteTunnelToken: (value) => {
-    runtimeManagedRemoteTunnelToken = value;
   },
 });
 const startupPipelineRuntime = createStartupPipelineRuntime({
@@ -1555,7 +1524,7 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
       // Interface scanning is only a fallback: on servers with virtual bridges
       // (docker0 etc.) the first non-internal IPv4 can be an address no other
       // machine can reach, which produced pairing links whose LAN candidate
-      // silently failed and forced devices onto the relay.
+      // silently failed.
       lanHost = requestReachedLanAddress(req);
       try {
         if (!lanHost) {
@@ -1574,12 +1543,11 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
       if (h && h !== '127.0.0.1' && h !== 'localhost' && h !== '::1') lanHost = effectiveBindHost;
     }
     const lan = lanHost ? `http://${lanHost.includes(':') ? `[${lanHost}]` : lanHost}:${activePort}` : null;
-    return { local, lan, relayAvailable: true };
+    return { local, lan };
   };
   // ALL direct LAN URLs this server is currently reachable on, for the
   // candidates-refresh endpoint: the address the requesting client already
-  // reached us on first (guaranteed routable from its network — over the relay
-  // tunnel this is loopback and yields nothing), then every non-internal IPv4
+  // reached us on first (guaranteed routable from its network), then every non-internal IPv4
   // interface. A client that paired while the machine had a different DHCP
   // lease uses this to replace its stale LAN candidate.
   const resolveDirectLanUrls = (req) => {
@@ -1606,6 +1574,14 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
       if (h && h !== '127.0.0.1' && h !== 'localhost' && h !== '::1') push(effectiveBindHost);
     }
     return urls;
+  };
+  // Stable server identity: base64url SHA-256 of the persisted signing key's
+  // public JWK (the key the push relay also uses). core-routes caches it.
+  const getServerId = async () => {
+    const signing = await getOrCreateRelaySigningKeypair({
+      crypto, readSettingsFromDiskMigrated, writeSettingsToDisk, readSettingsStrict: readSettingsFromDiskStrict,
+    });
+    return deriveServerId({ crypto }, signing.publicJwk);
   };
   const uiPassword = typeof options.uiPassword === 'string'
     ? options.uiPassword
@@ -1703,6 +1679,11 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
       res.setHeader('Access-Control-Expose-Headers', exposedProxyResponseHeaders);
       res.vary('Origin');
       if (req.method === 'OPTIONS') {
+        // A retired route's preflight is refused like the route itself, never answered 204.
+        if (isRetiredRouteRequest(req)) {
+          sendRetiredRouteRefusal(res);
+          return;
+        }
         res.status(204).end();
         return;
       }
@@ -1720,11 +1701,6 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
   server = http.createServer(app);
   let realtimeProxyRuntime = { stop: () => {} };
   let sessionVoiceRuntime = { stop: () => {} };
-
-  // The relay service is constructed further below (it depends on the tunnel
-  // runtime's active port). The pairing routes registered here only read the
-  // relay candidate lazily at request time, so a late-bound holder is enough.
-  let relayServiceInstance = null;
 
   // Same pattern for the tunnel runtime: created after the base routes so
   // /api/system/info resolves port + tunnel URL lazily at request time.
@@ -1784,22 +1760,10 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     tunnelAuthController,
     remoteClientAuthRuntime,
     clientPairingRuntime,
-    getRelayPairingCandidate: (options) => {
-      if (!relayServiceInstance) return null;
-      // A relay pairing link enables the relay on demand; a plain link only
-      // advertises relay when it is already on.
-      return options?.ensureEnabled
-        ? relayServiceInstance.ensureEnabledForPairing()
-        : relayServiceInstance.getPairingCandidate();
-    },
-    // Re-evaluate the relay lifecycle after pairing/device changes (a revoked or
-    // redeemed device can flip relay demand on or off).
-    reconcileRelay: () => (relayServiceInstance ? relayServiceInstance.reconcile() : Promise.resolve()),
     getPairingTransports: resolvePairingTransports,
     getDirectCandidateUrls: resolveDirectLanUrls,
     // Stable server identity for client-side verification of learned addresses.
-    // Lazily resolved: the relay service is constructed after these routes.
-    getServerId: () => (relayServiceInstance ? relayServiceInstance.getServerId() : Promise.resolve(null)),
+    getServerId,
     // The display name a paired device shows for THIS server. Devices name the
     // connection by the issuing machine's hostname, not the per-device pairing
     // label typed by the operator.
@@ -1830,12 +1794,6 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     writeSseEvent,
     sessionRuntime,
     setPushInitialized,
-    fs,
-    os,
-    path,
-    server,
-    __dirname,
-    openchamberDataDir: OPENCHAMBER_DATA_DIR,
     modelsDevApiUrl: MODELS_DEV_API_URL,
     modelsMetadataCacheTtl: MODELS_METADATA_CACHE_TTL,
     fetchFreeZenModels,
@@ -1859,75 +1817,13 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     getOpenCodeAuthHeaders,
   });
 
-  const tunnelRuntimeContext = tunnelWiringRuntime.initialize(app, port);
+  const tunnelRuntimeContext = tunnelWiringRuntime.initialize(port);
   const { tunnelService, startTunnelWithNormalizedRequest } = tunnelRuntimeContext;
   tunnelRuntimeContextHolder = tunnelRuntimeContext;
 
-  // Private relay host service: config + management routes + host client
-  // lifecycle. Loopback port comes from the same source the tunnel uses so
-  // relay-tunneled requests hit the local Express app on 127.0.0.1.
-  const relayService = createRelayService({
-    crypto,
-    os,
-    readSettingsFromDiskMigrated,
-    writeSettingsToDisk,
-    readSettingsStrict: readSettingsFromDiskStrict,
-    remoteClientAuthRuntime,
-    getLocalPort: () => tunnelRuntimeContext.getActivePort(),
-    // One relay host per machine: every instance sharing this data dir shares
-    // the relay identity (serverId), so concurrent hosts evict each other at
-    // the relay worker and devices land on a random local instance.
-    hostLock: createRelayHostLock({
-      lockFilePath: path.join(OPENCHAMBER_DATA_DIR, 'relay-host.lock'),
-      fs,
-      process,
-    }),
-    // Dev/debug instances share the data dir (and thus the relay identity) with
-    // the production instance, so they must not host the relay on their own —
-    // paired devices would land on them. OPENCHAMBER_RELAY_HOST=off disables
-    // passive hosting explicitly (dev scripts set it); the Electron dev shell is
-    // covered via OPENCHAMBER_ELECTRON_DEV. OPENCHAMBER_RELAY_HOST=on overrides
-    // both. Explicit enable/pairing on the instance still hosts regardless.
-    allowPassiveHost: process.env.OPENCHAMBER_RELAY_HOST === 'on'
-      || (process.env.OPENCHAMBER_RELAY_HOST !== 'off' && process.env.OPENCHAMBER_ELECTRON_DEV !== '1'),
-    // Relay demand = any paired device or pending pairing session that uses the
-    // relay transport. Drives the auto on/off lifecycle.
-    hasRelayDemand: async () => {
-      // A store read failure must NOT masquerade as "no demand": reconcile
-      // persists enabled=false and severs paired devices. Any affirmative
-      // answer wins; otherwise a failed check aborts reconcile (throw) so the
-      // relay keeps its current state until a trustworthy read succeeds.
-      const [pendingRelay, deviceRelay] = await Promise.allSettled([
-        clientPairingRuntime.hasActiveRelaySession(),
-        remoteClientAuthRuntime.hasActiveRelayClients(),
-      ]);
-      if (pendingRelay.status === 'fulfilled' && pendingRelay.value) return true;
-      if (deviceRelay.status === 'fulfilled' && deviceRelay.value) return true;
-      if (pendingRelay.status === 'rejected') throw pendingRelay.reason;
-      if (deviceRelay.status === 'rejected') throw deviceRelay.reason;
-      return false;
-    },
-  });
-  relayServiceInstance = relayService;
-  relayService.registerRoutes(app);
-
   registerBrowserControlRoutes(app, { express, broker: browserControlBroker });
 
-  // One scanner backs both discovery and the tunnel allowlist, so a port the
-  // user can see is exactly a port the tunnel will dial.
   const devServerScanner = createDevServerScanner({ spawn, platform: process.platform });
-  const listDevServers = () => devServerScanner.discover({
-    ownPorts: [port, openCodePort].filter((value) => Number.isInteger(value) && value > 0),
-  });
-
-  createDevTunnelRuntime({
-    server,
-    discoverDevServers: listDevServers,
-    uiAuthController,
-    isRequestOriginAllowed,
-    rejectWebSocketUpgrade,
-    logger: console,
-  });
 
   await featureRoutesRuntime.registerRoutes(app, {
     crypto,
@@ -2039,20 +1935,6 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     console.warn('[ScheduledTasks] Failed to start runtime:', error?.message || error);
   }
 
-  // Only opens a relay control socket when the user opted in (config enabled).
-  // Reconcile the relay lifecycle from demand on startup: run it if any relay
-  // device/session exists, stop it (and clear a stale enabled flag) otherwise.
-  void relayService.reconcile();
-
-  // Relay demand can change outside our routes: `openchamber connect-url
-  // --relay` writes a pending relay session straight to the on-disk store, and
-  // pending sessions expire without any request hitting us. Poll reconcile so a
-  // headless instance picks the relay up (or drops it) within a minute.
-  const relayReconcileTimer = setInterval(() => {
-    void relayService.reconcile();
-  }, 60_000);
-  relayReconcileTimer.unref?.();
-
   return {
     expressApp: app,
     httpServer: server,
@@ -2084,12 +1966,6 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
     stop: (shutdownOptions = {}) => {
       realtimeProxyRuntime.stop();
       sessionVoiceRuntime.stop();
-      clearInterval(relayReconcileTimer);
-      try {
-        relayService.stop();
-      } catch {
-        // best-effort teardown of the relay host client
-      }
       try {
         dictationRuntime?.stop?.();
       } catch {

@@ -7,7 +7,6 @@ import {
   upsertProviderConfig,
   validateCustomProviderConfig,
   getProviderSources,
-  removeProviderConfig,
 } from './providers.js';
 import { OPENCODE_CONFIG_DIR } from './shared.js';
 
@@ -287,19 +286,6 @@ describe('custom provider config persistence', () => {
       untouched: { name: 'Untouched', options: { baseURL: 'https://other.example.com/v1' }, models: { model: { name: 'Other model' } } },
     });
     expect(written.provider.legacy.name).toBe('Updated provider');
-  });
-
-  test('upsert then remove restores absence', () => {
-    upsertProviderConfig('temp-provider', {
-      name: 'Temp',
-      options: { baseURL: 'https://api.example.com/v1' },
-      models: { m: { name: 'M' } },
-      env: ['TEMP_KEY'],
-    }, projectDir, 'project');
-
-    expect(getProviderSources('temp-provider', projectDir).sources.project.exists).toBe(true);
-    expect(removeProviderConfig('temp-provider', projectDir, 'project')).toBe(true);
-    expect(getProviderSources('temp-provider', projectDir).sources.project.exists).toBe(false);
   });
 
   test('failed validation does not write config', () => {

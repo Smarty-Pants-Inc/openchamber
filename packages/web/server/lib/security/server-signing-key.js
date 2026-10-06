@@ -1,7 +1,6 @@
-// Per-server relay signing identity (ECDSA P-256), extracted from
-// lib/notifications/apns-runtime.js so both the push relay and the private
-// relay share the SAME keypair and thus the SAME serverId
-// (base64url(SHA-256(canonical public JWK))). Storage format is unchanged:
+// Per-server signing identity (ECDSA P-256) used by the APNs push relay and as
+// the stable serverId (base64url(SHA-256(canonical public JWK))) that /health
+// and paired devices use to recognise this server. Storage format is unchanged:
 // `settings.relaySigningKey = { privateJwk, publicJwk }` — existing installs'
 // serverId must stay stable because push token binding depends on it.
 
@@ -53,7 +52,7 @@ export const getOrCreateRelaySigningKeypair = async ({ crypto, readSettingsFromD
 // Fixed key order so the hash is stable regardless of stored JSON field order.
 // Byte-for-byte mirror of canonicalJwk in openchamber-website apps/api relay-auth.ts.
 /** @param {JsonWebKey} jwk */
-export const canonicalPublicJwkString = (jwk) =>
+const canonicalPublicJwkString = (jwk) =>
   JSON.stringify({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
 
 /**

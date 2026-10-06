@@ -495,98 +495,6 @@ const InlineDiffViewer = React.memo<InlineDiffViewerProps>(({
   );
 });
 
-type FileDiffAction = 'stage' | 'unstage' | 'discard';
-
-interface FileDiffActionsProps {
-    filePath: string;
-    staged: boolean;
-    busyAction: FileDiffAction | null;
-    disabled: boolean;
-    onAction: (action: FileDiffAction) => void;
-}
-
-const FileDiffActions = React.memo<FileDiffActionsProps>(({
-    filePath,
-    staged,
-    busyAction,
-    disabled,
-    onAction,
-}) => {
-    const { t } = useI18n();
-    return (
-        <div className="flex items-center gap-0.5 rounded-full border border-[var(--interactive-border)]/45 bg-[var(--surface-background)]/95 px-1 py-0.5 shadow-sm backdrop-blur-md">
-            {staged ? (
-                <FileDiffActionButton
-                    label={t('gitView.changes.unstageFileAria', { path: filePath })}
-                    icon="arrow-go-back"
-                    loading={busyAction === 'unstage'}
-                    disabled={disabled}
-                    onClick={() => onAction('unstage')}
-                />
-            ) : (
-                <>
-                    <FileDiffActionButton
-                        label={t('gitView.changes.revertFileAria', { path: filePath })}
-                        icon="arrow-go-back"
-                        loading={busyAction === 'discard'}
-                        disabled={disabled}
-                        tone="failure"
-                        onClick={() => onAction('discard')}
-                    />
-                    <FileDiffActionButton
-                        label={t('gitView.changes.stageFileAria', { path: filePath })}
-                        icon="add"
-                        loading={busyAction === 'stage'}
-                        disabled={disabled}
-                        tone="success"
-                        onClick={() => onAction('stage')}
-                    />
-                </>
-            )}
-        </div>
-    );
-});
-
-interface FileDiffActionButtonProps {
-    label: string;
-    icon: 'add' | 'arrow-go-back';
-    loading: boolean;
-    disabled: boolean;
-    tone?: 'failure' | 'success';
-    onClick: () => void;
-}
-
-const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
-    label,
-    icon,
-    loading,
-    disabled,
-    tone,
-    onClick,
-}) => (
-    <Button
-        variant="ghost"
-        size="sm"
-        className={cn(
-            'h-6 w-6 rounded-none bg-transparent p-0 text-muted-foreground opacity-70 hover:bg-transparent hover:text-foreground hover:opacity-100',
-            tone === 'failure' && 'text-[var(--status-error)] hover:text-[var(--status-error)]',
-            tone === 'success' && 'text-[var(--status-success)] hover:text-[var(--status-success)]'
-        )}
-        disabled={disabled}
-        title={label}
-        aria-label={label}
-        onClick={(event) => {
-            event.stopPropagation();
-            onClick();
-        }}
-    >
-        {loading ? (
-            <Icon name="loader-4" className="size-3.5 animate-spin" />
-        ) : (
-            <Icon name={icon} className={icon === 'add' ? 'size-4' : 'size-3.5'} />
-        )}
-    </Button>
-);
 
 interface MultiFileDiffEntryProps {
     directory: string;
@@ -605,8 +513,6 @@ interface MultiFileDiffEntryProps {
     staged?: boolean;
     loadFullFiles?: boolean;
     initialDiffData?: DiffData | null;
-    /** Hide stage/unstage/revert actions (read-only scopes like branch diffs). */
-    readOnlyActions?: boolean;
 }
 
 const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
@@ -626,7 +532,6 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
     staged = false,
     loadFullFiles = false,
     initialDiffData = null,
-    readOnlyActions = false,
 }) => {
     const { t } = useI18n();
     const { git } = useRuntimeAPIs();
@@ -636,13 +541,11 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
         }, [directory, file.path])
     );
     const setDiff = useGitStore((state) => state.setDiff);
-    const fetchStatus = useGitStore((state) => state.fetchStatus);
     const setDiffFileLayout = useUIStore((state) => state.setDiffFileLayout);
 
     const [diffRetryNonce, setDiffRetryNonce] = React.useState(0);
     const [diffLoadError, setDiffLoadError] = React.useState<string | null>(null);
     const [isLoading, setIsLoading] = React.useState(false);
-    const [fileAction, setFileAction] = React.useState<FileDiffAction | null>(null);
     const [forceRenderLarge, setForceRenderLarge] = React.useState(false);
     const [localDiffData, setLocalDiffData] = React.useState<DiffData | null>(null);
     const [stagedDiffData, setStagedDiffData] = React.useState<DiffData | null>(null);
@@ -761,33 +664,6 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
         handleSelect();
     }, [handleOpenChange, handleSelect, isExpanded]);
 
-    const handleFileAction = React.useCallback(async (action: FileDiffAction) => {
-        if (!directory || fileAction !== null) {
-            return;
-        }
-
-        setFileAction(action);
-        try {
-            if (action === 'stage') {
-                await git.stageGitFile(directory, file.path);
-            } else if (action === 'unstage') {
-                await git.unstageGitFile(directory, file.path);
-            } else {
-                await git.revertGitFile(directory, file.path, { scope: 'working' });
-            }
-            setDiffRetryNonce((nonce) => nonce + 1);
-            await fetchStatus(directory, git);
-        } catch (error) {
-            const fallbackKey = action === 'unstage'
-                ? 'gitView.toast.unstageFileFailed'
-                : action === 'stage'
-                    ? 'gitView.toast.stageFileFailed'
-                    : 'gitView.toast.revertFailed';
-            toast.error(error instanceof Error ? error.message : t(fallbackKey));
-        } finally {
-            setFileAction((current) => (current === action ? null : current));
-        }
-    }, [directory, fetchStatus, file.path, fileAction, git, t]);
 
     return (
         <div ref={setSectionRef} className="scroll-mt-9 border-b border-[var(--interactive-border)]/40 last:border-b-0">
@@ -954,19 +830,6 @@ const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(({
                                 renderSideBySide={renderSideBySide}
                                 wrapLines={wrapLines}
                             />
-                            <div className="pointer-events-none absolute bottom-3 right-3 z-20">
-                                <div className="pointer-events-auto">
-                                    {!readOnlyActions ? (
-                                        <FileDiffActions
-                                            filePath={file.path}
-                                            staged={staged}
-                                            busyAction={fileAction}
-                                            disabled={fileAction !== null}
-                                            onAction={handleFileAction}
-                                        />
-                                    ) : null}
-                                </div>
-                            </div>
                         </>
                     ) : null}
                 </div>
@@ -1937,7 +1800,6 @@ export const DiffView: React.FC<DiffViewProps> = ({
                                     }}
                                     staged={getFileStaged(file.path)}
                                     loadFullFiles={loadFullFiles}
-                                    readOnlyActions={activeDiffScope === 'branch'}
                                     initialDiffData={
                                         activeDiffScope === 'turn'
                                             ? lastTurnDiffData.get(file.path) ?? null

@@ -19,7 +19,7 @@ import {
 } from '../types.js';
 import { getTunnelDependencyInstallInfo } from '../install-help.js';
 
-export const cloudflareTunnelProviderCapabilities = {
+const cloudflareTunnelProviderCapabilities = {
   provider: TUNNEL_PROVIDER_CLOUDFLARE,
   defaults: {
     mode: TUNNEL_MODE_QUICK,

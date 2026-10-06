@@ -1,36 +1,25 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 
-import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { ScrollShadow } from '@/components/ui/ScrollShadow';
 import { ChangesPanel, type ChangesGroupConfig } from '@/components/views/git/ChangesPanel';
-import { BranchSelector } from '@/components/views/git/BranchSelector';
-import { CommitSection } from '@/components/views/git/CommitSection';
-import { DirtyBranchSwitchDialog } from '@/components/views/git/DirtyBranchSwitchDialog';
-import { SyncActions } from '@/components/views/git/SyncActions';
 import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useNestedGitDirectory } from '@/hooks/useNestedGitDirectory';
 import type { GitStatus } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
-import { generateCommitMessage, stageGitFile, stageGitFiles, unstageGitFile, unstageGitFiles } from '@/lib/gitApi';
-import type { GitRemote } from '@/lib/gitApi';
 import { getLanguageFromExtension, isImageFile } from '@/lib/toolHelpers';
 import {
   useGitStore,
   useGitStatus,
-  useGitBranches,
   useIsGitRepo,
   useGitLoadingStatus,
 } from '@/stores/useGitStore';
 import { NestedRepoResolutionStates } from '@/components/views/git/NestedRepoResolutionStates';
 import { NestedRepoPicker } from '@/components/views/git/NestedRepoPicker';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-
-type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
-type CommitAction = 'commit' | 'commitAndPush' | null;
 
 const normalizePath = (value?: string | null): string => (value || '').replace(/\\/g, '/').replace(/\/+$/g, '');
 
@@ -68,15 +57,12 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
   const { rootIsGitRepo, gitDirectory, nestedRepos } = useNestedGitDirectory(rootDirectory || null);
   const currentDirectory = gitDirectory ?? rootDirectory;
   const status = useGitStatus(currentDirectory || null);
-  const branches = useGitBranches(currentDirectory || null);
   const isGitRepo = useIsGitRepo(currentDirectory || null);
   const isLoadingStatus = useGitLoadingStatus(currentDirectory || null);
   const setActiveDirectory = useGitStore((state) => state.setActiveDirectory);
   const ensureAll = useGitStore((state) => state.ensureAll);
   const ensureNestedRepos = useGitStore((state) => state.ensureNestedRepos);
   const selectNestedRepo = useGitStore((state) => state.selectNestedRepo);
-  const fetchStatus = useGitStore((state) => state.fetchStatus);
-  const fetchBranches = useGitStore((state) => state.fetchBranches);
   const prefetchDiffs = useGitStore((state) => state.prefetchDiffs);
   const getDiff = useGitStore((state) => state.getDiff);
   const setDiff = useGitStore((state) => state.setDiff);
@@ -96,19 +82,9 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         : { type: 'diff', path: initialDiffPath, staged: initialDiffStaged }
     ));
   }, [initialDiffPath, initialDiffStaged]);
-  const [syncAction, setSyncAction] = React.useState<SyncAction>(null);
-  const [commitAction, setCommitAction] = React.useState<CommitAction>(null);
-  const [commitMessage, setCommitMessage] = React.useState('');
-  const [revertingPaths, setRevertingPaths] = React.useState<Set<string>>(new Set());
-  const [isRevertingAll, setIsRevertingAll] = React.useState(false);
-  const [isGeneratingMessage, setIsGeneratingMessage] = React.useState(false);
-  const [generatedHighlights, setGeneratedHighlights] = React.useState<string[]>([]);
   const [visibleChangePaths, setVisibleChangePaths] = React.useState<string[]>([]);
-  const [remotes, setRemotes] = React.useState<GitRemote[]>([]);
-  const [remoteUrl, setRemoteUrl] = React.useState<string | null>(null);
   const [diffLoadError, setDiffLoadError] = React.useState<string | null>(null);
   const [diffRetryNonce, setDiffRetryNonce] = React.useState(0);
-  const [pendingDirtySwitchBranch, setPendingDirtySwitchBranch] = React.useState<string | null>(null);
 
   const changeEntries = React.useMemo(() => {
     const files = status?.files ?? [];
@@ -129,15 +105,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     [changeEntries],
   );
 
-  const effectiveRemotes = React.useMemo<GitRemote[]>(() => {
-    if (remotes.length > 0) return remotes;
-    const trackingRemote = status?.tracking?.includes('/') ? status.tracking.split('/')[0] : null;
-    if (trackingRemote || remoteUrl) {
-      return [{ name: trackingRemote || 'origin', fetchUrl: remoteUrl ?? '', pushUrl: remoteUrl ?? '' }];
-    }
-    return [];
-  }, [remoteUrl, remotes, status?.tracking]);
-
   const selectedDiff = useGitStore(React.useCallback((state) => {
     if (!currentDirectory || route.type !== 'diff') return null;
     return state.directories.get(currentDirectory)?.diffCache.get(diffCacheKey(route.path, route.staged)) ?? null;
@@ -148,97 +115,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     return changeEntries.find((entry) => entry.path === route.path) ?? null;
   }, [changeEntries, route]);
 
-  const refreshStatusAndBranches = React.useCallback(async (showErrors = true) => {
-    if (!currentDirectory) return;
-    try {
-      await Promise.all([
-        fetchStatus(currentDirectory, git),
-        fetchBranches(currentDirectory, git),
-      ]);
-    } catch (error) {
-      if (showErrors) {
-        toast.error(error instanceof Error ? error.message : t('gitView.toast.refreshRepositoryFailed'));
-      }
-    }
-  }, [currentDirectory, fetchBranches, fetchStatus, git, t]);
-
-  const localBranches = React.useMemo(
-    () => (branches?.all ?? []).filter((branch) => !branch.startsWith('remotes/')).sort(),
-    [branches],
-  );
-
-  const remoteBranches = React.useMemo(
-    () => (branches?.all ?? [])
-      .filter((branch) => branch.startsWith('remotes/'))
-      .map((branch) => branch.replace(/^remotes\//, ''))
-      .sort(),
-    [branches],
-  );
-
-  const performCheckout = React.useCallback(async (branch: string) => {
-    if (!currentDirectory) return;
-    const normalized = branch.replace(/^remotes\//, '');
-    try {
-      const result = await git.checkoutBranch(currentDirectory, normalized);
-      toast.success(t('gitView.toast.checkedOut', { name: result.branch || normalized }));
-      await refreshStatusAndBranches();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.checkoutFailed', { name: normalized }));
-    }
-  }, [currentDirectory, git, refreshStatusAndBranches, t]);
-
-  const handleCheckoutBranch = React.useCallback((branch: string) => {
-    const normalized = branch.replace(/^remotes\//, '');
-    if ((status?.files?.length ?? 0) > 0) {
-      setPendingDirtySwitchBranch(normalized);
-      return;
-    }
-    void performCheckout(normalized);
-  }, [performCheckout, status?.files]);
-
-  const handleCreateBranch = React.useCallback(async (branch: string, remote?: GitRemote) => {
-    if (!currentDirectory) return;
-    try {
-      await git.createBranch(currentDirectory, branch, status?.current ?? 'HEAD');
-      await git.checkoutBranch(currentDirectory, branch);
-      if (remote) {
-        await git.gitPush(currentDirectory, { remote: remote.name, branch, options: ['--set-upstream'] });
-      }
-      await refreshStatusAndBranches();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.createBranchFailed'));
-      throw error;
-    }
-  }, [currentDirectory, git, refreshStatusAndBranches, status?.current, t]);
-
-  const refreshRemotes = React.useCallback(async () => {
-    if (!currentDirectory) {
-      setRemotes([]);
-      setRemoteUrl(null);
-      return;
-    }
-    try {
-      const [remoteList, url] = await Promise.all([
-        git.getRemotes(currentDirectory).catch(() => []),
-        git.getRemoteUrl ? git.getRemoteUrl(currentDirectory).catch(() => null) : Promise.resolve(null),
-      ]);
-      setRemotes(remoteList);
-      setRemoteUrl(url);
-    } catch {
-      setRemotes([]);
-      setRemoteUrl(null);
-    }
-  }, [currentDirectory, git]);
-
   React.useEffect(() => {
     if (!currentDirectory) return;
     setActiveDirectory(currentDirectory);
     void ensureAll(currentDirectory, git);
   }, [currentDirectory, ensureAll, git, setActiveDirectory]);
-
-  React.useEffect(() => {
-    void refreshRemotes();
-  }, [refreshRemotes]);
 
   React.useEffect(() => {
     if (!currentDirectory || changeEntries.length === 0) return;
@@ -287,188 +168,9 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
     };
   }, [currentDirectory, diffRetryNonce, getDiff, git, route, setDiff]);
 
-  const handleSyncAction = async (action: Exclude<SyncAction, null>, remote?: GitRemote) => {
-    if (!currentDirectory) return;
-    setSyncAction(action);
-    try {
-      const getPullOptions = (pullRemote: GitRemote) => {
-        const trackingPrefix = `${pullRemote.name}/`;
-        const trackedBranch = status?.tracking?.startsWith(trackingPrefix)
-          ? status.tracking.slice(trackingPrefix.length)
-          : undefined;
-        return { remote: pullRemote.name, branch: trackedBranch, rebase: true };
-      };
-
-      if (action === 'fetch') {
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
-        await git.gitFetch(currentDirectory, { remote: remote.name });
-        toast.success(t('gitView.toast.fetchedFromRemote', { name: remote.name }));
-      } else if (action === 'sync') {
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
-        await git.gitFetch(currentDirectory, { remote: remote.name });
-        const afterFetch = await git.getGitStatus(currentDirectory);
-        if ((afterFetch.behind ?? 0) > 0) {
-          if ((afterFetch.files?.length ?? 0) > 0) {
-            toast.error(t('gitView.toast.commitOrStashBeforeSync'));
-            return;
-          }
-          await git.gitPull(currentDirectory, getPullOptions(remote));
-        }
-        const afterPull = await git.getGitStatus(currentDirectory);
-        if ((afterPull.ahead ?? 0) > 0) {
-          await git.gitPush(currentDirectory);
-        }
-        toast.success(t('gitView.toast.alreadyUpToDate'));
-      }
-      await refreshStatusAndBranches(false);
-      await refreshRemotes();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.syncActionFailed', { action: t('gitView.sync.syncChanges') }));
-    } finally {
-      setSyncAction(null);
-    }
-  };
-
-  const moveChangePaths = React.useCallback(async (paths: string[], direction: 'stage' | 'unstage') => {
-    if (!currentDirectory || paths.length === 0) return;
-    try {
-      if (direction === 'stage') {
-        if (paths.length > 1) await stageGitFiles(currentDirectory, paths);
-        else await stageGitFile(currentDirectory, paths[0]);
-      } else {
-        if (paths.length > 1) await unstageGitFiles(currentDirectory, paths);
-        else await unstageGitFile(currentDirectory, paths[0]);
-      }
-      await refreshStatusAndBranches(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : direction === 'stage'
-        ? t('gitView.toast.stageFileFailed')
-        : t('gitView.toast.unstageFileFailed'));
-    }
-  }, [currentDirectory, refreshStatusAndBranches, t]);
-
   const handleViewChangeDiff = React.useCallback((path: string, staged = false) => {
     setRoute({ type: 'diff', path, staged });
   }, []);
-
-  const handleRevertFile = React.useCallback(async (filePath: string) => {
-    if (!currentDirectory) return;
-    setRevertingPaths((previous) => new Set(previous).add(filePath));
-    try {
-      await git.revertGitFile(currentDirectory, filePath);
-      toast.success(t('gitView.toast.revertedFile', { path: filePath }));
-      await refreshStatusAndBranches(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.revertFailed'));
-    } finally {
-      setRevertingPaths((previous) => {
-        const next = new Set(previous);
-        next.delete(filePath);
-        return next;
-      });
-    }
-  }, [currentDirectory, git, refreshStatusAndBranches, t]);
-
-  const handleRevertAll = React.useCallback(async (paths: string[]) => {
-    if (!currentDirectory || paths.length === 0 || isRevertingAll) return;
-    const uniquePaths = Array.from(new Set(paths));
-    setIsRevertingAll(true);
-    setRevertingPaths(new Set(uniquePaths));
-    try {
-      await Promise.all(uniquePaths.map((filePath) => git.revertGitFile(currentDirectory, filePath)));
-      await refreshStatusAndBranches(false);
-      toast.success(uniquePaths.length === 1
-        ? t('gitView.toast.revertedFilesSingle', { count: uniquePaths.length })
-        : t('gitView.toast.revertedFilesPlural', { count: uniquePaths.length }));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.revertFailed'));
-    } finally {
-      setRevertingPaths(new Set());
-      setIsRevertingAll(false);
-    }
-  }, [currentDirectory, git, isRevertingAll, refreshStatusAndBranches, t]);
-
-  const handleInsertHighlights = React.useCallback((highlights: string[]) => {
-    const normalized = highlights.map((text) => text.trim()).filter(Boolean);
-    if (normalized.length === 0) {
-      setGeneratedHighlights([]);
-      return;
-    }
-    setCommitMessage((current) => `${current.trim()}${current.trim() ? '\n\n' : ''}${normalized.join('\n')}`.trim());
-    setGeneratedHighlights([]);
-  }, []);
-
-  const handleGenerateCommitMessage = React.useCallback(async () => {
-    if (!currentDirectory) return;
-    const selectedFilePaths = stagedChangeEntries.map((file) => file.path).sort();
-    if (selectedFilePaths.length === 0) {
-      toast.error(t('gitView.toast.selectFileToDescribe'));
-      return;
-    }
-    setIsGeneratingMessage(true);
-    try {
-      const { message } = await generateCommitMessage(currentDirectory, selectedFilePaths);
-      setCommitMessage(message.subject?.trim() ?? '');
-      setGeneratedHighlights(Array.isArray(message.highlights) ? message.highlights : []);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.generateCommitMessageFailed'));
-    } finally {
-      setIsGeneratingMessage(false);
-    }
-  }, [currentDirectory, stagedChangeEntries, t]);
-
-  const handleCommit = async (options: { pushAfter?: boolean } = {}) => {
-    if (!currentDirectory) return;
-    if (!commitMessage.trim()) {
-      toast.error(t('gitView.toast.enterCommitMessage'));
-      return;
-    }
-    const filesToCommit = stagedChangeEntries.map((file) => file.path).sort();
-    if (filesToCommit.length === 0) {
-      toast.error(t('gitView.toast.selectFileToCommit'));
-      return;
-    }
-
-    setCommitAction(options.pushAfter ? 'commitAndPush' : 'commit');
-    try {
-      await git.createGitCommit(currentDirectory, commitMessage.trim(), { files: filesToCommit });
-      toast.success(t('gitView.toast.commitCreated'));
-      setCommitMessage('');
-      setGeneratedHighlights([]);
-
-      if (options.pushAfter) {
-        const trackingRemoteName = status?.tracking?.split('/')[0];
-        const remote = effectiveRemotes.find((entry) => entry.name === trackingRemoteName) ?? effectiveRemotes[0];
-        if (!remote) throw new Error(t('mobile.changes.noRemote'));
-        setSyncAction('sync');
-        const trackingPrefix = `${remote.name}/`;
-        const trackedBranch = status?.tracking?.startsWith(trackingPrefix)
-          ? status.tracking.slice(trackingPrefix.length)
-          : undefined;
-
-        await git.gitFetch(currentDirectory, { remote: remote.name });
-        const afterFetch = await git.getGitStatus(currentDirectory);
-        if ((afterFetch.behind ?? 0) > 0) {
-          await git.gitPull(currentDirectory, { remote: remote.name, branch: trackedBranch, rebase: true });
-        }
-
-        const afterPull = await git.getGitStatus(currentDirectory);
-        if ((afterPull.ahead ?? 0) > 0) {
-          await git.gitPush(currentDirectory);
-        }
-
-        await refreshStatusAndBranches(false);
-        await refreshRemotes();
-      } else {
-        await refreshStatusAndBranches(false);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('gitView.toast.createCommitFailed'));
-    } finally {
-      setCommitAction(null);
-      if (options.pushAfter) setSyncAction(null);
-    }
-  };
 
   const changeGroups = React.useMemo<ChangesGroupConfig[]>(() => {
     const groups: ChangesGroupConfig[] = [];
@@ -478,15 +180,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         id: 'staged',
         title: t('gitView.changes.stagedTitle'),
         entries: stagedChangeEntries,
-        actionSymbol: '-',
-        actionAllLabel: t('gitView.changes.unstageAllAria'),
-        getActionLabel: (path: string) => t('gitView.changes.unstageFileAria', { path }),
-        onActionFile: (path: string) => void moveChangePaths([path], 'unstage'),
-        onActionAll: (paths: string[]) => void moveChangePaths(paths, 'unstage'),
         onViewDiff: (path: string) => handleViewChangeDiff(path, true),
-        onRevertFile: handleRevertFile,
-        showRevertActions: false,
-        accent: true,
       });
     }
 
@@ -495,18 +189,12 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         id: 'unstaged',
         title: t('gitView.changes.title'),
         entries: unstagedChangeEntries,
-        actionSymbol: '+',
-        actionAllLabel: t('gitView.changes.stageAllAria'),
-        getActionLabel: (path: string) => t('gitView.changes.stageFileAria', { path }),
-        onActionFile: (path: string) => void moveChangePaths([path], 'stage'),
-        onActionAll: (paths: string[]) => void moveChangePaths(paths, 'stage'),
         onViewDiff: (path: string) => handleViewChangeDiff(path, false),
-        onRevertFile: handleRevertFile,
       });
     }
 
     return groups;
-  }, [handleRevertFile, handleViewChangeDiff, moveChangePaths, stagedChangeEntries, t, unstagedChangeEntries]);
+  }, [handleViewChangeDiff, stagedChangeEntries, t, unstagedChangeEntries]);
 
   const renderListState = (state: React.ReactNode) => (
     <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
@@ -596,60 +284,19 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         ) : null}
         <div className="min-w-0 flex-1 px-1">
           <h2 className="typography-ui-label text-foreground">{t('mobile.nav.changes')}</h2>
-          <BranchSelector
-            currentBranch={status?.current}
-            localBranches={localBranches}
-            remoteBranches={remoteBranches}
-            branchInfo={branches?.branches}
-            currentBranchAhead={status?.ahead}
-            onCheckout={(branch) => void handleCheckoutBranch(branch)}
-            onCreate={handleCreateBranch}
-            remotes={effectiveRemotes}
-            disabled={isLoadingStatus}
-            directory={currentDirectory}
-            switchBlockedNotice={(status?.files?.length ?? 0) > 0 ? t('gitView.branch.switchBlockedNotice') : null}
-          />
+          <p className="truncate typography-micro text-muted-foreground">
+            {status?.current || currentDirectory}
+          </p>
         </div>
-        <SyncActions
-          syncAction={syncAction}
-          remotes={effectiveRemotes}
-          onFetch={(remote) => void handleSyncAction('fetch', remote)}
-          onSync={(remote) => void handleSyncAction('sync', remote)}
-          disabled={commitAction !== null || isLoadingStatus}
-          aheadCount={status?.ahead ?? 0}
-          behindCount={status?.behind ?? 0}
-          trackingRemoteName={status?.tracking?.split('/')[0]}
-          hasUncommittedChanges={changeEntries.length > 0}
-        />
       </header>
       {changeEntries.length > 0 ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* File list scrolls inside ChangesPanel; the commit footer stays pinned. */}
           <div className="min-h-0 flex-1 overflow-hidden px-4 pt-4">
             <ChangesPanel
               groups={changeGroups}
               diffStats={status?.diffStats}
-              revertingPaths={revertingPaths}
-              onRevertAll={handleRevertAll}
-              isRevertingAll={isRevertingAll}
               headerBackgroundClassName="bg-transparent"
               onVisiblePathsChange={setVisibleChangePaths}
-            />
-          </div>
-          <div className="shrink-0 border-t border-border/70 px-4 pb-4 pt-3">
-            <CommitSection
-              stagedCount={stagedChangeEntries.length}
-              commitMessage={commitMessage}
-              onCommitMessageChange={setCommitMessage}
-              generatedHighlights={generatedHighlights}
-              onInsertHighlights={handleInsertHighlights}
-              onGenerateMessage={handleGenerateCommitMessage}
-              isGeneratingMessage={isGeneratingMessage}
-              onCommit={() => void handleCommit({ pushAfter: false })}
-              onCommitAndPush={() => void handleCommit({ pushAfter: true })}
-              commitAction={commitAction}
-              gitmojiEnabled={false}
-              onOpenGitmojiPicker={() => {}}
             />
           </div>
         </div>
@@ -658,61 +305,6 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
           <MobileChangesState icon message={t('gitView.empty.cleanTitle')} description={t('mobile.changes.cleanDescription')} />
         </div>
       )}
-      <DirtyBranchSwitchDialog
-        open={pendingDirtySwitchBranch !== null}
-        onOpenChange={(open) => { if (!open) setPendingDirtySwitchBranch(null); }}
-        targetBranch={pendingDirtySwitchBranch ?? ''}
-        changedFileCount={status?.files?.length ?? 0}
-        onCommitAndSwitch={async (message, pushAfter) => {
-          const branch = pendingDirtySwitchBranch;
-          if (!branch || !currentDirectory) return;
-          const sourceBranch = status?.current ?? null;
-          await git.createGitCommit(currentDirectory, message, { addAll: true });
-          let pushedRemoteName: string | null = null;
-          if (pushAfter) {
-            const trackingRemoteName = status?.tracking?.split('/')[0];
-            const remote = effectiveRemotes.find((entry) => entry.name === trackingRemoteName) ?? effectiveRemotes[0];
-            try {
-              if (!remote) throw new Error(t('mobile.changes.noRemote'));
-              await git.gitPush(currentDirectory, status?.tracking
-                ? { remote: remote.name }
-                : { remote: remote.name, branch: sourceBranch ?? undefined, options: ['--set-upstream'] });
-              pushedRemoteName = remote.name;
-            } catch {
-              toast.error(t('gitView.dirtySwitch.pushFailed'));
-              await refreshStatusAndBranches();
-              setPendingDirtySwitchBranch(null);
-              return;
-            }
-          }
-          toast.success(sourceBranch
-            ? pushedRemoteName
-              ? t('gitView.toast.pushedToUpstream', { name: pushedRemoteName })
-              : t('gitView.dirtySwitch.committedNotPushed', { branch: sourceBranch })
-            : t('gitView.toast.commitCreated'));
-          await refreshStatusAndBranches();
-          setPendingDirtySwitchBranch(null);
-          await performCheckout(branch);
-        }}
-        onGenerateMessage={async () => {
-          if (!currentDirectory) return '';
-          const paths = (status?.files ?? []).map((file) => file.path).sort();
-          const { message } = await generateCommitMessage(currentDirectory, paths);
-          return message.subject?.trim() ?? '';
-        }}
-        onRevertAndSwitch={async () => {
-          const branch = pendingDirtySwitchBranch;
-          if (!branch || !currentDirectory) return;
-          await handleRevertAll((status?.files ?? []).map((file) => file.path));
-          const fresh = await git.getGitStatus(currentDirectory);
-          if (!fresh.isClean && (fresh.files?.length ?? 0) > 0) {
-            toast.error(t('gitView.dirtySwitch.revertIncomplete'));
-            return;
-          }
-          setPendingDirtySwitchBranch(null);
-          await performCheckout(branch);
-        }}
-      />
     </div>
   );
 };

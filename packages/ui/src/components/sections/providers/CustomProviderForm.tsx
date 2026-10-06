@@ -37,7 +37,6 @@ type CustomProviderFormProps = {
   authFailureHint?: string | null;
   onSubmit: (plan: CustomProviderPersistPlan) => void | Promise<void>;
   onCancel?: () => void;
-  onDisconnect?: () => void | Promise<void>;
 };
 
 export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
@@ -50,7 +49,6 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
   authFailureHint = null,
   onSubmit,
   onCancel,
-  onDisconnect,
 }) => {
   const { t } = useI18n();
   const isEdit = mode === 'edit';
@@ -396,18 +394,6 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         {onCancel ? (
           <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={onCancel} disabled={busy}>
             {t('settings.providers.page.custom.actions.back')}
-          </Button>
-        ) : null}
-        {onDisconnect ? (
-          <Button
-            type="button"
-            variant="destructive"
-            size="xs"
-            className="!font-normal"
-            onClick={() => void onDisconnect()}
-            disabled={busy}
-          >
-            {t('settings.providers.page.actions.disconnect')}
           </Button>
         ) : null}
         <Button type="submit" size="xs" className="!font-normal" disabled={busy}>

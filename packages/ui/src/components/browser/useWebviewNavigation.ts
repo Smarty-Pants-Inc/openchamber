@@ -56,7 +56,7 @@ type FailLoadDetail = {
 };
 
 /** Reads a webview event payload, whichever shape this Electron version uses. */
-export const readEventPayload = <T extends object>(event: Event): Partial<T> => {
+const readEventPayload = <T extends object>(event: Event): Partial<T> => {
   const record = event as unknown as { detail?: unknown };
   if (record.detail && typeof record.detail === 'object') return record.detail as Partial<T>;
   return event as unknown as Partial<T>;

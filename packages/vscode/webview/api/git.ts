@@ -12,10 +12,6 @@ import type {
   GitFileDiffResponse,
   GetGitFileDiffOptions,
   GitBranch,
-  GitDeleteBranchPayload,
-  GitDeleteRemoteBranchPayload,
-  GitRemoveRemotePayload,
-  GeneratedCommitMessage,
   GeneratedPullRequestDescription,
   GitWorktreeInfo,
   GitWorktreeBootstrapStatus,
@@ -23,10 +19,6 @@ import type {
   GitWorktreeValidationResult,
   GitWorktreeCreateResult,
   RemoveGitWorktreePayload,
-  GitCommitResult,
-  CreateGitCommitOptions,
-  GitPushResult,
-  GitPullResult,
   GitLogResponse,
   GitLogOptions,
   GitCommitFilesResponse,
@@ -34,12 +26,6 @@ import type {
   GitIdentitySummary,
   GitIdentityProfile,
   GitRemote,
-  GitRebaseResult,
-  GitMergeResult,
-  CheckoutCommitResponse,
-  CherryPickResponse,
-  RevertCommitResponse,
-  ResetToCommitResponse,
 } from '@openchamber/ui/lib/api/types';
 
 const requestWorktreeBootstrapStatus = (directory: string): Promise<GitWorktreeBootstrapStatus> => {
@@ -90,37 +76,13 @@ export const createVSCodeGitAPI = (): GitAPI => ({
     });
   },
 
-  revertGitFile: async (directory: string, filePath: string, options?: { scope?: 'all' | 'working' }): Promise<void> => {
-    await sendBridgeMessage('api:git/revert', { directory, path: filePath, scope: options?.scope });
-  },
 
-  stageGitFile: async (directory: string, filePath: string): Promise<void> => {
-    await sendBridgeMessage('api:git/stage', { directory, path: filePath });
-  },
 
-  stageGitFiles: async (directory: string, filePaths: string[]): Promise<void> => {
-    await sendBridgeMessage('api:git/stage', { directory, paths: filePaths });
-  },
 
-  unstageGitFile: async (directory: string, filePath: string): Promise<void> => {
-    await sendBridgeMessage('api:git/unstage', { directory, path: filePath });
-  },
 
-  unstageGitFiles: async (directory: string, filePaths: string[]): Promise<void> => {
-    await sendBridgeMessage('api:git/unstage', { directory, paths: filePaths });
-  },
 
-  stageGitHunk: async (directory: string, filePath: string, patch: string): Promise<void> => {
-    await sendBridgeMessage('api:git/apply-hunk', { directory, path: filePath, patch, action: 'stage' });
-  },
 
-  unstageGitHunk: async (directory: string, filePath: string, patch: string): Promise<void> => {
-    await sendBridgeMessage('api:git/apply-hunk', { directory, path: filePath, patch, action: 'unstage' });
-  },
 
-  revertGitHunk: async (directory: string, filePath: string, patch: string): Promise<void> => {
-    await sendBridgeMessage('api:git/apply-hunk', { directory, path: filePath, patch, action: 'discard' });
-  },
 
   isLinkedWorktree: async (directory: string): Promise<boolean> => {
     return sendBridgeMessage<boolean>('api:git/worktree-type', { directory });
@@ -134,47 +96,9 @@ export const createVSCodeGitAPI = (): GitAPI => ({
     return sendBridgeMessage('api:git/branch-push-status', { directory, branches });
   },
 
-  deleteGitBranch: async (directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/branches', {
-      directory,
-      method: 'DELETE',
-      name: payload.branch,
-      force: payload.force,
-    });
-  },
 
-  deleteRemoteBranch: async (directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/remote-branches', {
-      directory,
-      branch: payload.branch,
-      remote: payload.remote,
-    });
-  },
 
-  removeRemote: async (directory: string, payload: GitRemoveRemotePayload): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/remotes', {
-      directory,
-      method: 'DELETE',
-      remote: payload.remote,
-    });
-  },
 
-  generateCommitMessage: async (
-    directory: string,
-    files: string[],
-    options?: { zenModel?: string; providerId?: string; modelId?: string }
-  ): Promise<{ message: GeneratedCommitMessage }> => {
-    // This requires AI integration - stubbed for now
-    void directory; // Unused for now
-    void files; // Unused for now
-    void options; // Unused for now
-    return {
-      message: {
-        subject: '',
-        highlights: [],
-      },
-    };
-  },
 
   generatePullRequestDescription: async (
     directory: string,
@@ -233,73 +157,15 @@ export const createVSCodeGitAPI = (): GitAPI => ({
     });
   },
 
-  createGitCommit: async (directory: string, message: string, options?: CreateGitCommitOptions): Promise<GitCommitResult> => {
-    return sendBridgeMessage<GitCommitResult>('api:git/commit', {
-      directory,
-      message,
-      addAll: options?.addAll,
-      files: options?.files,
-      stageFiles: options?.stageFiles,
-    });
-  },
 
-  gitPush: async (directory: string, options?: { remote?: string; branch?: string; options?: string[] | Record<string, unknown> }): Promise<GitPushResult> => {
-    return sendBridgeMessage<GitPushResult>('api:git/push', {
-      directory,
-      remote: options?.remote,
-      branch: options?.branch,
-      options: options?.options,
-    });
-  },
 
-  gitPull: async (directory: string, options?: { remote?: string; branch?: string; rebase?: boolean }): Promise<GitPullResult> => {
-    return sendBridgeMessage<GitPullResult>('api:git/pull', {
-      directory,
-      remote: options?.remote,
-      branch: options?.branch,
-      rebase: options?.rebase,
-    });
-  },
 
-  gitFetch: async (directory: string, options?: { remote?: string; branch?: string }): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/fetch', {
-      directory,
-      remote: options?.remote,
-      branch: options?.branch,
-    });
-  },
 
   listGitStashes: async (directory: string) => sendBridgeMessage('api:git/stashes', { directory }),
   countGitStashFiles: async (directory: string, refs: string[]) => sendBridgeMessage('api:git/stashes/file-counts', { directory, refs }),
-  stashGitChanges: async (directory: string, options?: { message?: string }) => sendBridgeMessage('api:git/stash', { directory, message: options?.message }),
-  applyGitStash: async (directory: string, options: { ref: string }) => sendBridgeMessage('api:git/stash/apply', { directory, ref: options.ref }),
-  popGitStash: async (directory: string, options: { ref: string }) => sendBridgeMessage('api:git/stash/pop', { directory, ref: options.ref }),
-  dropGitStash: async (directory: string, options: { ref: string }) => sendBridgeMessage('api:git/stash/drop', { directory, ref: options.ref }),
 
-  checkoutBranch: async (directory: string, branch: string): Promise<{ success: boolean; branch: string }> => {
-    return sendBridgeMessage<{ success: boolean; branch: string }>('api:git/checkout', {
-      directory,
-      branch,
-    });
-  },
 
-  createBranch: async (directory: string, name: string, startPoint?: string): Promise<{ success: boolean; branch: string }> => {
-    return sendBridgeMessage<{ success: boolean; branch: string }>('api:git/branches', {
-      directory,
-      method: 'POST',
-      name,
-      startPoint,
-    });
-  },
 
-  renameBranch: async (directory: string, oldName: string, newName: string): Promise<{ success: boolean; branch: string }> => {
-    return sendBridgeMessage<{ success: boolean; branch: string }>('api:git/branches/rename', {
-      directory,
-      method: 'PUT',
-      oldName,
-      newName,
-    });
-  },
 
   getGitLog: async (directory: string, options?: GitLogOptions): Promise<GitLogResponse> => {
     return sendBridgeMessage<GitLogResponse>('api:git/log', {
@@ -335,135 +201,30 @@ export const createVSCodeGitAPI = (): GitAPI => ({
     });
   },
 
-  setGitIdentity: async (directory: string, profileId: string): Promise<{ success: boolean; profile: GitIdentityProfile }> => {
-    const store = (window as Window & {
-      __zustand_git_identities_store__?: {
-        getState: () => {
-          getProfileById: (id: string) => GitIdentityProfile | undefined;
-        };
-      };
-    }).__zustand_git_identities_store__;
-    const profile = store?.getState().getProfileById(profileId);
-    if (!profile) {
-      return {
-        success: false,
-        profile: { id: profileId, name: '', userName: '', userEmail: '' },
-      };
-    }
-
-    const result = await sendBridgeMessage<{ success: boolean }>('api:git/identity', {
-      directory,
-      method: 'POST',
-      userName: profile.userName,
-      userEmail: profile.userEmail,
-      sshKey: profile.sshKey ?? null,
-      signCommits: profile.signCommits === true,
-      signingKey: profile.signingKey ?? null,
-    });
-
-    return {
-      success: result.success === true,
-      profile,
-    };
-  },
 
   // Git identity profile management is backed by the webview store in VS Code.
   getGitIdentities: async (): Promise<GitIdentityProfile[]> => {
     return getGitIdentityStore()?.getState().profiles ?? [];
   },
 
-  createGitIdentity: async (profile: GitIdentityProfile): Promise<GitIdentityProfile> => {
-    const store = getGitIdentityStore();
-    if (store) {
-      store.setState((state) => ({
-        profiles: [...state.profiles.filter((existing) => existing.id !== profile.id), profile],
-      }));
-    }
-    return profile;
-  },
 
-  updateGitIdentity: async (id: string, profile: GitIdentityProfile): Promise<GitIdentityProfile> => {
-    const store = getGitIdentityStore();
-    if (store) {
-      store.setState((state) => ({
-        profiles: state.profiles.map((existing) => (existing.id === id ? { ...existing, ...profile, id } : existing)),
-      }));
-    }
-    return profile;
-  },
 
-  deleteGitIdentity: async (id: string): Promise<void> => {
-    const store = getGitIdentityStore();
-    if (store) {
-      store.setState((state) => ({
-        profiles: state.profiles.filter((existing) => existing.id !== id),
-      }));
-    }
-  },
 
   getRemotes: async (directory: string): Promise<GitRemote[]> => {
     return sendBridgeMessage<GitRemote[]>('api:git/remotes', { directory });
   },
 
-  rebase: async (directory: string, options: { onto: string }): Promise<GitRebaseResult> => {
-    return sendBridgeMessage<GitRebaseResult>('api:git/rebase', {
-      directory,
-      onto: options.onto,
-    });
-  },
 
-  abortRebase: async (directory: string): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/rebase/abort', { directory });
-  },
 
-  merge: async (directory: string, options: { branch: string }): Promise<GitMergeResult> => {
-    return sendBridgeMessage<GitMergeResult>('api:git/merge', {
-      directory,
-      branch: options.branch,
-    });
-  },
 
-  abortMerge: async (directory: string): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/merge/abort', { directory });
-  },
 
-  continueRebase: async (directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }> => {
-    return sendBridgeMessage<{ success: boolean; conflict: boolean; conflictFiles?: string[] }>('api:git/rebase/continue', { directory });
-  },
 
-  continueMerge: async (directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }> => {
-    return sendBridgeMessage<{ success: boolean; conflict: boolean; conflictFiles?: string[] }>('api:git/merge/continue', { directory });
-  },
 
-  checkoutCommit: async (directory: string, hash: string): Promise<CheckoutCommitResponse> => {
-    return sendBridgeMessage<CheckoutCommitResponse>('api:git/checkout-commit', { directory, hash });
-  },
 
-  cherryPick: async (directory: string, hash: string): Promise<CherryPickResponse> => {
-    return sendBridgeMessage<CherryPickResponse>('api:git/cherry-pick', { directory, hash });
-  },
 
-  revertCommit: async (directory: string, hash: string): Promise<RevertCommitResponse> => {
-    return sendBridgeMessage<RevertCommitResponse>('api:git/revert-commit', { directory, hash });
-  },
 
-  resetToCommit: async (directory: string, hash: string, mode: 'soft' | 'mixed' | 'hard', force?: boolean): Promise<ResetToCommitResponse> => {
-    return sendBridgeMessage<ResetToCommitResponse>('api:git/reset-to-commit', { directory, hash, mode, force });
-  },
 
-  stash: async (
-    directory: string,
-    options?: { message?: string; includeUntracked?: boolean }
-  ): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/stash', {
-      directory,
-      ...options,
-    });
-  },
 
-  stashPop: async (directory: string): Promise<{ success: boolean }> => {
-    return sendBridgeMessage<{ success: boolean }>('api:git/stash/pop', { directory });
-  },
 
   getConflictDetails: async (directory: string) => {
     return sendBridgeMessage<{

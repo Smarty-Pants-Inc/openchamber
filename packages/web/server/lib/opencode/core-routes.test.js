@@ -10,121 +10,6 @@ describe('core-routes', () => {
     vi.useRealTimers();
   });
 
-  it('should call gracefulShutdown with exitProcess: true on /api/system/shutdown', async () => {
-    const app = express();
-    let shutdownOpts = null;
-    const dependencies = {
-      gracefulShutdown: vi.fn(async (opts) => {
-        shutdownOpts = opts;
-      }),
-      getHealthSnapshot: () => ({ status: 'ok' }),
-      openchamberVersion: '1.0.0',
-      runtimeName: 'test',
-      express,
-    };
-
-    registerServerStatusRoutes(app, dependencies);
-
-    await request(app).post('/api/system/shutdown');
-
-    expect(dependencies.gracefulShutdown).toHaveBeenCalled();
-    expect(shutdownOpts).toEqual({ exitProcess: true });
-  });
-
-  it('should require UI auth before /api/system/shutdown when auth is configured', async () => {
-    const app = express();
-    const dependencies = {
-      gracefulShutdown: vi.fn(async () => {}),
-      getHealthSnapshot: () => ({ status: 'ok' }),
-      openchamberVersion: '1.0.0',
-      runtimeName: 'test',
-      express,
-      tunnelAuthController: {
-        classifyRequestScope: () => 'local',
-        requireTunnelSession: vi.fn(),
-      },
-      uiAuthController: {
-        requireAuth: vi.fn((_req, res) => res.status(401).json({ error: 'Unauthorized' })),
-      },
-    };
-
-    registerServerStatusRoutes(app, dependencies);
-
-    await request(app)
-      .post('/api/system/shutdown')
-      .expect(401, { error: 'Unauthorized' });
-
-    expect(dependencies.uiAuthController.requireAuth).toHaveBeenCalledTimes(1);
-    expect(dependencies.gracefulShutdown).not.toHaveBeenCalled();
-  });
-
-  it('requires human authentication as well as tunnel access before shutdown', async () => {
-    const app = express();
-    const shutdown = vi.fn();
-    registerServerStatusRoutes(app, { express, gracefulShutdown: shutdown,
-      getHealthSnapshot: () => ({}), openchamberVersion: 'test', runtimeName: 'test',
-      tunnelAuthController: { classifyRequestScope: () => 'tunnel', requireTunnelSession: (_req, _res, next) => next() },
-      uiAuthController: { humanMode: true, requireAuth: (_req, res) => res.status(401).end() },
-    });
-    await request(app).post('/api/system/shutdown').expect(401);
-    expect(shutdown).not.toHaveBeenCalled();
-  });
-
-  it('should allow authenticated /api/system/shutdown requests', async () => {
-    const app = express();
-    const dependencies = {
-      gracefulShutdown: vi.fn(async () => {}),
-      getHealthSnapshot: () => ({ status: 'ok' }),
-      openchamberVersion: '1.0.0',
-      runtimeName: 'test',
-      express,
-      tunnelAuthController: {
-        classifyRequestScope: () => 'local',
-        requireTunnelSession: vi.fn(),
-      },
-      uiAuthController: {
-        requireAuth: vi.fn((_req, _res, next) => next()),
-      },
-    };
-
-    registerServerStatusRoutes(app, dependencies);
-
-    await request(app)
-      .post('/api/system/shutdown')
-      .expect(200, { ok: true });
-
-    expect(dependencies.uiAuthController.requireAuth).toHaveBeenCalledTimes(1);
-    expect(dependencies.gracefulShutdown).toHaveBeenCalledWith({ exitProcess: true });
-  });
-
-  it('should require tunnel auth for tunneled /api/system/shutdown requests', async () => {
-    const app = express();
-    const dependencies = {
-      gracefulShutdown: vi.fn(async () => {}),
-      getHealthSnapshot: () => ({ status: 'ok' }),
-      openchamberVersion: '1.0.0',
-      runtimeName: 'test',
-      express,
-      tunnelAuthController: {
-        classifyRequestScope: () => 'tunnel',
-        requireTunnelSession: vi.fn((_req, res) => res.status(401).json({ error: 'Tunnel auth required' })),
-      },
-      uiAuthController: {
-        requireAuth: vi.fn((_req, _res, next) => next()),
-      },
-    };
-
-    registerServerStatusRoutes(app, dependencies);
-
-    await request(app)
-      .post('/api/system/shutdown')
-      .expect(401, { error: 'Tunnel auth required' });
-
-    expect(dependencies.tunnelAuthController.requireTunnelSession).toHaveBeenCalledTimes(1);
-    expect(dependencies.uiAuthController.requireAuth).not.toHaveBeenCalled();
-    expect(dependencies.gracefulShutdown).not.toHaveBeenCalled();
-  });
-
   it('should parse JSON bodies for snippet config routes', async () => {
     const app = express();
     registerCommonRequestMiddleware(app, { express });
@@ -381,7 +266,6 @@ describe('core-routes', () => {
       label: 'Pair phone',
       allowedClientKinds: ['mobile'],
       createdByClientId: null,
-      usesRelay: false,
     });
   });
 
@@ -427,42 +311,6 @@ describe('core-routes', () => {
     expect(response.body.server.candidates).toEqual([
       { type: 'lan', url: 'http://192.168.1.20:2606', priority: 10 },
     ]);
-  });
-
-  it('folds in a relay candidate when the host relay is enabled', async () => {
-    const relayCandidate = {
-      type: 'relay',
-      relayUrl: 'wss://relay.example/ws',
-      serverId: 'srv_1',
-      hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'aaa', y: 'bbb' },
-      priority: 30,
-    };
-    const { app } = createPairingRouteApp({ getRelayPairingCandidate: vi.fn(async () => relayCandidate) });
-
-    const response = await request(app)
-      .post('/api/client-auth/pairing/sessions')
-      .set('Host', 'runtime.example')
-      .send({ label: 'Pair phone' })
-      .expect(201);
-
-    expect(response.body.server.candidates).toEqual([
-      { type: 'lan', url: 'http://runtime.example', priority: 10 },
-      relayCandidate,
-    ]);
-  });
-
-  it('still returns the direct candidate when the relay candidate lookup throws', async () => {
-    const { app } = createPairingRouteApp({
-      getRelayPairingCandidate: vi.fn(async () => { throw new Error('relay status read failed'); }),
-    });
-
-    const response = await request(app)
-      .post('/api/client-auth/pairing/sessions')
-      .set('Host', 'runtime.example')
-      .send({ label: 'Pair phone' })
-      .expect(201);
-
-    expect(response.body.server.candidates).toEqual([{ type: 'lan', url: 'http://runtime.example', priority: 10 }]);
   });
 
   it('requires owner auth before creating or cancelling pairing sessions', async () => {
@@ -686,17 +534,9 @@ describe('client auth routes', () => {
 
   it('reports current connection candidates with server identity for paired devices', async () => {
     const app = express();
-    const relayCandidate = {
-      type: 'relay',
-      relayUrl: 'wss://relay.example/ws',
-      serverId: 'server-abc',
-      hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' },
-      priority: 30,
-    };
     const dependencies = {
       ...createDependencies({ resolveAuthContext: async () => ({ type: 'client', clientId: 'client-1' }) }),
       getDirectCandidateUrls: () => ['http://192.168.1.20:3000', 'http://10.0.0.5:3000', 'not-a-url'],
-      getRelayPairingCandidate: async () => relayCandidate,
       getServerId: async () => 'server-abc',
       getServerLabel: () => 'my-host',
     };
@@ -710,19 +550,15 @@ describe('client auth routes', () => {
     expect(response.body.candidates).toEqual([
       { type: 'lan', url: 'http://192.168.1.20:3000', priority: 10 },
       { type: 'lan', url: 'http://10.0.0.5:3000', priority: 10 },
-      relayCandidate,
     ]);
   });
 
-  it('omits serverId and relay candidate when unavailable and survives failures', async () => {
+  it('omits serverId when unavailable and survives a candidate scan failure', async () => {
     const app = express();
     const dependencies = {
       ...createDependencies(),
       getDirectCandidateUrls: () => {
         throw new Error('scan failed');
-      },
-      getRelayPairingCandidate: async () => {
-        throw new Error('relay status failed');
       },
       getServerId: async () => null,
     };

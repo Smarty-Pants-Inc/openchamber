@@ -1,6 +1,5 @@
 import React from 'react';
 import { AgentManagerView } from '@/components/views/agent-manager';
-import { FireworksProvider } from '@/contexts/FireworksContext';
 import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -128,7 +127,6 @@ export function VSCodeApp({ apis }: VSCodeAppProps) {
     <ErrorBoundary>
       <SyncProvider sdk={opencodeClient.getSdkClient()} directory={currentDirectory || ''}>
         <RuntimeAPIProvider apis={apis}>
-          <FireworksProvider>
             <TooltipProvider delayDuration={300} skipDelayDuration={150}>
               <div className="h-full text-foreground bg-background">
                 <SyncAppEffects embeddedBackgroundWorkEnabled={true} />
@@ -139,7 +137,6 @@ export function VSCodeApp({ apis }: VSCodeAppProps) {
                 <ConfigUpdateOverlay />
               </div>
             </TooltipProvider>
-          </FireworksProvider>
         </RuntimeAPIProvider>
       </SyncProvider>
     </ErrorBoundary>

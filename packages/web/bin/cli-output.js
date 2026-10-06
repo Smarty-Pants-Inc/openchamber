@@ -10,31 +10,10 @@ import {
   intro,
   outro,
   log,
-  box,
-  confirm,
-  select,
-  text,
-  password,
   spinner,
   progress,
   cancel,
-  isCancel,
 } from '@clack/prompts';
-
-// ── Provider icons ──────────────────────────────────────────────
-
-const TUNNEL_PROVIDER_ICON = {
-  cloudflare: '☁',
-};
-
-function formatProviderWithIcon(provider) {
-  if (typeof provider !== 'string' || provider.trim().length === 0) {
-    return 'unknown';
-  }
-  const normalized = provider.trim().toLowerCase();
-  const icon = TUNNEL_PROVIDER_ICON[normalized];
-  return icon ? `${icon} ${normalized}` : normalized;
-}
 
 // ── Status-aware log dispatch ───────────────────────────────────
 
@@ -121,20 +100,12 @@ export {
   intro,
   outro,
   log,
-  box,
-  confirm,
-  select,
-  text,
-  password,
   cancel,
-  isCancel,
   isJsonMode,
   isQuietMode,
   shouldRenderHumanOutput,
-  canPrompt,
   createSpinner,
   createProgress,
   printJson,
-  formatProviderWithIcon,
   logStatus,
 };

@@ -192,7 +192,6 @@ export const ProvidersPage: React.FC = () => {
   const [editingCustomFormInitial, setEditingCustomFormInitial] = React.useState<CustomProviderFormState | null>(null);
   const [editingCustomScope, setEditingCustomScope] = React.useState<ProviderConfigScope | null>(null);
   const [customAuthFailureHint, setCustomAuthFailureHint] = React.useState<string | null>(null);
-  const [lastCustomPersistId, setLastCustomPersistId] = React.useState<string | null>(null);
   const isAddMode = selectedProviderId === ADD_PROVIDER_ID;
   const isCustomCreateMode = isAddMode && candidateProviderId === CUSTOM_PROVIDER_ID;
   const isCustomEditMode = Boolean(
@@ -501,7 +500,6 @@ export const ProvidersPage: React.FC = () => {
   const handleSaveCustomProvider = async (plan: CustomProviderPersistPlan) => {
     const busyKey = `custom:${plan.providerID}`;
     setAuthBusyKey(busyKey);
-    setLastCustomPersistId(plan.providerID);
     setCustomAuthFailureHint(null);
 
     try {
@@ -545,7 +543,6 @@ export const ProvidersPage: React.FC = () => {
       setEditingCustomFormInitial(null);
       setEditingCustomScope(null);
       setCustomAuthFailureHint(null);
-      setLastCustomPersistId(null);
       // Mutation succeeded; route through the helper so an externally managed
       // OpenCode does not produce a misleading "save failed" toast for a write
       // that already persisted.
@@ -574,52 +571,6 @@ export const ProvidersPage: React.FC = () => {
     // Optimistic mark + sources refetch so the page does not stick on a stale
     // "Credentials missing" summary while the providers refresh lands.
     markAuthWriteSucceeded(providerId);
-  };
-
-  const handleDisconnectProvider = async (providerId: string) => {
-    const busyKey = `disconnect:${providerId}`;
-    setAuthBusyKey(busyKey);
-
-    try {
-      const response = await runtimeFetch(
-        `/api/provider/${encodeURIComponent(providerId)}/auth?scope=all${settingsDirectory ? `&directory=${encodeURIComponent(settingsDirectory)}` : ''}`,
-        {
-          method: 'DELETE',
-          headers: { Accept: 'application/json' },
-        },
-      );
-
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || t('settings.providers.page.toast.providerDisconnectFailed'));
-      }
-
-      toast.success(t('settings.providers.page.toast.providerDisconnected'));
-      // Use the helper so an externally managed OpenCode that requires a manual
-      // restart records the deferred-restart guidance instead of toasting a
-      // misleading "disconnect failed" for a write that already persisted.
-      await applyConfigReloadOrRecordDeferred('providers', providerId);
-      setAuthPanelDismissedForId(null);
-      refreshProviderSources();
-    } catch (error) {
-      console.error('Failed to disconnect provider:', error);
-      toast.error(t('settings.providers.page.toast.providerDisconnectFailed'));
-    } finally {
-      setAuthBusyKey(null);
-    }
-  };
-
-  const handleDisconnectCustomProvider = async (providerId: string) => {
-    if (!providerId) {
-      return;
-    }
-    await handleDisconnectProvider(providerId);
-    setEditingCustomProviderId(null);
-    setEditingCustomFormInitial(null);
-    setEditingCustomScope(null);
-    setCustomAuthFailureHint(null);
-    setLastCustomPersistId(null);
-    setCandidateProviderId('');
   };
 
   if (!isAddMode && providers.length === 0) {
@@ -763,13 +714,7 @@ export const ProvidersPage: React.FC = () => {
               onCancel={() => {
                 setCandidateProviderId('');
                 setCustomAuthFailureHint(null);
-                setLastCustomPersistId(null);
               }}
-              onDisconnect={
-                customAuthFailureHint && lastCustomPersistId
-                  ? () => void handleDisconnectCustomProvider(lastCustomPersistId)
-                  : undefined
-              }
               onSubmit={handleSaveCustomProvider}
             />
           ) : candidateProviderId ? (
@@ -907,9 +852,7 @@ export const ProvidersPage: React.FC = () => {
             setEditingCustomFormInitial(null);
             setEditingCustomScope(null);
             setCustomAuthFailureHint(null);
-            setLastCustomPersistId(null);
           }}
-          onDisconnect={() => void handleDisconnectCustomProvider(selectedProvider.id)}
           onSubmit={handleSaveCustomProvider}
         />
       </SettingsPageLayout>
@@ -1043,15 +986,6 @@ export const ProvidersPage: React.FC = () => {
                 )}
               </div>
 
-              <Button
-                variant="ghost"
-                size="xs"
-                className="!font-normal text-[var(--status-error)] hover:text-[var(--status-error)]"
-                onClick={() => handleDisconnectProvider(selectedProvider.id)}
-                disabled={authBusyKey === `disconnect:${selectedProvider.id}`}
-              >
-                {authBusyKey === `disconnect:${selectedProvider.id}` ? t('settings.providers.page.actions.disconnecting') : t('settings.providers.page.actions.disconnect')}
-              </Button>
             </div>
       </SettingsSection>
 

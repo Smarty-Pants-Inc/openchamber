@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { fileURLToPath } from 'url';
 import { isModuleCliExecution } from './cli-entry.js';
 import { EXIT_CODE, TunnelCliError } from './lib/cli-errors.js';
 import {
@@ -14,21 +14,11 @@ import {
   assertAuthenticatedNetworkExposure,
 } from './lib/cli-network.js';
 import {
-  maskToken,
-  resolveToken,
-  redactProfileForOutput,
-  redactProfilesForOutput,
-  warnIfUnsafeFilePermissions,
-  ensureTunnelProfilesMigrated as ensureTunnelProfilesMigratedBase,
-} from './lib/cli-tunnel-profiles.js';
-import {
   parseArgs,
   showHelp,
   showControlHelp,
   showStartupHelp,
   showConnectUrlHelp,
-  showTunnelHelp,
-  generateCompletionScript,
   findClosestMatch,
 } from './lib/cli-args.js';
 import { readDesktopLocalPortFromSettings } from './lib/cli-paths.js';
@@ -40,23 +30,16 @@ import { scheduleCommand } from './lib/commands-schedule.js';
 import { sessionCommand } from './lib/commands-session.js';
 import { modelsCommand } from './lib/commands-models.js';
 import { projectsCommand } from './lib/commands-projects.js';
-import { createUpdateCommand } from './lib/commands-update.js';
 import { createConnectUrlCommand } from './lib/commands-connect-url.js';
 import { createLifecycleCommands } from './lib/commands-lifecycle.js';
 import { createServeCommand } from './lib/commands-serve.js';
-import { createTunnelCommand, isValidTunnelDoctorResponse, shouldDisplayTunnelQr } from './lib/commands-tunnel.js';
 import {
-  resolveDoctorPortStatuses,
   discoverRunningInstances,
   discoverOpenChamberInstanceOnPort,
   discoverLifecycleInstances,
   discoverUnconfirmedRegistryInstanceOnPort,
-  resolveTunnelProviders,
 } from './lib/cli-lifecycle.js';
-import {
-  fetchTunnelProvidersFromPort,
-  fetchSystemInfoFromPort,
-} from './lib/cli-http.js';
+import { fetchSystemInfoFromPort } from './lib/cli-http.js';
 import {
   getPidFilePath,
   getInstanceFilePath,
@@ -68,7 +51,6 @@ import {
 import {
   intro as clackIntro, outro as clackOutro, cancel as clackCancel,
   isJsonMode,
-  isQuietMode,
   printJson,
   logStatus,
 } from './cli-output.js';
@@ -87,15 +69,6 @@ function setCancelCleanup(handler) {
   onCancelCleanup = typeof handler === 'function' ? handler : null;
 }
 
-function shouldWarnForTunnelProfileFile() {
-  if (!activeCommandOptions) return false;
-  return !isJsonMode(activeCommandOptions) && !isQuietMode(activeCommandOptions);
-}
-
-function ensureTunnelProfilesMigrated() {
-  return ensureTunnelProfilesMigratedBase({ shouldWarn: shouldWarnForTunnelProfileFile() });
-}
-
 const HAS_PLAIN_FLAG = process.argv.includes('--plain');
 const STYLE_ENABLED = process.stdout.isTTY && process.env.NO_COLOR !== '1' && !HAS_PLAIN_FLAG;
 const ANSI = {
@@ -106,10 +79,6 @@ const ANSI = {
 function boldText(text) {
   if (!STYLE_ENABLED) return text;
   return `${ANSI.bold}${text}${ANSI.unbold}`;
-}
-
-function importFromFilePath(filePath) {
-  return import(pathToFileURL(filePath).href);
 }
 
 function getBunBinary() {
@@ -197,8 +166,6 @@ const commands = {
   logs: logsCommand,
 
   startup: startupCommand,
-
-  update: null,
 };
 
 commands.serve = createServeCommand({
@@ -216,27 +183,13 @@ commands.serve = createServeCommand({
   commands.restart = lifecycleCommands.restart;
 }
 
-commands.tunnel = createTunnelCommand({
-  serveCommand: commands.serve.bind(commands),
-  stopCommand: commands.stop.bind(commands),
-  setCancelCleanup,
-  boldText,
-  ensureTunnelProfilesMigrated,
-});
-
 commands['connect-url'] = createConnectUrlCommand({
-  serveCommand: commands.serve.bind(commands),
-});
-
-commands.update = createUpdateCommand({
-  importFromFilePath,
-  packageManagerPath: path.join(__dirname, '..', 'server', 'lib', 'package-manager.js'),
   serveCommand: commands.serve.bind(commands),
 });
 
 async function main() {
   const parsed = parseArgs();
-  const { command, subcommand, tunnelAction, startupAction, scheduleAction, sessionAction, controlAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
+  const { command, startupAction, scheduleAction, sessionAction, controlAction, options, removedFlagErrors, helpRequested, versionRequested } = parsed;
   activeCommandOptions = options;
 
   if (versionRequested) {
@@ -266,9 +219,7 @@ async function main() {
   }
 
   if (helpRequested) {
-    if (command === 'tunnel') {
-      showTunnelHelp();
-    } else if (command === 'startup') {
+    if (command === 'startup') {
       showStartupHelp();
     } else if (command === 'connect-url') {
       showConnectUrlHelp();
@@ -285,11 +236,6 @@ async function main() {
     } else {
       showHelp();
     }
-    return;
-  }
-
-  if (command === 'tunnel') {
-    await commands.tunnel(options, subcommand, tunnelAction);
     return;
   }
 
@@ -327,7 +273,7 @@ async function main() {
   }
 
   if (!commands[command]) {
-    const knownCommands = ['serve', 'stop', 'restart', 'status', 'schedule', 'session', 'models', 'projects', 'control', 'tunnel', 'startup', 'logs', 'update'];
+    const knownCommands = ['serve', 'stop', 'restart', 'status', 'schedule', 'session', 'models', 'projects', 'control', 'startup', 'logs'];
     const suggestion = findClosestMatch(command, knownCommands);
     const hint = suggestion ? ` Did you mean '${suggestion}'?` : '';
     if (isJsonMode(options)) {
@@ -435,8 +381,6 @@ export {
   hasUiPasswordConfigured,
   generateUiPassword,
   resolveServeUiPassword,
-  shouldDisplayTunnelQr,
-  isValidTunnelDoctorResponse,
   readDesktopLocalPortFromSettings,
   getPidFilePath,
   getInstanceFilePath,
@@ -444,21 +388,12 @@ export {
   isOpenchamberProcessRunning,
   isOpenchamberCmdline,
   getOpenchamberProcessState,
-  resolveTunnelProviders,
-  fetchTunnelProvidersFromPort,
   fetchSystemInfoFromPort,
   discoverRunningInstances,
   discoverOpenChamberInstanceOnPort,
   discoverLifecycleInstances,
   discoverUnconfirmedRegistryInstanceOnPort,
-  ensureTunnelProfilesMigrated,
-  resolveToken,
-  redactProfileForOutput,
-  redactProfilesForOutput,
-  maskToken,
   findClosestMatch,
-  generateCompletionScript,
   TunnelCliError,
   EXIT_CODE,
-  warnIfUnsafeFilePermissions,
 };

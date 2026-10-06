@@ -49,7 +49,7 @@ Examples:
 - `useUIStore.ts`
 - `useDirectoryStore.ts`
 - `useFeatureFlagsStore.ts`
-- `useUpdateStore.ts`
+- `useUpdateStore.ts` (Electron shell native updates only; no other runtime checks for updates)
 
 These stores coordinate visible app state, navigation, selected context-panel tabs, dialogs, and lightweight feature flags. `useUIStore.activeSurface` selects the primary mobile view and the few desktop views that are promoted out of the context panel. It is not a desktop tab selection. Linear panel list filters (status, assignee, team, priority) live here too: the Linear rail surface remounts on switch, so those filters restore from this store rather than component state. `resetLinearIssueListFilters` restores those four defaults together; search stays local to the rail. The team filter is the one that is not a plain preference: a Linear team belongs to one workspace, and each OpenChamber instance has its own Linear login, so it is persisted per instance in `linearIssueListTeamIdByRuntime` and the flat `linearIssueListTeamId` is derived from it by `applyLinearIssueListFiltersForRuntime` — on an instance switch and when the rail mounts, since rehydration can run before the runtime endpoint is known. Carried across, a team id filters the new instance's list down to nothing. `linearIssueFocus` is a one-shot identifier so work-status can open a specific issue in that panel; it is not persisted.
 
@@ -230,7 +230,7 @@ Important properties:
 - worktree bootstrap polling and session/worktree machinery stay keyed on the project root even while a nested repository is selected; only git data and actions follow the selection
 - runtime reset replaces all live entries with that runtime's persisted branch seeds and invalidates old completions
 - status, branches, log, identity, repository probes, and prefetch diffs commit through runtime and per-channel generations
-- status mutations advance a revision so older refreshes cannot undo optimistic or confirmed index changes
+- status mutations (worktree operations, Git refresh hints) advance a revision so older refreshes cannot undo a newer index state
 - a successful status-affecting git mutation also advances that revision: the HTTP adapter's cache invalidation notifies the store through `lib/gitStatusInvalidation.ts` (the VS Code bridge adapter has no client-side status cache, so it emits nothing today)
 - `fetchStatus({ force: true })` and `fetchAll({ force: true })` cross both the store and runtime transport caches; a forced reconciliation must reach the active runtime rather than reuse an unexpired browser status snapshot
 - status requests do not start while a managed worktree bootstrap is pending, and a response admitted before bootstrap began is discarded if it completes after the directory enters `pending`; the `--no-checkout` population window is not user working-tree state

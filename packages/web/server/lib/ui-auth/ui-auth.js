@@ -310,7 +310,6 @@ const isUrlAuthWebSocketPath = (pathname) => {
     || pathname === '/api/global/event/ws'
     || pathname === '/api/openchamber/realtime-proxy/ws'
     || pathname === '/api/dictation/ws'
-    || pathname === '/api/dev-tunnel'
     || pathname.startsWith('/api/preview/proxy/');
 };
 
@@ -494,7 +493,7 @@ export const createUiAuth = ({
       return null;
     }
     try {
-      const result = await clientAuthController.authenticateBearerToken(token, req);
+      const result = await clientAuthController.authenticateBearerToken(token);
       if (result?.ok) {
         return result;
       }

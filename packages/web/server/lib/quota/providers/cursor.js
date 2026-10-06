@@ -1,7 +1,4 @@
 import { existsSync, readFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
-import { execFileSync } from 'child_process';
 import { readManagedCredential, writeManagedCredential } from '../credentials/providers.js';
 import {
   buildResult,
@@ -18,7 +15,6 @@ const CREDITS_URL = `${BASE_URL}/aiserver.v1.DashboardService/GetCreditGrantsBal
 const REFRESH_URL = `${BASE_URL}/oauth/token`;
 const CLIENT_ID = 'KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB';
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
-const STATE_DB = join(homedir(), 'Library', 'Application Support', 'Cursor', 'User', 'globalStorage', 'state.vscdb');
 
 export const providerId = 'cursor';
 export const providerName = 'Cursor';
@@ -29,27 +25,6 @@ const readJwtPayload = (token) => {
     const [, payload] = String(token).split('.');
     if (!payload) return null;
     return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
-};
-
-const readStateValue = (key) => {
-  if (!existsSync(STATE_DB)) return null;
-  try {
-    const escapedKey = String(key).replace(/'/g, "''");
-    const rows = execFileSync('sqlite3', [
-      '-json',
-      STATE_DB,
-      `SELECT value FROM ItemTable WHERE key = '${escapedKey}' LIMIT 1;`
-    ], {
-      encoding: 'utf8',
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'ignore']
-    });
-    const parsed = JSON.parse(rows || '[]');
-    const value = parsed?.[0]?.value;
-    return typeof value === 'string' && value.trim() ? value.trim() : null;
   } catch {
     return null;
   }
@@ -108,17 +83,6 @@ const persistAccessToken = (auth, accessToken) => {
   if (auth.source === 'managed') writeManagedCredential(providerId, { accessToken, refreshToken: auth.refreshToken || '' });
 };
 
-export const importCursorCredential = async () => {
-  const credential = {
-    accessToken: readStateValue('cursorAuth/accessToken') || '',
-    refreshToken: readStateValue('cursorAuth/refreshToken') || '',
-  };
-  if (!credential.accessToken && !credential.refreshToken) throw new Error('Cursor credentials are unavailable');
-  const accessToken = await resolveCredentialAccessToken({ ...credential, source: 'import' });
-  if (!accessToken) throw new Error('Cursor credentials are invalid');
-  return writeManagedCredential(providerId, { ...credential, accessToken });
-};
-
 const refreshAccessToken = async (auth) => {
   if (!auth.refreshToken) return auth.accessToken;
 
@@ -154,12 +118,6 @@ const resolveCredentialAccessToken = async (auth) => {
 };
 
 const resolveAccessToken = async () => resolveCredentialAccessToken(loadAuthState());
-
-export const validateCursorCredential = async (credential) => {
-  const accessToken = await resolveCredentialAccessToken({ ...credential, source: 'validation' });
-  if (!accessToken) throw new Error('Cursor credentials are invalid');
-  await connectPost(USAGE_URL, accessToken);
-};
 
 const connectPost = async (url, accessToken) => {
   const response = await fetch(url, {

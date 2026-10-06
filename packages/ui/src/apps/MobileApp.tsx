@@ -3,7 +3,6 @@ import { mobileChatCovered } from './mobileChatCovered';
 
 import { AboutSettings } from '@/components/sections/openchamber/AboutSettings';
 import { OpenCodeUpdateToast } from '@/components/update/OpenCodeUpdateToast';
-import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { ConfigUpdateOverlay } from '@/components/ui/ConfigUpdateOverlay';
 import { Button } from '@/components/ui/button';
 import { OpenChamberLogo } from '@/components/ui/OpenChamberLogo';
@@ -19,7 +18,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
-import { useUpdatePolling } from '@/hooks/useUpdatePolling';
 import { useWindowTitle } from '@/hooks/useWindowTitle';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -47,7 +45,6 @@ import {
   worktreeMapsEqual,
 } from '@/lib/worktrees/worktreeManager';
 import { useUIStore } from '@/stores/useUIStore';
-import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { RuntimeSyncProvider } from '@/sync/sync-context';
 import { useStartRetry } from '@/hooks/useStartRetry';
@@ -129,8 +126,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const [pendingChangesDiff, setPendingChangesDiff] = React.useState<{ path: string; staged: boolean } | null>(null);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
-  const updateAvailable = useUpdateStore((state) => state.available);
-  const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
   const showCapacitorOnlyFeatures = React.useMemo(() => isCapacitorMobileApp(), []);
   const mcpServers = useMcpConfigStore((state) => state.mcpServers);
   const setMcpDraft = useMcpConfigStore((state) => state.setMcpDraft);
@@ -329,13 +324,6 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
 
   useNativeAndroidBackButton(handleNativeBack);
 
-  // Server updates are actionable from a browser (hosted mobile) but not from
-  // the Capacitor shell — the native app updates through the store, and the
-  // server it CONNECTS to is updated elsewhere.
-  const showUpdateItem = !showCapacitorOnlyFeatures
-    && updateAvailable
-    && (updateRuntimeType === 'desktop' || updateRuntimeType === 'web');
-
   // Tablets pack the app-level pages (settings, instances, a plan) into a
   // centered dialog instead of covering the whole screen.
   const surfaceVariant = isTabletLayout ? 'dialog' as const : 'fullscreen' as const;
@@ -347,9 +335,8 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
       instanceLabel: showCapacitorOnlyFeatures ? getAutoConnectTargetLabel() : null,
       onOpenInstances: showCapacitorOnlyFeatures ? () => openSurface('instances') : undefined,
       onOpenSettings: () => openSettingsSurface('nav'),
-      onOpenUpdate: showUpdateItem ? () => openSurface('update') : undefined,
     }),
-    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures, showUpdateItem],
+    [openSettingsSurface, openSurface, showCapacitorOnlyFeatures],
   );
 
   const openMcpCreateSettings = React.useCallback(() => {
@@ -1157,7 +1144,6 @@ export function MobileApp({ apis }: MobileAppProps) {
 
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
-  useUpdatePolling();
   useWindowTitle();
   useRouter();
   // APNs is the only notification channel on the native app (background-capable,
@@ -1297,7 +1283,6 @@ export function MobileApp({ apis }: MobileAppProps) {
               ) : null}
               <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
               <OpenCodeUpdateToast />
-              <MobileAppUpdateToast />
               <MobileShell onActiveConnectionDeleted={() => {
                 switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: MOBILE_DISCONNECTED_RUNTIME_KEY });
                 setConnectionEpoch((value) => value + 1);

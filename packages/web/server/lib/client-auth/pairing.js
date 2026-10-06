@@ -71,7 +71,6 @@ const publicSession = (session) => ({
   fingerprint: session.fingerprint,
   allowedClientKinds: session.allowedClientKinds,
   createdByClientId: session.createdByClientId,
-  usesRelay: session.usesRelay === true,
 });
 
 // A pending session is one that can still be redeemed: not used, not cancelled,
@@ -137,7 +136,6 @@ export const createClientPairingRuntime = ({
           fingerprint: normalizeOptionalString(session.fingerprint) || generateFingerprint(),
           allowedClientKinds: normalizeAllowedClientKinds(session.allowedClientKinds),
           createdByClientId: normalizeOptionalString(session.createdByClientId),
-          usesRelay: session.usesRelay === true,
         }))
         .filter((session) => session.secretHash.length > 0)
       : [],
@@ -176,7 +174,7 @@ export const createClientPairingRuntime = ({
     });
   };
 
-  const createPairingSession = async ({ label, allowedClientKinds, createdByClientId, usesRelay } = {}) => {
+  const createPairingSession = async ({ label, allowedClientKinds, createdByClientId } = {}) => {
     return withStoreMutation(async () => {
       const store = await readStore();
       sweepExpiredSessionsFromStore(store);
@@ -193,7 +191,6 @@ export const createClientPairingRuntime = ({
         fingerprint: generateFingerprint(),
         allowedClientKinds: normalizeAllowedClientKinds(allowedClientKinds),
         createdByClientId: normalizeOptionalString(createdByClientId),
-        usesRelay: usesRelay === true,
       };
       store.sessions.push(session);
       await writeStore(store);
@@ -205,12 +202,6 @@ export const createClientPairingRuntime = ({
   const listPendingSessions = async () => withStoreMutation(async () => {
     const store = await readStore();
     return store.sessions.filter(isPendingSession).map(publicSession);
-  });
-
-  // Relay-transport demand from pairing: any still-redeemable relay session.
-  const hasActiveRelaySession = async () => withStoreMutation(async () => {
-    const store = await readStore();
-    return store.sessions.some((session) => session.usesRelay === true && isPendingSession(session));
   });
 
   const getPairingSession = async (id) => {
@@ -279,7 +270,6 @@ export const createClientPairingRuntime = ({
         devicePlatform,
         deviceModel,
         appVersion,
-        usesRelay: session.usesRelay === true,
       });
       session.usedAt = nowIso();
       session.clientId = result.client?.id || null;
@@ -301,7 +291,6 @@ export const createClientPairingRuntime = ({
     createPairingSession,
     getPairingSession,
     listPendingSessions,
-    hasActiveRelaySession,
     cancelPairingSession,
     redeemPairingSession,
     sweepExpiredSessions,

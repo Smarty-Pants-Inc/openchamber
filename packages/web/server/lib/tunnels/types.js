@@ -153,7 +153,7 @@ export function normalizeOptionalPath(value) {
   return resolveTunnelConfigPath(trimmed);
 }
 
-export function isSupportedTunnelMode(mode) {
+function isSupportedTunnelMode(mode) {
   return SUPPORTED_TUNNEL_MODES.has(mode);
 }
 

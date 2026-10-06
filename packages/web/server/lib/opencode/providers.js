@@ -244,62 +244,8 @@ function upsertProviderConfig(providerId, config, workingDirectory, scope = 'use
   };
 }
 
-function removeProviderConfig(providerId, workingDirectory, scope = 'user') {
-  if (!providerId || typeof providerId !== 'string') {
-    throw new Error('Provider ID is required');
-  }
-
-  const layers = readConfigLayers(workingDirectory);
-  let targetPath = layers.paths.userPath;
-
-  if (scope === 'project') {
-    if (!workingDirectory) {
-      throw new Error('Working directory is required for project scope');
-    }
-    targetPath = layers.paths.projectPath || targetPath;
-  } else if (scope === 'custom') {
-    if (!layers.paths.customPath) {
-      return false;
-    }
-    targetPath = layers.paths.customPath;
-  }
-
-  const targetConfig = getConfigForPath(layers, targetPath);
-  const providerConfig = isPlainObject(targetConfig.provider) ? targetConfig.provider : {};
-  const providersConfig = isPlainObject(targetConfig.providers) ? targetConfig.providers : {};
-  const removedProvider = Object.prototype.hasOwnProperty.call(providerConfig, providerId);
-  const removedProviders = Object.prototype.hasOwnProperty.call(providersConfig, providerId);
-
-  if (!removedProvider && !removedProviders) {
-    return false;
-  }
-
-  if (removedProvider) {
-    delete providerConfig[providerId];
-    if (Object.keys(providerConfig).length === 0) {
-      delete targetConfig.provider;
-    } else {
-      targetConfig.provider = providerConfig;
-    }
-  }
-
-  if (removedProviders) {
-    delete providersConfig[providerId];
-    if (Object.keys(providersConfig).length === 0) {
-      delete targetConfig.providers;
-    } else {
-      targetConfig.providers = providersConfig;
-    }
-  }
-
-  writeConfig(targetConfig, targetPath || CONFIG_FILE);
-  console.log(`Removed provider ${providerId} from config: ${targetPath}`);
-  return true;
-}
-
 export {
   getProviderSources,
-  removeProviderConfig,
   upsertProviderConfig,
   validateCustomProviderConfig,
 };

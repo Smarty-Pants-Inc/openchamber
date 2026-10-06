@@ -2,7 +2,6 @@ import React from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ChatView } from '@/components/views/ChatView';
 import { AppLinkConfirmDialog } from '@/components/chat/AppLinkConfirmDialog';
-import { FireworksProvider } from '@/contexts/FireworksContext';
 import { Toaster } from '@/components/ui/sonner';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { Button } from '@/components/ui/button';
@@ -943,15 +942,13 @@ function App({ apis }: AppProps) {
   }
 
   // Always mount the full provider tree to avoid remounts when isInitialized
-  // flips from false → true. FireworksProvider is a lightweight shell; its
-  // heavy children are only activated when actually needed.
+  // flips from false → true; heavy children are only activated when needed.
   const isBootShell = !isInitialized && !isDesktopRuntime;
 
   return (
     <ErrorBoundary>
       <RuntimeSyncProvider key={runtimeEndpointEpoch} directory={currentDirectory || ''}>
         <RuntimeAPIProvider apis={apis}>
-          <FireworksProvider>
               <TooltipProvider delayDuration={300} skipDelayDuration={150}>
                 <div className={isDesktopRuntime ? 'h-full text-foreground bg-transparent' : 'h-full text-foreground bg-background'}>
                   <SyncAppEffects embeddedBackgroundWorkEnabled={embeddedBackgroundWorkEnabled} />
@@ -971,7 +968,6 @@ function App({ apis }: AppProps) {
                   )}
                 </div>
               </TooltipProvider>
-          </FireworksProvider>
         </RuntimeAPIProvider>
       </RuntimeSyncProvider>
     </ErrorBoundary>

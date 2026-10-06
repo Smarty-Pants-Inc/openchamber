@@ -74,9 +74,6 @@ interface GitStore {
 
   ensureStatus: (directory: string, git: GitAPI) => Promise<void>;
   ensureAll: (directory: string, git: GitAPI) => Promise<void>;
-  moveStatusPathsOptimistically: (directory: string, paths: string[], direction: 'stage' | 'unstage') => GitStatus | null;
-  restoreStatus: (directory: string, status: GitStatus | null) => void;
-  bumpIndexRevision: (directory: string) => void;
 
   getDiff: (directory: string, filePath: string) => { original: string; modified: string; fetchedAt: number; isBinary?: boolean } | null;
   setDiff: (directory: string, filePath: string, diff: { original: string; modified: string; isBinary?: boolean }, expectedRuntimeKey?: string) => void;
@@ -595,48 +592,6 @@ const hasIndexStatusChanged = (oldStatus: GitStatus | null, newStatus: GitStatus
   return false;
 };
 
-const isBlankStatusCode = (value?: string | null): boolean => !value || value.trim().length === 0;
-const isConflictStatusCode = (value?: string | null): boolean => (value || '').trim() === 'U';
-
-const toStagedStatusFile = (file: GitStatus['files'][number]): GitStatus['files'][number] => {
-  const index = (file.index || '').trim();
-  const workingDir = (file.working_dir || '').trim();
-
-  if (isConflictStatusCode(index) || isConflictStatusCode(workingDir)) {
-    return file;
-  }
-
-  const nextIndex = index === '?' || workingDir === '?'
-    ? 'A'
-    : index || workingDir || ' ';
-
-  return {
-    ...file,
-    index: nextIndex,
-    working_dir: ' ',
-  };
-};
-
-const toUnstagedStatusFile = (file: GitStatus['files'][number]): GitStatus['files'][number] => {
-  const index = (file.index || '').trim();
-  const workingDir = (file.working_dir || '').trim();
-
-  if (isConflictStatusCode(index) || isConflictStatusCode(workingDir)) {
-    return file;
-  }
-
-  const nextWorkingDir = workingDir || (index === 'A' || index === '?' ? '?' : index) || ' ';
-
-  return {
-    ...file,
-    index: ' ',
-    working_dir: nextWorkingDir,
-  };
-};
-
-const isCleanStatusFile = (file: GitStatus['files'][number]): boolean =>
-  isBlankStatusCode(file.index) && isBlankStatusCode(file.working_dir);
-
 const initialGitRuntimeKey = activeGitRuntimeKey;
 
 export const useGitStore = create<GitStore>()(
@@ -868,101 +823,6 @@ export const useGitStore = create<GitStore>()(
             inFlightStatusFetches.delete(statusFetchKey);
           }
         }
-      },
-
-      moveStatusPathsOptimistically: (directory, paths, direction) => {
-        const normalizedPaths = new Set(paths.map((path) => path.trim()).filter(Boolean));
-        if (normalizedPaths.size === 0) {
-          return null;
-        }
-
-        const { directories } = get();
-        const dirState = directories.get(directory);
-        const previousStatus = dirState?.status ?? null;
-        if (!dirState || !previousStatus) {
-          return previousStatus;
-        }
-
-        let didChange = false;
-        const nextFiles: GitStatus['files'] = [];
-
-        for (const file of previousStatus.files) {
-          if (!normalizedPaths.has(file.path)) {
-            nextFiles.push(file);
-            continue;
-          }
-
-          const nextFile = direction === 'stage'
-            ? toStagedStatusFile(file)
-            : toUnstagedStatusFile(file);
-
-          if (nextFile !== file) {
-            didChange = true;
-          }
-
-          if (!isCleanStatusFile(nextFile)) {
-            nextFiles.push(nextFile);
-          } else {
-            didChange = true;
-          }
-        }
-
-        if (!didChange) {
-          return previousStatus;
-        }
-
-        bumpStatusMutationRevision(get().runtimeKey, directory);
-
-        const nextDirectories = new Map(directories);
-        nextDirectories.set(directory, {
-          ...dirState,
-          status: {
-            ...previousStatus,
-            files: nextFiles,
-            isClean: nextFiles.length === 0,
-          },
-          indexRevision: dirState.indexRevision + 1,
-          lastStatusChange: Date.now(),
-        });
-        set({ directories: nextDirectories });
-
-        return previousStatus;
-      },
-
-      restoreStatus: (directory, status) => {
-        const { directories } = get();
-        const dirState = directories.get(directory);
-        if (!dirState) {
-          return;
-        }
-
-        bumpStatusMutationRevision(get().runtimeKey, directory);
-
-        const nextDirectories = new Map(directories);
-        nextDirectories.set(directory, {
-          ...dirState,
-          status,
-          indexRevision: dirState.indexRevision + 1,
-          lastStatusChange: Date.now(),
-        });
-        set({ directories: nextDirectories });
-      },
-
-      bumpIndexRevision: (directory) => {
-        const { directories } = get();
-        const dirState = directories.get(directory);
-        if (!dirState) {
-          return;
-        }
-
-        bumpStatusMutationRevision(get().runtimeKey, directory);
-
-        const nextDirectories = new Map(directories);
-        nextDirectories.set(directory, {
-          ...dirState,
-          indexRevision: dirState.indexRevision + 1,
-        });
-        set({ directories: nextDirectories });
       },
 
       fetchBranches: async (directory, git) => {
@@ -1423,13 +1283,6 @@ export const useGitLog = (directory: string | null) => {
   return useGitStore((state) => {
     if (!directory) return null;
     return state.directories.get(directory)?.log ?? null;
-  });
-};
-
-export const useGitIdentity = (directory: string | null) => {
-  return useGitStore((state) => {
-    if (!directory) return null;
-    return state.directories.get(directory)?.identity ?? null;
   });
 };
 

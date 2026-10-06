@@ -45,24 +45,6 @@ function writeAuthFile(auth) {
   }
 }
 
-function removeProviderAuth(providerId) {
-  if (!providerId || typeof providerId !== 'string') {
-    throw new Error('Provider ID is required');
-  }
-
-  const auth = readAuthFile();
-  
-  if (!auth[providerId]) {
-    console.log(`Provider ${providerId} not found in auth file, nothing to remove`);
-    return false;
-  }
-
-  delete auth[providerId];
-  writeAuthFile(auth);
-  console.log(`Removed provider auth: ${providerId}`);
-  return true;
-}
-
 function getProviderAuth(providerId) {
   const auth = readAuthFile();
   return auth[providerId] || null;
@@ -76,7 +58,6 @@ function listProviderAuths() {
 export {
   readAuthFile,
   writeAuthFile,
-  removeProviderAuth,
   getProviderAuth,
   listProviderAuths,
   AUTH_FILE,

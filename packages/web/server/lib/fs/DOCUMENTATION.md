@@ -1,7 +1,7 @@
 # FS Module Documentation
 
 ## Purpose
-Own filesystem API behavior for the web server runtime, including workspace-bound file operations, directory listing, reveal, and background command execution jobs.
+Own filesystem API behavior for the web server runtime, including workspace-bound file operations, directory listing, and reveal. There is no command-execution route: `POST /api/fs/exec` was removed (smarty-code#1398), so this module never runs a shell.
 
 ## Entrypoints and structure
 - `packages/web/server/lib/fs/routes.js`: route registration and runtime-owned state for `/api/fs/*` endpoints.
@@ -20,16 +20,13 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `POST /api/fs/delete`
     - `POST /api/fs/rename`
     - `POST /api/fs/reveal`
-    - `POST /api/fs/exec`
-    - `GET /api/fs/exec/:jobId`
     - `GET /api/fs/list`
     - `GET /api/fs/git-dirs` — shallow nested git repository discovery for the
       Git tab (depth- and visit-capped readdir walk; `.git` directory, file, or
       symlink marks a repository boundary; junk directories and symlinks are
       never descended into)
-  - Owns exec job queue state (`execJobs`) and lifecycle/TTL pruning.
   - Enforces workspace boundary checks with active project + worktree fallback support.
-  - The active project directory is validated with `fs.realpath`, so when the project root is itself a symlink the workspace base no longer matches the paths the client sends. Workspace resolution therefore retries against the raw directory the client requested (`requestedDirectory` from `resolveProjectDirectory`) before falling back to worktree roots. Symlinks are still resolved afterwards, and write/exec routes keep their canonical containment check against the resolved base.
+  - The active project directory is validated with `fs.realpath`, so when the project root is itself a symlink the workspace base no longer matches the paths the client sends. Workspace resolution therefore retries against the raw directory the client requested (`requestedDirectory` from `resolveProjectDirectory`) before falling back to worktree roots. Symlinks are still resolved afterwards, and write routes keep their canonical containment check against the resolved base.
   - `POST /api/fs/mkdir` also checks canonical containment before it creates anything. It resolves the nearest existing ancestor with `realpath` and adds the part that does not exist yet. The canonical target must lie inside the canonical base it was admitted under (project, requested project root, worktree or managed root) or inside a canonical managed root (`openchamberUserConfigRoot`, chats root). Otherwise, for example with a symbolic-link parent pointing outside or a dangling link, the route returns 403.
   - With `OPENCHAMBER_MANAGED_CATALOG=1` (see `../opencode/managed-catalog-guard.js`), mkdir uses a project base only when the request names one explicitly (`x-opencode-directory` header or `directory` query) and that directory is a live managed row, checked through `isLiveManagedDirectory` (`../opencode/managed-catalog-reader.js`). A supplied header alone is not admission, and a catalog read failure admits no base. It never uses the saved `lastDirectory`/`activeProjectId` fallback. Without an explicit directory, only targets inside the chats root are allowed; UI chat creation sends no directory. Anything else gets 403 with the managed refusal.
 - `createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn })` from `search.js`
@@ -38,10 +35,10 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 
 ## Composition contract with `index.js`
 - `index.js` provides composition-time dependencies only (platform primitives + callbacks such as `resolveProjectDirectory`, `normalizeDirectoryPath`, and `buildAugmentedPath`).
-- `index.js` no longer owns FS route handlers or FS exec job state.
+- `index.js` no longer owns FS route handlers.
 
 ## Notes for contributors
-- Keep filesystem policy (workspace root checks, error mapping, exec timeout behavior) inside this module, not in the composition root.
+- Keep filesystem policy (workspace root checks, error mapping) inside this module, not in the composition root.
 - Workspace checks accept, besides the active workspace and its worktrees, the **managed roots**: the OpenChamber config root and the managed chats root (`managedChatsRoot` dependency; `OPENCHAMBER_CHATS_DIR` upstream, default `<config root>/chats`). Chat worktrees may legitimately live outside every project workspace.
 - `GET /api/fs/home` answers `{ home, chatsRoot }`. `chatsRoot` is the server-resolved managed chats root; clients must use it instead of joining `home` + the well-known segment (a relocated root does not contain that segment).
 - Filesystem `EPERM`/`EACCES` failures use the stable `reason: "os-permission"` response marker. Policy denials such as workspace-boundary or missing-grant failures must not use that marker because a native folder picker cannot remediate them.

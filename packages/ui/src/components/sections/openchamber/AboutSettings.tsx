@@ -3,6 +3,7 @@ import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { useDeviceInfo } from '@/lib/device';
+import { isElectronShell } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -41,12 +42,13 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     downloading: s.downloading,
     downloaded: s.downloaded,
     progress: s.progress,
-    runtimeType: s.runtimeType,
     checkForUpdates: s.checkForUpdates,
     downloadUpdate: s.downloadUpdate,
     restartToUpdate: s.restartToUpdate,
   })));
   const { isMobile } = useDeviceInfo();
+  // Only the Electron shell has an updater; other runtimes show no update controls.
+  const canUpdate = React.useMemo(() => isElectronShell(), []);
 
   const currentVersion = openChamberVersion || updateStore.info?.currentVersion || 'unknown';
 
@@ -140,7 +142,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           <InstanceServiceUrls />
         </div>
 
-        <div className="flex justify-center">
+        {canUpdate && <div className="flex justify-center">
           {!updateStore.available && !updateStore.error && (
             <Button
               type="button"
@@ -167,7 +169,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               {t('settings.openchamber.about.actions.updateToVersion', { version: updateStore.info?.version || '' })}
             </Button>
           )}
-        </div>
+        </div>}
 
         {updateStore.error && (
           <p className="rounded-xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2 typography-meta text-[var(--status-error)]">
@@ -223,7 +225,6 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           error={updateStore.error}
           onDownload={updateStore.downloadUpdate}
           onRestart={updateStore.restartToUpdate}
-          runtimeType={updateStore.runtimeType}
         />
       </div>
     );
@@ -243,7 +244,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             <span className="typography-meta text-muted-foreground font-mono">{openCodeVersion || t('settings.openchamber.about.state.unknown')}</span>
           </div>
           
-          <div className="flex items-center gap-3">
+          {canUpdate && <div className="flex items-center gap-3">
             {updateStore.checking && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
@@ -272,7 +273,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             >
               {t('settings.openchamber.about.actions.checkForUpdates')}
             </Button>
-          </div>
+          </div>}
         </div>
         
         {updateStore.error && (
@@ -319,7 +320,6 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         error={updateStore.error}
         onDownload={updateStore.downloadUpdate}
         onRestart={updateStore.restartToUpdate}
-        runtimeType={updateStore.runtimeType}
       />
     </SettingsSection>
   );

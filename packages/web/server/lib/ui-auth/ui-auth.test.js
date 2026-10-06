@@ -227,7 +227,7 @@ describe('ui auth client credential seam', () => {
       url: `/api/dev-tunnel?port=4322&oc_url_token=${encodeURIComponent(urlToken)}`,
       headers: { upgrade: 'websocket' },
     };
-    expect(await auth.ensureSessionToken(devTunnelWsReq, null)).toBe('client:device-1');
+    expect(await auth.ensureSessionToken(devTunnelWsReq, null)).toBe(null);
 
     const devTunnelSubpathWsReq = {
       method: 'GET',

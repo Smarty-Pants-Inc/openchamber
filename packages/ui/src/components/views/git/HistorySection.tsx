@@ -45,8 +45,6 @@ interface HistorySectionProps {
     branchName: string;
     direction: 'up' | 'down';
   } | null;
-  onConflict?: (result: { conflict: boolean; conflictFiles?: string[]; operation: 'cherry-pick' | 'revert' | 'merge' | 'rebase' }) => void;
-  onActionSuccess?: () => void;
 }
 
 export const HistorySection: React.FC<HistorySectionProps> = ({
@@ -64,8 +62,6 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
   showHeader = true,
   contentMaxHeightClassName = 'max-h-[50vh]',
   branchDivider = null,
-  onConflict,
-  onActionSuccess,
 }) => {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = React.useState(true);
@@ -124,8 +120,6 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
           isLoadingFiles={loadingCommitHashes.has(entry.hash)}
           onCopyHash={onCopyHash}
           directory={directory}
-          onConflict={onConflict}
-          onActionSuccess={onActionSuccess}
         />
       ))}
     </ul>

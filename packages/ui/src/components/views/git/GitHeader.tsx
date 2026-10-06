@@ -9,48 +9,21 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import type { IconName } from "@/components/icon/icons";
-import { BranchSelector } from './BranchSelector';
-import { WorktreeBranchDisplay } from './WorktreeBranchDisplay';
-import { SyncActions } from './SyncActions';
 import { NestedRepoPicker } from './NestedRepoPicker';
 import type {
   GitStatus,
   GitIdentityProfile,
-  GitRemote,
   GitRemoteComparison,
   GitHubPullRequest,
   GitHubChecksSummary,
 } from '@/lib/api/types';
 import { useI18n } from '@/lib/i18n';
-import { useDeviceInfo } from '@/lib/device';
-
-type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 
 interface GitHeaderProps {
-  directory: string;
   status: GitStatus | null;
-  localBranches: string[];
-  remoteBranches: string[];
-  branchInfo: Record<string, { ahead?: number; behind?: number }> | undefined;
-  syncAction: SyncAction;
-  remotes: GitRemote[];
-  onFetch: (remote: GitRemote) => void;
-  onSync: (remote: GitRemote) => void;
-  onRemoveRemote: (remote: GitRemote) => void;
-  removingRemoteName: string | null;
-  onCheckoutBranch: (branch: string) => void;
-  onCreateBranch: (name: string, remote?: GitRemote) => Promise<void>;
-  onRenameBranch?: (oldName: string, newName: string) => Promise<void>;
-  activeIdentityProfile: GitIdentityProfile | null;
-  availableIdentities: GitIdentityProfile[];
-  onSelectIdentity: (profile: GitIdentityProfile) => void;
-  isApplyingIdentity: boolean;
   isWorktreeMode: boolean;
   onOpenHistory?: () => void;
   onOpenGraph?: () => void;
-  onOpenStashes?: () => void;
-  onOpenUpdateBranch?: () => void;
-  onOpenReintegrateCommits?: () => void;
   pullRequest?: GitHubPullRequest | null;
   prChecks?: GitHubChecksSummary | null;
   onOpenPullRequest?: () => void;
@@ -242,30 +215,10 @@ const UpstreamStatusPill: React.FC<UpstreamStatusPillProps> = ({
 };
 
 export const GitHeader: React.FC<GitHeaderProps> = ({
-  directory,
   status,
-  localBranches,
-  remoteBranches,
-  branchInfo,
-  syncAction,
-  remotes,
-  onFetch,
-  onSync,
-  onRemoveRemote,
-  removingRemoteName,
-  onCheckoutBranch,
-  onCreateBranch,
-  onRenameBranch,
-  activeIdentityProfile,
-  availableIdentities,
-  onSelectIdentity,
-  isApplyingIdentity,
   isWorktreeMode,
   onOpenHistory,
   onOpenGraph,
-  onOpenStashes,
-  onOpenUpdateBranch,
-  onOpenReintegrateCommits,
   pullRequest,
   prChecks,
   onOpenPullRequest,
@@ -275,7 +228,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
   repositoryRoot,
 }) => {
   const { t } = useI18n();
-  const { isMobile } = useDeviceInfo();
   if (!status) {
     return null;
   }
@@ -284,7 +236,7 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
 
   const managementButtons = (
     <div className="flex items-center gap-1 shrink-0">
-      {onOpenHistory || onOpenGraph || onOpenStashes || onOpenUpdateBranch ? (
+      {onOpenHistory || onOpenGraph ? (
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -312,24 +264,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
               <DropdownMenuItem onSelect={onOpenGraph}>
                 <Icon name="git-branch" className="size-4" />
                 {t('gitView.graph.title')}
-              </DropdownMenuItem>
-            ) : null}
-            {onOpenStashes ? (
-              <DropdownMenuItem onSelect={onOpenStashes}>
-                <Icon name="archive-stack" className="size-4" />
-                {t('gitView.stashes.title')}
-              </DropdownMenuItem>
-            ) : null}
-            {onOpenUpdateBranch ? (
-              <DropdownMenuItem onSelect={onOpenUpdateBranch}>
-                <Icon name="git-merge" className="size-4" />
-                {t('gitView.header.updateBranch')}
-              </DropdownMenuItem>
-            ) : null}
-            {onOpenReintegrateCommits ? (
-              <DropdownMenuItem onSelect={onOpenReintegrateCommits}>
-                <Icon name="split-cells-horizontal" className="size-4" />
-                {t('gitView.integrate.title')}
               </DropdownMenuItem>
             ) : null}
           </DropdownMenuContent>
@@ -389,24 +323,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
     </Tooltip>
   ) : null;
 
-  const syncButtons = (
-    <SyncActions
-      syncAction={syncAction}
-      remotes={remotes}
-      onFetch={onFetch}
-      onSync={onSync}
-      onRemoveRemote={onRemoveRemote}
-      removingRemoteName={removingRemoteName}
-      disabled={!status}
-      iconOnly={true}
-
-      aheadCount={status.ahead}
-      behindCount={status.behind}
-      trackingRemoteName={status.tracking?.split('/')[0]}
-      hasUncommittedChanges={(status.files?.length ?? 0) > 0}
-    />
-  );
-
   const upstreamStatusPill = status.upstreamComparison ? (
     <UpstreamStatusPill
       comparison={status.upstreamComparison}
@@ -415,39 +331,16 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
     />
   ) : null;
 
-  const identityControl = (
-    <IdentityDropdown
-      activeProfile={activeIdentityProfile}
-      identities={availableIdentities}
-      onSelect={onSelectIdentity}
-      isApplying={isApplyingIdentity}
-      iconOnly={true}
-    />
-  );
-
   return (
     <header className="@container/git-header px-3 py-2 bg-transparent">
       <div className="flex items-center justify-between gap-2 min-w-0">
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          {isWorktreeMode && !isMobile ? (
-            <WorktreeBranchDisplay
-              currentBranch={status.current}
-              onRename={onRenameBranch}
-            />
-          ) : (
-            <BranchSelector
-              directory={directory}
-              currentBranch={status.current}
-              localBranches={localBranches}
-              remoteBranches={remoteBranches}
-              branchInfo={branchInfo}
-              currentBranchAhead={status.ahead}
-              onCheckout={onCheckoutBranch}
-              onCreate={onCreateBranch}
-              remotes={remotes}
-              switchBlockedNotice={(status.files?.length ?? 0) > 0 ? t('gitView.branch.switchBlockedNotice') : null}
-            />
-          )}
+          <div className="flex min-w-0 items-center gap-1.5 px-2 py-1 h-8">
+            <Icon name={isWorktreeMode ? 'git-branch' : 'git-commit'} className="size-4 text-primary shrink-0" />
+            <span className="truncate typography-ui-label font-normal text-foreground">
+              {status.current || t('gitView.branch.detachedHead')}
+            </span>
+          </div>
           {repositoryOptionsForPicker.length > 0 && onSelectRepository ? (
             <NestedRepoPicker
               repositories={repositoryOptionsForPicker}
@@ -456,9 +349,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
               repositoryRoot={repositoryRoot}
             />
           ) : null}
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          {identityControl}
         </div>
       </div>
 
@@ -469,7 +359,6 @@ export const GitHeader: React.FC<GitHeaderProps> = ({
           <div className="min-w-0 shrink">{upstreamStatusPill}</div>
         ) : null}
         {managementButtons}
-        <div className="shrink-0">{syncButtons}</div>
       </div>
     </header>
   );

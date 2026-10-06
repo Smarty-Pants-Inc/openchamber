@@ -129,43 +129,6 @@ export interface GitBranch {
   defaultBranches?: Record<string, string>;
 }
 
-interface GitCommitSummary {
-  changes: number;
-  insertions: number;
-  deletions: number;
-}
-
-export interface GitCommitResult {
-  success: boolean;
-  commit: string;
-  branch: string;
-  summary: GitCommitSummary;
-}
-
-export interface GitPushResult {
-  success: boolean;
-  pushed: Array<{
-    local: string;
-    remote: string;
-  }>;
-  repo: string;
-  ref: unknown;
-}
-
-export interface GitPullResult {
-  success: boolean;
-  summary: GitCommitSummary;
-  files: string[];
-  insertions: number;
-  deletions: number;
-}
-
-export interface GitPullOptions {
-  remote?: string;
-  branch?: string;
-  rebase?: boolean;
-}
-
 export interface GitStashEntry {
   ref: string;
   message: string;
@@ -177,38 +140,6 @@ export interface GitRemote {
   name: string;
   fetchUrl: string;
   pushUrl: string;
-}
-
-export interface GitMergeResult {
-  success: boolean;
-  conflict?: boolean;
-  conflictFiles?: string[];
-}
-
-export interface CheckoutCommitResponse {
-  success: boolean;
-}
-
-export interface CherryPickResponse {
-  success: boolean;
-  conflict?: boolean;
-  conflictFiles?: string[];
-}
-
-export interface RevertCommitResponse {
-  success: boolean;
-  conflict?: boolean;
-  conflictFiles?: string[];
-}
-
-export interface ResetToCommitResponse {
-  success: boolean;
-}
-
-export interface GitRebaseResult {
-  success: boolean;
-  conflict?: boolean;
-  conflictFiles?: string[];
 }
 
 export interface MergeConflictDetails {
@@ -238,11 +169,6 @@ export interface GitIdentityProfile {
   host?: string | null;
   color?: string | null;
   icon?: string | null;
-}
-
-export interface DiscoveredGitCredential {
-  host: string;
-  username: string;
 }
 
 export interface GitIdentitySummary {
@@ -359,37 +285,12 @@ export interface RemoveGitWorktreePayload {
   deleteLocalBranch?: boolean;
 }
 
-export interface GitDeleteBranchPayload {
-  branch: string;
-  force?: boolean;
-}
-
-export interface GitDeleteRemoteBranchPayload {
-  branch: string;
-  remote?: string;
-}
-
-export interface GitRemoveRemotePayload {
-  remote: string;
-}
-
-export interface CreateGitCommitOptions {
-  addAll?: boolean;
-  files?: string[];
-  stageFiles?: string[];
-}
-
 export interface GitLogOptions {
   maxCount?: number;
   from?: string;
   to?: string;
   file?: string;
   all?: boolean;
-}
-
-export interface GeneratedCommitMessage {
-  subject: string;
-  highlights: string[];
 }
 
 export interface GeneratedPullRequestDescription {
@@ -414,21 +315,9 @@ export interface GitAPI {
   getGitRangeDiff?(directory: string, options: GetGitRangeDiffOptions): Promise<GitDiffResponse>;
   getGitRangeFiles?(directory: string, options: GetGitRangeFilesOptions): Promise<GitRangeFileEntry[]>;
   getBranchBase?(directory: string, branch: string): Promise<GitBranchBaseResponse>;
-  revertGitFile(directory: string, filePath: string, options?: { scope?: 'all' | 'working' }): Promise<void>;
-  stageGitFile(directory: string, filePath: string): Promise<void>;
-  stageGitFiles?(directory: string, filePaths: string[]): Promise<void>;
-  unstageGitFile(directory: string, filePath: string): Promise<void>;
-  unstageGitFiles?(directory: string, filePaths: string[]): Promise<void>;
-  stageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
-  unstageGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
-  revertGitHunk?(directory: string, filePath: string, patch: string): Promise<void>;
   isLinkedWorktree(directory: string): Promise<boolean>;
   getGitBranches(directory: string): Promise<GitBranch>;
   getGitUnpushedBranchCounts(directory: string, branches: string[]): Promise<GitUnpushedBranchCounts>;
-  deleteGitBranch(directory: string, payload: GitDeleteBranchPayload): Promise<{ success: boolean }>;
-  deleteRemoteBranch(directory: string, payload: GitDeleteRemoteBranchPayload): Promise<{ success: boolean }>;
-  removeRemote(directory: string, payload: GitRemoveRemotePayload): Promise<{ success: boolean }>;
-  generateCommitMessage(directory: string, files: string[], options?: { zenModel?: string; providerId?: string; modelId?: string }): Promise<{ message: GeneratedCommitMessage }>;
   generatePullRequestDescription(
     directory: string,
     payload: { base: string; head: string; context?: string; zenModel?: string; providerId?: string; modelId?: string }
@@ -439,45 +328,17 @@ export interface GitAPI {
   previewGitWorktree?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
   createGitWorktree?(directory: string, payload: CreateGitWorktreePayload): Promise<GitWorktreeCreateResult>;
   deleteGitWorktree?(directory: string, payload: RemoveGitWorktreePayload): Promise<{ success: boolean }>;
-  createGitCommit(directory: string, message: string, options?: CreateGitCommitOptions): Promise<GitCommitResult>;
-  gitPush(directory: string, options?: { remote?: string; branch?: string; options?: string[] | Record<string, unknown> }): Promise<GitPushResult>;
-  gitPull(directory: string, options?: GitPullOptions): Promise<GitPullResult>;
-  gitFetch(directory: string, options?: { remote?: string; branch?: string }): Promise<{ success: boolean }>;
   listGitStashes(directory: string): Promise<{ stashes: GitStashEntry[] }>;
   countGitStashFiles(directory: string, refs: string[]): Promise<{ counts: Record<string, number> }>;
-  stashGitChanges(directory: string, options?: { message?: string }): Promise<{ success: boolean; created: boolean; message: string; output: string }>;
-  applyGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
-  popGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
-  dropGitStash(directory: string, options: { ref: string }): Promise<{ success: boolean; ref: string }>;
-  checkoutBranch(directory: string, branch: string): Promise<{ success: boolean; branch: string }>;
-  createBranch(directory: string, name: string, startPoint?: string): Promise<{ success: boolean; branch: string }>;
-  renameBranch(directory: string, oldName: string, newName: string): Promise<{ success: boolean; branch: string }>;
   getGitLog(directory: string, options?: GitLogOptions): Promise<GitLogResponse>;
   getCommitFiles(directory: string, hash: string): Promise<GitCommitFilesResponse>;
   getCommitFileDiff?(directory: string, hash: string, filePath: string, isBinary: boolean): Promise<CommitFileDiffResponse>;
   getCurrentGitIdentity(directory: string): Promise<GitIdentitySummary | null>;
   hasLocalIdentity?(directory: string): Promise<boolean>;
-  setGitIdentity(directory: string, profileId: string): Promise<{ success: boolean; profile: GitIdentityProfile }>;
   getGitIdentities(): Promise<GitIdentityProfile[]>;
-  createGitIdentity(profile: GitIdentityProfile): Promise<GitIdentityProfile>;
-  updateGitIdentity(id: string, updates: GitIdentityProfile): Promise<GitIdentityProfile>;
-  deleteGitIdentity(id: string): Promise<void>;
-  discoverGitCredentials?(): Promise<DiscoveredGitCredential[]>;
   getGlobalGitIdentity?(): Promise<GitIdentitySummary | null>;
   getRemoteUrl?(directory: string, remote?: string): Promise<string | null>;
   getRemotes(directory: string): Promise<GitRemote[]>;
-  rebase(directory: string, options: { onto: string }): Promise<GitRebaseResult>;
-  abortRebase(directory: string): Promise<{ success: boolean }>;
-  continueRebase(directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }>;
-  merge(directory: string, options: { branch: string }): Promise<GitMergeResult>;
-  abortMerge(directory: string): Promise<{ success: boolean }>;
-  continueMerge(directory: string): Promise<{ success: boolean; conflict: boolean; conflictFiles?: string[] }>;
-  checkoutCommit(directory: string, hash: string): Promise<CheckoutCommitResponse>;
-  cherryPick(directory: string, hash: string): Promise<CherryPickResponse>;
-  revertCommit(directory: string, hash: string): Promise<RevertCommitResponse>;
-  resetToCommit(directory: string, hash: string, mode: 'soft' | 'mixed' | 'hard', force?: boolean): Promise<ResetToCommitResponse>;
-  stash(directory: string, options?: { message?: string; includeUntracked?: boolean }): Promise<{ success: boolean }>;
-  stashPop(directory: string): Promise<{ success: boolean }>;
   getConflictDetails(directory: string): Promise<MergeConflictDetails>;
   /** Phase 1: validate that a cwd is inside a worktreeRoot */
   validateWorktreeDirectory?(directory: string, worktreeRoot: string): Promise<{
@@ -527,15 +388,6 @@ export interface FileSearchResult {
   preview?: string[];
 }
 
-export interface CommandExecResult {
-  command: string;
-  success: boolean;
-  exitCode?: number;
-  stdout?: string;
-  stderr?: string;
-  error?: string;
-}
-
 interface ListDirectoryOptions {
   respectGitignore?: boolean;
 }
@@ -560,7 +412,6 @@ export interface FilesAPI {
   delete?(path: string): Promise<{ success: boolean }>;
   rename?(oldPath: string, newPath: string): Promise<{ success: boolean; path: string }>;
   revealPath?(path: string): Promise<{ success: boolean }>;
-  execCommands?(commands: string[], cwd: string): Promise<{ success: boolean; results: CommandExecResult[] }>;
   downloadFile?(path: string): Promise<void>;
 }
 
@@ -1314,9 +1165,6 @@ export interface RemoteClientRecord {
   pairingId?: string | null;
   deviceName?: string | null;
   devicePlatform?: string | null;
-  usesRelay?: boolean;
-  /** Transport that carried the device's most recent authenticated request. */
-  lastTransport?: 'relay' | 'direct' | null;
 }
 
 // A pairing link that has been created but not yet redeemed by a device.
@@ -1325,7 +1173,6 @@ export interface PendingPairingRecord {
   label?: string;
   fingerprint?: string | null;
   expiresAt?: string;
-  usesRelay?: boolean;
 }
 
 export interface RemoteClientCreateResult {
@@ -1353,8 +1200,9 @@ export interface PairingSessionCreateResult {
   server: {
     label: string;
     // Transport candidates for the pairing-v2 payload. Shape matches
-    // PairingEndpointCandidate in `@/lib/connectionPayload` (direct lan/tunnel or
-    // relay); left as a structural type here so this contract file stays leaf.
+    // PairingEndpointCandidate in `@/lib/connectionPayload` (this server sends
+    // direct lan/tunnel candidates only); left as a structural type here so this
+    // contract file stays leaf.
     candidates: Array<Record<string, unknown>>;
   };
 }
@@ -1364,18 +1212,11 @@ export interface ClientAuthAPI {
   createClient(input?: { label?: string }): Promise<RemoteClientCreateResult>;
   // Creates a one-time pairing session (pairing v2). `serverUrl` is the
   // externally reachable URL to advertise as the direct candidate (the desktop
-  // UI talks to its server over loopback, so it must supply the LAN URL); the
-  // server folds in a relay candidate when its relay host is enabled.
+  // UI talks to its server over loopback, so it must supply the LAN URL).
   createPairingSession(input?: {
     label?: string;
     allowedClientKinds?: Array<'mobile' | 'desktop'>;
     serverUrl?: string;
-    // Per-link transport choice. `includeRelay: true` adds the relay candidate
-    // and enables the relay host on demand; `false` omits it; omitted keeps the
-    // legacy "relay only if already enabled" behavior. `includeDirect: false`
-    // produces a relay-only link (no direct candidate).
-    includeRelay?: boolean;
-    includeDirect?: boolean;
   }): Promise<PairingSessionCreateResult>;
   purgeRevokedClients(): Promise<RemoteClientPurgeRevokedResult>;
   revokeClient(id: string): Promise<RemoteClientRevokeResult>;
@@ -1384,7 +1225,7 @@ export interface ClientAuthAPI {
   cancelPairing(id: string): Promise<{ cancelled: boolean }>;
   // Direct transports the server can be reached on, for the create-device dialog.
   // LAN reflects the server's actual bind, independent of the UI origin.
-  getPairingTransports(): Promise<{ local: string | null; lan: string | null; relayAvailable: boolean }>;
+  getPairingTransports(): Promise<{ local: string | null; lan: string | null }>;
 }
 
 export interface RuntimeAPIs {

@@ -54,7 +54,7 @@
       "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
       "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
       "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "combinedSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
+      "combinedSha256": "8754b620746670bdb73fcf72543962e594bd8cd2ac41ebf3b0246d9cdf16f71e",
       "preHumanHostBoundaryCombinedSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
       "humanHostBoundarySha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "humanHostBoundaryNote": "openchamber#380: the human-mode composition root requires configured application Host authority before early HTTP responses and runtime startup. Source 12463c2f is the initial Host patch, not security-finding closure or release acceptance.",
@@ -72,14 +72,22 @@
       "preTerminalRemovalCombinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "terminalRemovalBaseSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
       "terminalRemovalSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
-      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained."
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal runtime and its WebSocket constants are removed; Host boundary and response-policy behavior retained.",
+      "preHostPowerRemovalCombinedSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
+      "hostPowerRemovalBaseSha256": "136f4bcb22f3f1cf925d4a64e2f363e2818553d020d4ee1b621f24db62cfc27c",
+      "hostPowerRemovalSha256": "8754b620746670bdb73fcf72543962e594bd8cd2ac41ebf3b0246d9cdf16f71e",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: update, tunnel-control, relay-host and dev-tunnel wiring are removed, and a packaged-client CORS preflight for a retired route is refused by lib/security/retired-routes.js instead of answered 204."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
       "brandingSha256": "55199561f14b34c5dec4b4072ee65e56a80a1a9de0d81664f253ae9fd65c7797",
       "behaviorSha256": "40db94bcaad4265af3d9f519eff66a460835778f82af133734aa790006ca8067",
-      "combinedSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
-      "reason": "Reviewed conditional settings and queued directory mutations; both revision and product-name imports retained."
+      "combinedSha256": "8d2aa9ae2002948aa2fcf57214a8cde9417002b4a69062f5439d4639038b68ff",
+      "reason": "Reviewed conditional settings and queued directory mutations; both revision and product-name imports retained.",
+      "preHostPowerRemovalCombinedSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
+      "hostPowerRemovalBaseSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
+      "hostPowerRemovalSha256": "8d2aa9ae2002948aa2fcf57214a8cde9417002b4a69062f5439d4639038b68ff",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: DELETE /api/provider/:providerId/auth is removed."
     },
     {
       "path": "packages/web/src/api/settings.ts",
@@ -525,29 +533,41 @@
       "path": "packages/web/server/lib/notifications/apns-runtime.js",
       "brandingSha256": "a12821c2b9391d9f23a7c251af8e969b8df01ff148a0a7a8d3628520d7cda8ff",
       "behaviorSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
-      "combinedSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "combinedSha256": "de0e303c6218f2373361bd90b7bf6936df59befd3d74b50619913329e8c7bfb4",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Shared human-auth authorization reaches APNs runtime paths without changing notification payload ownership."
+      "reason": "Shared human-auth authorization reaches APNs runtime paths without changing notification payload ownership.",
+      "preHostPowerRemovalCombinedSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "hostPowerRemovalBaseSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "hostPowerRemovalSha256": "de0e303c6218f2373361bd90b7bf6936df59befd3d74b50619913329e8c7bfb4",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the signing key import moves from the deleted lib/relay to lib/security/server-signing-key.js."
     },
     {
       "path": "packages/web/server/lib/opencode/core-routes.js",
       "brandingSha256": "8641a72aa031573a76a3ed97d23689acdb1987b8d367a4df277ca1900d27e9b5",
       "behaviorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
-      "combinedSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
+      "combinedSha256": "6a36a74955f9129df811c3bc65d00a49364226d614fad361a586c4a4686830d5",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior.",
       "preTerminalRemovalCombinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
       "terminalRemovalBaseSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
       "terminalRemovalSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
-      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal.websocket.v1 capability and the /api/terminal path exemption are removed."
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal.websocket.v1 capability and the /api/terminal path exemption are removed.",
+      "preHostPowerRemovalCombinedSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
+      "hostPowerRemovalBaseSha256": "2ef2eca86904f78d1ae72eb703ed5262d2135ce70bea5fc253ad886c0f6b0e8c",
+      "hostPowerRemovalSha256": "6a36a74955f9129df811c3bc65d00a49364226d614fad361a586c4a4686830d5",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: POST /api/system/shutdown and the relay pairing candidates are removed."
     },
     {
       "path": "packages/web/server/lib/opencode/core-routes.test.js",
       "brandingSha256": "317092ade90ed22aa78ca27855d25c86aae863936bd6309f5203dfc8a04eba76",
       "behaviorSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
-      "combinedSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "combinedSha256": "02a68236de1d528bc05addc9e4a01a203b762d33c36dacfd5579d4d3cf64cbca",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Focused core-route auth regression coverage for the selected human-auth composition."
+      "reason": "Focused core-route auth regression coverage for the selected human-auth composition.",
+      "preHostPowerRemovalCombinedSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "hostPowerRemovalBaseSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "hostPowerRemovalSha256": "02a68236de1d528bc05addc9e4a01a203b762d33c36dacfd5579d4d3cf64cbca",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: relay pairing expectations are removed with the relay host."
     },
     {
       "path": "packages/web/server/lib/opencode/proxy.js",
@@ -595,7 +615,7 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
+      "combinedSha256": "eacd2c00c524905e730cb0643bc6ccaa81627995018de3c81ec626bc84e7067e",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
@@ -609,7 +629,11 @@
       "preTerminalRemovalCombinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
       "terminalRemovalBaseSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
       "terminalRemovalSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
-      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal-backed Project Actions header button is removed; the #538 account menu and context window are retained."
+      "terminalRemovalNote": "openchamber#552 (smarty-code#1398): web terminal removal: the terminal-backed Project Actions header button is removed; the #538 account menu and context window are retained.",
+      "preHostPowerRemovalCombinedSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
+      "hostPowerRemovalBaseSha256": "7f4d97e46139af9faf3ce86de55cedf2cbacd286f64988835ed358c72b42c846",
+      "hostPowerRemovalSha256": "eacd2c00c524905e730cb0643bc6ccaa81627995018de3c81ec626bc84e7067e",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the remote-instance update check (GET /api/openchamber/update-check) is removed."
     },
     {
       "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
@@ -1659,6 +1683,169 @@
       "terminalRemovalAdded": true,
       "terminalRemovalBaseSha256": "fd42860800337223305de33526e1710e114cf10e741185d6c935fac1def62e62",
       "terminalRemovalSha256": "671c0bb913b787e466bdf20ffda1ee7de2dc8606875282ffe479fce67a7d6e26"
+    },
+    {
+      "path": "packages/electron/main.mjs",
+      "brandingSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "behaviorSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401",
+      "combinedSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the relay dev-tunnel IPC bridge and the HTTP tunnel-status quit-risk fetch are removed; the native updater is kept.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "hostPowerRemovalSha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401"
+    },
+    {
+      "path": "packages/ui/src/components/sections/openchamber/AboutSettings.tsx",
+      "brandingSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "behaviorSha256": "f5f68dc9ac0546ee34ad54853c71195df2f169e753fca247924ef490e760e445",
+      "combinedSha256": "f5f68dc9ac0546ee34ad54853c71195df2f169e753fca247924ef490e760e445",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the server-backed web/mobile update check and install are removed; the Electron native updater is kept.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "hostPowerRemovalSha256": "f5f68dc9ac0546ee34ad54853c71195df2f169e753fca247924ef490e760e445"
+    },
+    {
+      "path": "packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx",
+      "brandingSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "behaviorSha256": "17214445969f7dc5af84830909fda3a0643cc6f24cfaee2c91f391a6dcddf2f9",
+      "combinedSha256": "17214445969f7dc5af84830909fda3a0643cc6f24cfaee2c91f391a6dcddf2f9",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the relay transport choice in Add a device is removed; this server no longer hosts a relay.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "hostPowerRemovalSha256": "17214445969f7dc5af84830909fda3a0643cc6f24cfaee2c91f391a6dcddf2f9"
+    },
+    {
+      "path": "packages/web/bin/cli-output.js",
+      "brandingSha256": "023df43958b1abff3f7199a7dc4997ac108db9cd52853882664d65ae1c3c3fc3",
+      "behaviorSha256": "9eafac192714f6a5210bbe825b48c2ded72f657856cf064b33d9508664ea70a5",
+      "combinedSha256": "9eafac192714f6a5210bbe825b48c2ded72f657856cf064b33d9508664ea70a5",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: tunnel provider output helpers used only by the removed openchamber tunnel command are removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "023df43958b1abff3f7199a7dc4997ac108db9cd52853882664d65ae1c3c3fc3",
+      "hostPowerRemovalSha256": "9eafac192714f6a5210bbe825b48c2ded72f657856cf064b33d9508664ea70a5"
+    },
+    {
+      "path": "packages/web/bin/cli.js",
+      "brandingSha256": "cf61bbe61b91e6765fdfbcc79ed9122f68ca4f4236e7e20dc40efd06f87e6a40",
+      "behaviorSha256": "9a7084ef42648c88577118dcd699ea7001535739cd3ebb16264f70c61daa3b6c",
+      "combinedSha256": "9a7084ef42648c88577118dcd699ea7001535739cd3ebb16264f70c61daa3b6c",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the openchamber update and tunnel commands and --relay are removed; stop and restart stop by signal instead of the removed HTTP shutdown.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "cf61bbe61b91e6765fdfbcc79ed9122f68ca4f4236e7e20dc40efd06f87e6a40",
+      "hostPowerRemovalSha256": "9a7084ef42648c88577118dcd699ea7001535739cd3ebb16264f70c61daa3b6c"
+    },
+    {
+      "path": "packages/web/bin/cli.test.js",
+      "brandingSha256": "ba7993bab585518b958ebbe1fe9e0f1def529687701edda8a83f9d017506cf6e",
+      "behaviorSha256": "4797391c5539e93bb92a6479e68ca757b1d1bc2aec72f5f3c6a2eaa3fd43e3a5",
+      "combinedSha256": "4797391c5539e93bb92a6479e68ca757b1d1bc2aec72f5f3c6a2eaa3fd43e3a5",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: tests of the removed update, tunnel and HTTP-shutdown CLI paths are removed or updated.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "ba7993bab585518b958ebbe1fe9e0f1def529687701edda8a83f9d017506cf6e",
+      "hostPowerRemovalSha256": "4797391c5539e93bb92a6479e68ca757b1d1bc2aec72f5f3c6a2eaa3fd43e3a5"
+    },
+    {
+      "path": "packages/web/bin/lib/cli-args.js",
+      "brandingSha256": "662deee94319ce5468812b94bb3597f77b37c727aa3d00cdddb103453adc25b8",
+      "behaviorSha256": "c8488acf860f71ae359a5f14078a490c492440446ff7e1f674e134837d2821b7",
+      "combinedSha256": "c8488acf860f71ae359a5f14078a490c492440446ff7e1f674e134837d2821b7",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the update/tunnel arguments and the tunnel-only completion script generator are removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "662deee94319ce5468812b94bb3597f77b37c727aa3d00cdddb103453adc25b8",
+      "hostPowerRemovalSha256": "c8488acf860f71ae359a5f14078a490c492440446ff7e1f674e134837d2821b7"
+    },
+    {
+      "path": "packages/web/bin/lib/cli-network.js",
+      "brandingSha256": "c5d4ccf03b8bd3cb9723dcab57334fe8991d281d70231362d122a6e3a8e37042",
+      "behaviorSha256": "0a34c1d1c7372fbd6ca0ecab1932fc837ad3d7490785a11714f06fc5379c0947",
+      "combinedSha256": "0a34c1d1c7372fbd6ca0ecab1932fc837ad3d7490785a11714f06fc5379c0947",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the relay connect-url candidates are removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "c5d4ccf03b8bd3cb9723dcab57334fe8991d281d70231362d122a6e3a8e37042",
+      "hostPowerRemovalSha256": "0a34c1d1c7372fbd6ca0ecab1932fc837ad3d7490785a11714f06fc5379c0947"
+    },
+    {
+      "path": "packages/web/bin/lib/commands-connect-url.js",
+      "brandingSha256": "7ab835427983ebcc762e49d1dcdb0ee788db734d71359b8173ff72620f722a01",
+      "behaviorSha256": "66ab8d800fe64039bace80e86f56569e3c6bc50a69a8376a7c461085e46b51fe",
+      "combinedSha256": "66ab8d800fe64039bace80e86f56569e3c6bc50a69a8376a7c461085e46b51fe",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the relay identity in connect URLs is removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "7ab835427983ebcc762e49d1dcdb0ee788db734d71359b8173ff72620f722a01",
+      "hostPowerRemovalSha256": "66ab8d800fe64039bace80e86f56569e3c6bc50a69a8376a7c461085e46b51fe"
+    },
+    {
+      "path": "packages/web/bin/lib/commands-lifecycle.js",
+      "brandingSha256": "494a85157e5f703f3751d0553ab8a318da30a73f24468ce8bb95ecd0f99d65d3",
+      "behaviorSha256": "0267c44b7a9c1a5d56424504a97687ec6d5a47aaffd1d037b886446cd80281e7",
+      "combinedSha256": "0267c44b7a9c1a5d56424504a97687ec6d5a47aaffd1d037b886446cd80281e7",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: stop and restart signal the process instead of calling the removed POST /api/system/shutdown.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "494a85157e5f703f3751d0553ab8a318da30a73f24468ce8bb95ecd0f99d65d3",
+      "hostPowerRemovalSha256": "0267c44b7a9c1a5d56424504a97687ec6d5a47aaffd1d037b886446cd80281e7"
+    },
+    {
+      "path": "packages/web/bin/lib/commands-tunnel.js",
+      "brandingSha256": "5ee842f8b0b266f1a83d2ced8908ce5e6962d3594f0f431d7d6beed0a982df17",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the openchamber tunnel command drove the removed /api/openchamber/tunnel routes and is deleted; explicit deletion record.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalDeleted": true,
+      "hostPowerRemovalBaseSha256": "5ee842f8b0b266f1a83d2ced8908ce5e6962d3594f0f431d7d6beed0a982df17",
+      "hostPowerRemovalSha256": null
+    },
+    {
+      "path": "packages/web/bin/lib/commands-update.js",
+      "brandingSha256": "2a5815eb6e90ae551d34867741d2b1a1fb6fc384491be0aed8057f106cd8edfe",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "smarty-code#1398 slice 2: host-power route removal: the openchamber update command used the removed update check/install and HTTP shutdown and is deleted; explicit deletion record.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalDeleted": true,
+      "hostPowerRemovalBaseSha256": "2a5815eb6e90ae551d34867741d2b1a1fb6fc384491be0aed8057f106cd8edfe",
+      "hostPowerRemovalSha256": null
+    },
+    {
+      "path": "packages/web/server/lib/opencode/auth.js",
+      "brandingSha256": "81977de0bf1e13bcb113462e1368d4e9e308dbe7392eddfe7b215b37cc8490a1",
+      "behaviorSha256": "634272120c356f1a30aa6208096d1043dce06a04d247b3cd5378d382dabf5126",
+      "combinedSha256": "634272120c356f1a30aa6208096d1043dce06a04d247b3cd5378d382dabf5126",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: removeProviderAuth, used only by the removed DELETE /api/provider/:id/auth, is removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "81977de0bf1e13bcb113462e1368d4e9e308dbe7392eddfe7b215b37cc8490a1",
+      "hostPowerRemovalSha256": "634272120c356f1a30aa6208096d1043dce06a04d247b3cd5378d382dabf5126"
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.js",
+      "brandingSha256": "6279be8f9230108dc423fb830119f56c83697a11c930da55716adb84347f3f89",
+      "behaviorSha256": "d519256a66776241ec6b96a091de72a10d55c5cb6f02bef13213fd3c70894ae9",
+      "combinedSha256": "d519256a66776241ec6b96a091de72a10d55c5cb6f02bef13213fd3c70894ae9",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: GET /api/openchamber/update-check and POST /api/openchamber/update-install are removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "6279be8f9230108dc423fb830119f56c83697a11c930da55716adb84347f3f89",
+      "hostPowerRemovalSha256": "d519256a66776241ec6b96a091de72a10d55c5cb6f02bef13213fd3c70894ae9"
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.test.js",
+      "brandingSha256": "a24f6ae53946220871010b7a68eadeae8d18a089f2fefc33767673911c13668d",
+      "behaviorSha256": null,
+      "combinedSha256": null,
+      "reason": "smarty-code#1398 slice 2: host-power route removal: it tested only the removed update install and is deleted; explicit deletion record.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalDeleted": true,
+      "hostPowerRemovalBaseSha256": "a24f6ae53946220871010b7a68eadeae8d18a089f2fefc33767673911c13668d",
+      "hostPowerRemovalSha256": null
+    },
+    {
+      "path": "scripts/apply-brand.test.mjs",
+      "brandingSha256": "cf130ef80aaec64bd02f07749ce4e0bb8460ff9fd4dc59806d239526c891e0d5",
+      "behaviorSha256": "7d25fb259009410603d5bdc7e4cbe49a3f252dda1406505c37a6ccb1db5aa748",
+      "combinedSha256": "7d25fb259009410603d5bdc7e4cbe49a3f252dda1406505c37a6ccb1db5aa748",
+      "reason": "smarty-code#1398 slice 2: host-power route removal: brand assertions over the deleted update/tunnel CLI and update-route outputs are removed.",
+      "hostPowerRemovalAdded": true,
+      "hostPowerRemovalBaseSha256": "cf130ef80aaec64bd02f07749ce4e0bb8460ff9fd4dc59806d239526c891e0d5",
+      "hostPowerRemovalSha256": "7d25fb259009410603d5bdc7e4cbe49a3f252dda1406505c37a6ccb1db5aa748"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -1717,5 +1904,10 @@
     "issue": "smarty-code#1398",
     "reviewedHead": "03fa2b8c0fb2cf36a55f74be65186e34a0622d64",
     "sourceEvidence": "Web terminal removal bytes after the SEC552 round-2 review; bound by hash, deletions recorded explicitly. No installed acceptance claim."
+  },
+  "hostPowerRemovalProvenance": {
+    "pullRequest": "slice2",
+    "issue": "smarty-code#1398",
+    "sourceEvidence": "Host-power route removal bytes over openchamber#552 (security rounds 1-3); bound by hash, deletions recorded explicitly. No installed acceptance claim."
   }
 }
