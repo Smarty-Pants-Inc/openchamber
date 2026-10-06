@@ -1,5 +1,7 @@
 import React, { useRef, memo } from 'react';
 import { captureAttachmentOwner, useInputStore } from '@/sync/input-store';
+// Binds attachment batches to the session or draft they start in (SEC551R3).
+import '@/sync/attachment-owner';
 import type { AttachedFile } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -32,7 +34,7 @@ const FileAttachmentButton = memo(() => {
       if (!isCurrentOwner()) return;
       const file = files[i];
       try {
-        await addAttachedFile(file);
+        await addAttachedFile(file, isCurrentOwner);
       } catch (error) {
         if (!isCurrentOwner()) return;
         console.error('File attach failed', error);

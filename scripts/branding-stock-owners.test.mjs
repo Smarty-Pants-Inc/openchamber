@@ -147,8 +147,8 @@ test('the attachments layer binds openchamber#551 over inbox Steps and adds only
   assert.deepEqual(overlay.attachmentsProvenance, {
     pullRequest: 551,
     issue: 'smarty-code#1397',
-    reviewedHead: 'ef70da64fa1efadf5e4108caeae5b6ae4f3e1524',
-    sourceEvidence: 'Round-2 bytes after the SEC551 security review; bound by hash. No installed acceptance claim.',
+    reviewedHead: 'abad3511faa77463872b629d3f2faa2df8e11853',
+    sourceEvidence: 'Round-3 bytes after the SEC551 round-2 security review; bound by hash. No installed acceptance claim.',
   });
   const locales = attributionPaths.filter(file => file.includes('/i18n/messages/'));
   assert.deepEqual(overlay.files.filter(entry => 'attachmentsSha256' in entry && !entry.attachmentsAdded).map(entry => entry.path), locales);
@@ -544,8 +544,8 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(historical.attachmentsProvenance, {
     pullRequest: 551,
     issue: 'smarty-code#1397',
-    reviewedHead: 'ef70da64fa1efadf5e4108caeae5b6ae4f3e1524',
-    sourceEvidence: 'Round-2 bytes after the SEC551 security review; bound by hash. No installed acceptance claim.',
+    reviewedHead: 'abad3511faa77463872b629d3f2faa2df8e11853',
+    sourceEvidence: 'Round-3 bytes after the SEC551 round-2 security review; bound by hash. No installed acceptance claim.',
   });
   delete historical.attachmentsProvenance;
   historical.files = historical.files.filter(entry => !entry.attachmentsAdded);

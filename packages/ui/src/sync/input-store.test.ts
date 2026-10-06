@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test } from "bun:test"
 import { strToU8, zipSync } from "fflate"
 import { useInputStore } from "./input-store"
 import { reloadHeld, reloadIfNewBuild } from "@/lib/newBuildReload"
+import { useSessionUIStore } from "./session-ui-store"
+import "./attachment-owner"
 
 class MockFileReader {
   result: string | ArrayBuffer | null = null
@@ -155,6 +157,37 @@ describe("input-store attachments", () => {
     await addPromise
 
     expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["restored.txt"])
+  })
+
+  // SEC551R3 P2: the core store refuses to publish into another owner even when no caller checks first.
+  testWithMockFileReader("SEC551R3 P2 does not publish a pending file into a session selected while it was read", async () => {
+    useSessionUIStore.setState({ currentSessionId: "ses-sec551-a" })
+    try {
+      const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+      await waitForReaderCount(1)
+      useSessionUIStore.setState({ currentSessionId: "ses-sec551-b" })
+      resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
+
+      expect(await addPromise).toBe(false)
+      expect(useInputStore.getState().attachedFiles).toEqual([])
+    } finally {
+      useSessionUIStore.setState({ currentSessionId: null })
+    }
+  })
+
+  testWithMockFileReader("SEC551R3 P2 control: a pending file still reaches the session it was read for", async () => {
+    useSessionUIStore.setState({ currentSessionId: "ses-sec551-a" })
+    try {
+      const addPromise = useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+      await waitForReaderCount(1)
+      useSessionUIStore.setState({ currentSessionId: "ses-sec551-a" })
+      resolveReader(pendingReaders[0], "data:text/plain;base64,aGVsbG8=")
+
+      expect(await addPromise).toBe(true)
+      expect(useInputStore.getState().attachedFiles.map((file) => file.filename)).toEqual(["hello.txt"])
+    } finally {
+      useSessionUIStore.setState({ currentSessionId: null })
+    }
   })
 
   testWithMockFileReader("does not attach a VS Code selection that finishes reading after attachments are cleared", async () => {

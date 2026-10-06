@@ -51,7 +51,7 @@ So:
 | `useGlobalSessionsStore.ts` | Global active/archived entities plus root, parent/child, and directory indexes | All opened project/worktree session lists |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
-| `document-attachments.ts` | Bounded Office/OpenDocument extraction (linear XML tag scan, 8 MiB limit on every part parsed as XML, validated XLSX coordinates, spreadsheet output budget charged while building), document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
+| `document-attachments.ts` | Bounded Office/OpenDocument extraction (linear XML tag scan, 8 MiB limit on every part parsed as XML, validated XLSX coordinates, spreadsheet output budget charged before each cell is quoted or appended), document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
 | `input-store.ts` | Draft input state, attached files, synthetic parts | App UI state |
 | `selection-store.ts` | Model/agent/variant selections | App UI state |
 | `voice-store.ts` | Voice state | App UI state |

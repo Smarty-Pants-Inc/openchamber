@@ -20,6 +20,8 @@ import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
 import { consumeCatalogDraftTransfer, markDraftInputEdited, useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { captureAttachmentOwner, prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
+// Binds attachment batches to the session or draft they start in (SEC551R3).
+import '@/sync/attachment-owner';
 import {
     ACCEPTED_ATTACHMENT_EXTENSIONS,
     ATTACHMENT_ACCEPT,
@@ -2652,7 +2654,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         for (const file of list) {
             if (!isCurrentOwner()) return false;
             try {
-                const attached = await addAttachedFile(file);
+                const attached = await addAttachedFile(file, isCurrentOwner);
                 if (!isCurrentOwner()) return false;
                 if (!attached) {
                     const rejection = getAttachmentRejection(file);
@@ -2879,6 +2881,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             message.slice(selectionEnd),
         );
 
+        if (!isCurrentOwner()) return;
         insertTextAtSelection(insertionText, getFileMentionInputSourceForInsertedText(insertionText));
 
         for (let index = 0; index < imageFiles.length; index += 1) {

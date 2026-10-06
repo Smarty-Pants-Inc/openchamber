@@ -62,10 +62,16 @@ copy only and does not grant attachment support; preparation itself refuses ZIP
 names and types before any MIME or text fallback.
 
 Each picker, drop, or paste batch captures the attachment owner
-(`captureAttachmentOwner` in `sync/input-store.ts`) before its first wait.
-Opening another draft or session clears or replaces attachments, which ends that
-owner. The batch then stops: no remaining file is prepared, no pasted text or
-citation is inserted, and no rejection toast is shown for the dropped rest.
+(`captureAttachmentOwner` in `sync/input-store.ts`) before its first wait. The
+owner is the destination identity, which `sync/attachment-owner.ts` registers
+from `session-ui-store.ts` as the runtime plus the current session ID or
+new-session draft, together with the attachment-list generation. Selecting another session, restoring a runtime's
+remembered session, opening another draft, or clearing or replacing attachments
+ends that owner. `addAttachedFile` checks the batch's owner before it publishes
+a prepared file, so a file still being read cannot land in the new composer. The
+batch then stops: no remaining file is prepared, no pasted text or citation is
+inserted, and no rejection toast is shown for the dropped rest. A file still
+being read when a draft's Send opens its new session is dropped the same way.
 
 The focused Chromium fixture in `scripts/attachment-proof/` mounts the actual
 composer, file store, chip renderer, and Send path against synthetic HTTP.

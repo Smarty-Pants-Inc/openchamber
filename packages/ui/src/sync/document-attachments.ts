@@ -433,9 +433,19 @@ const columnIndex = (name: string): number => {
   return result - 1
 }
 
+const needsTsvQuotes = (value: string): boolean => /[\t\r\n"]/.test(value)
+
 const tsvValue = (value: string): string => {
-  if (!/[\t\r\n"]/.test(value)) return value
+  if (!needsTsvQuotes(value)) return value
   return `"${value.replace(/"/g, '""')}"`
+}
+
+/** Length of `tsvValue(value)`, counted without building the quoted copy. */
+const tsvLength = (value: string): number => {
+  if (!needsTsvQuotes(value)) return value.length
+  let length = value.length + 2
+  for (let index = value.indexOf('"'); index !== -1; index = value.indexOf('"', index + 1)) length += 1
+  return length
 }
 
 const cellCoordinates = (reference: string) => {
@@ -477,6 +487,14 @@ class TextBudget {
     this.used += characters
   }
 
+  get remaining(): number {
+    return MAX_EXTRACTED_TEXT_CHARS - this.used
+  }
+
+  exhaust(): void {
+    this.used = MAX_EXTRACTED_TEXT_CHARS + 1
+  }
+
   get exhausted(): boolean {
     return this.used > MAX_EXTRACTED_TEXT_CHARS
   }
@@ -502,6 +520,22 @@ const serializeDenseSpreadsheetRow = (row: SpreadsheetRow): string => {
   ).join("\t")
 }
 
+/**
+ * Charges one cell before it is quoted or appended (SEC551R3 P3). A cell that does not fit keeps only
+ * a prefix whose quoted form fits the remaining budget, then exhausts it; undefined when none fits.
+ */
+const budgetedTsvValue = (value: string, overhead: number, budget: TextBudget): string | undefined => {
+  const cost = overhead + tsvLength(value)
+  if (cost <= budget.remaining) {
+    budget.charge(cost)
+    return tsvValue(value)
+  }
+  // Quoting at most doubles each character and adds two, so this prefix always fits.
+  const prefixLength = Math.floor((budget.remaining - overhead - 2) / 2)
+  budget.exhaust()
+  return prefixLength > 0 ? tsvValue(value.slice(0, prefixLength)) : undefined
+}
+
 const spreadsheetRows = (worksheet: string, sharedStrings: string[], budget: TextBudget): SpreadsheetRow[] => {
   const rows: SpreadsheetRow[] = []
   for (const rowXml of tagBlocks(worksheet, "row")) {
@@ -515,9 +549,9 @@ const spreadsheetRows = (worksheet: string, sharedStrings: string[], budget: Tex
       const { column, row } = cellCoordinates(reference)
       const value = cellValue(cell, sharedStrings)
       if (!value) continue
-      const text = tsvValue(value)
+      const text = budgetedTsvValue(value, reference.length + 4, budget)
+      if (text === undefined) break
       cells.push({ reference, column, row, text })
-      budget.charge(reference.length + text.length + 4)
     }
     cells.sort((left, right) => left.column - right.column)
     const first = cells[0]

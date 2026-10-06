@@ -474,6 +474,19 @@ describe("SEC551 bounded extraction", () => {
     expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
   }, SLOW_TEST_TIMEOUT_MS)
 
+  test("SEC551R3 P3 charges a single oversized cell before quoting and appending it", async () => {
+    const result = await boundedExtraction(hostileWorkbook(
+      // A cached formula string reaches serialization without an intermediate join of its own.
+      `<worksheet><sheetData><row r="1"><c r="A1" t="str"><v>${"&quot;".repeat(1_000_000)}</v></c></row></sheetData></worksheet>`,
+    ))
+    expect(result.error).toBeUndefined()
+    expect(result.truncated).toBe(true)
+    expect(result.head).toContain('Range: A1:A1\n"""')
+    expect(result.length).toBeLessThanOrEqual(500_000)
+    // The quoted value would be 2,000,002 characters; only a prefix that fits the budget is built.
+    expect(result.longestJoin).toBeLessThanOrEqual(MAX_INTERMEDIATE_TEXT_CHARS)
+  }, SLOW_TEST_TIMEOUT_MS)
+
   test("SEC551 P2.3 parses a worksheet repeated by many sheet entries once", async () => {
     const emptyRows = Array.from({ length: 50_000 }, (_, index) => `<row r="${index + 2}"><c r="A${index + 2}"/></row>`).join("")
     const result = await boundedExtraction(hostileWorkbook(

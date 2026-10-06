@@ -147,3 +147,130 @@ test('SEC551 P2.5 control: an uninterrupted picker batch attaches every file', a
     await composer.dispose();
   }
 });
+
+// SEC551R3 P2: the batch owner is the session or new-session draft the batch started in, not only the
+// attachment-list generation. Selecting an existing session or restoring a runtime's remembered session
+// leaves the attachment list alone, so the batch must still stop: nothing from it may reach the new owner.
+const existingSessionId = 'ses-sec551-existing-b';
+
+type MountedComposer = Awaited<ReturnType<typeof mountedNativeComposer>>;
+
+const dispatchBatch = (composer: MountedComposer, method: string, files: File[]) => {
+  if (method === 'picker') {
+    const input = composer.dom.container.querySelector('input[type="file"]');
+    if (!input) throw new Error('Composer file input missing');
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  } else if (method === 'drop') {
+    const transfer = new composer.dom.window.DataTransfer();
+    Object.defineProperty(transfer, 'files', { value: files });
+    const drop = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, 'dataTransfer', { value: transfer });
+    composer.editor().dom.parentElement?.dispatchEvent(drop);
+  } else {
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: {
+      files,
+      items: [],
+      getData: (type: string) => (type === 'text' && method === 'mixed paste' ? 'clipboard words' : ''),
+    } });
+    composer.editor().contentDOM.dispatchEvent(paste);
+  }
+};
+
+const batchFiles = (method: string) => [
+  new File(['first'], 'first.md', { type: 'text/plain' }),
+  method === 'mixed paste'
+    ? new File([pngBytes], 'photo.png', { type: 'image/png' })
+    : new File(['second'], 'second.md', { type: 'text/plain' }),
+];
+
+const ownerChanges = {
+  'an existing session is selected': {
+    prepare: async () => undefined,
+    change: () => useSessionUIStore.getState().setCurrentSession(existingSessionId, directory),
+  },
+  'a remembered runtime is restored': {
+    // Runtime B remembers an existing session; the batch starts back in runtime A's draft.
+    prepare: async (composer: MountedComposer, runtimeB: string) => {
+      await act(async () => {
+        composer.switchRuntime(runtimeB);
+        useSessionUIStore.getState().setCurrentSession(existingSessionId, directory);
+        composer.switchRuntime(composer.runtimeA);
+      });
+    },
+    change: (composer: MountedComposer, runtimeB: string) => composer.switchRuntime(runtimeB),
+  },
+};
+
+for (const [transition, owner] of Object.entries(ownerChanges)) {
+  for (const method of ['picker', 'drop', 'file paste', 'mixed paste']) {
+    test(`SEC551R3 P2 drops the rest of a ${method} batch when ${transition}`, async () => {
+      const composer = await mountedNativeComposer(false);
+      const runtimeB = `sec551-runtime-b-${crypto.randomUUID()}`;
+      const reads = holdFileReads();
+      try {
+        await owner.prepare(composer, runtimeB);
+        expect(useSessionUIStore.getState().currentSessionId).toBeNull();
+        await composer.replace('draft A');
+        await act(async () => useInputStore.getState().clearAttachedFiles());
+        errors.length = 0;
+        await act(async () => {
+          dispatchBatch(composer, method, batchFiles(method));
+          for (let attempt = 0; attempt < 200 && reads.started.length === 0; attempt += 1) await sleep(1);
+        });
+        expect(reads.started).toEqual(['first.md']);
+
+        await act(async () => owner.change(composer, runtimeB));
+        expect(useSessionUIStore.getState().currentSessionId).toBe(existingSessionId);
+        await composer.replace('session B');
+        await act(async () => {
+          reads.release();
+          await sleep(100);
+        });
+
+        // One comparison, so a failure shows every leak: preparation, files, editor text and toasts.
+        expect({
+          prepared: reads.started,
+          attached: useInputStore.getState().attachedFiles.map((file) => file.filename),
+          text: composer.text(),
+          errors,
+        }).toEqual({ prepared: ['first.md'], attached: [], text: 'session B', errors: [] });
+      } finally {
+        reads.restore();
+        await composer.dispose();
+      }
+    });
+  }
+}
+
+for (const method of ['picker', 'mixed paste']) {
+  test(`SEC551R3 P2 control: a ${method} batch completes when the same session is selected again`, async () => {
+    const composer = await mountedNativeComposer(false);
+    const reads = holdFileReads();
+    try {
+      await act(async () => useSessionUIStore.getState().setCurrentSession(existingSessionId, directory));
+      await composer.replace('session B');
+      await act(async () => useInputStore.getState().clearAttachedFiles());
+      errors.length = 0;
+      await act(async () => {
+        dispatchBatch(composer, method, batchFiles(method));
+        for (let attempt = 0; attempt < 200 && reads.started.length === 0; attempt += 1) await sleep(1);
+      });
+      await act(async () => useSessionUIStore.getState().setCurrentSession(existingSessionId, directory));
+      await act(async () => {
+        reads.release();
+        for (let attempt = 0; attempt < 200 && useInputStore.getState().attachedFiles.length < 2; attempt += 1) await sleep(1);
+      });
+
+      expect(useSessionUIStore.getState().currentSessionId).toBe(existingSessionId);
+      expect(useInputStore.getState().attachedFiles).toHaveLength(2);
+      expect(useInputStore.getState().attachedFiles[0]?.filename).toBe('first.md');
+      if (method === 'mixed paste') expect(composer.text()).toContain('clipboard words');
+      expect(errors).toEqual([]);
+    } finally {
+      reads.restore();
+      await composer.dispose();
+    }
+  });
+}
