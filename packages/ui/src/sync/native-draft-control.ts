@@ -5,6 +5,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { assertManagedDraftTarget, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
 import { indexNativeCreatedSession } from './session-actions';
 import { useSessionUIStore } from './session-ui-store';
+import { readReadySession } from './native-draft-ready-detail';
 
 type Pending = Extract<NativeDraftCreation, { status: 'pending' }>;
 
@@ -45,23 +46,7 @@ export async function resumeNativeCreation(operation: NativeCreationState): Prom
   await refreshNativeCreation();
 }
 
-/** The new session, read after 'ready'. A read replays nothing: one without a definite answer (a timeout, network error,
- * 5xx, 408, 429) is read again with backoff (smarty-code#931: a read burst made a started session look unclear). */
-const READY_READ_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000];
-async function readReadySession(record: Pending, id: string) {
-  for (let attempt = 0; ; attempt++) {
-    try { return await opencodeClient.getSession(id, record.directory); }
-    catch (error) {
-      const status = (error as { status?: number }).status;
-      const definite = status !== undefined && status < 500 && status !== 408 && status !== 429;
-      if (definite || attempt >= READY_READ_BACKOFF_MS.length) throw error;
-      await new Promise(resolve => setTimeout(resolve, READY_READ_BACKOFF_MS[attempt]));
-      assertCurrent(record);
-    }
-  }
-}
-
-async function acceptState(record: Pending, next: NativeCreationState) {
+async function acceptState(record: Pending, next: NativeCreationState, deadline?: number) {
   const previous = record.operation;
   // A stopped operation is final whatever generation it reports (an abandoned one reports none, #340): accept it.
   if (['denied', 'cancelled', 'expired'].includes(next.phase) && next.operationId === previous.operationId
@@ -74,6 +59,7 @@ async function acceptState(record: Pending, next: NativeCreationState) {
   // (smarty-code#126, 3.18 walk). Keep the last known state, and only re-read until a real one arrives.
   if (next.phase === 'unavailable' && next.operationId === previous.operationId && next.directory === record.directory) {
     assertCurrent(record);
+    if (previous.phase === 'ready') throw new NativeCreationError('history');
     publishNativeCreation(record, { ...record, busy: false, error: undefined, unreadable: true });
     return;
   }
@@ -84,18 +70,28 @@ async function acceptState(record: Pending, next: NativeCreationState) {
   }
   assertCurrent(record);
   if (next.phase === 'ready') {
-    if (!next.native) throw new NativeCreationError('unknown');
-    const detail = await readReadySession(record, next.native.id);
-    assertCurrent(record);
-    const ordinary = readOrdinaryModel(detail);
-    if (detail.id !== next.native.id || detail.directory !== record.directory
-      || !ordinary?.model || ordinary.generation !== next.native.generation) throw new NativeCreationError('stale');
-    const readySession = { ...detail, nativeCreation: { model: ordinary.model, inputReady: true } };
-    const session = nativeCreatedSession(readySession);
-    indexNativeCreatedSession(session, record.directory, record.runtimeKey);
-    ownSettledStarts.add(settledStartKey(record.runtimeKey, next.operationId));
-    publishNativeCreation(record, { runtimeKey: record.runtimeKey, draftId: record.draftId,
-      projectId: record.projectId, directory: record.directory, status: 'created', session, clientRequestId: record.operation.clientRequestId });
+    // Retain server Ready even if loading its detail fails. It grants neither a Session nor Send admission.
+    const ready: Pending = { ...record, operation: { ...next, clientRequestId: next.clientRequestId ?? previous.clientRequestId }, unreadable: undefined };
+    publishNativeCreation(record, ready);
+    try {
+      if (!next.native) throw new NativeCreationError('history');
+      const detail = await readReadySession(next.native.id, record.directory, deadline ?? Date.now() + 120_000, () => assertCurrent(ready));
+      const ordinary = readOrdinaryModel(detail);
+      if (detail.id !== next.native.id || detail.directory !== record.directory
+        || !ordinary?.model || ordinary.generation !== next.native.generation) throw new NativeCreationError('stale');
+      const readySession = { ...detail, nativeCreation: { model: ordinary.model, inputReady: true } };
+      const session = nativeCreatedSession(readySession);
+      indexNativeCreatedSession(session, record.directory, record.runtimeKey);
+      ownSettledStarts.add(settledStartKey(record.runtimeKey, next.operationId));
+      publishNativeCreation(ready, { runtimeKey: record.runtimeKey, draftId: record.draftId,
+        projectId: record.projectId, directory: record.directory, status: 'created', session, clientRequestId: ready.operation.clientRequestId });
+    } catch (cause) {
+      const error = cause instanceof NativeCreationError && cause.code === 'stale' ? cause : new NativeCreationError('history', cause);
+      if ([...useSessionUIStore.getState().nativeDraftCreations.values()].includes(ready)) {
+        publishNativeCreation(ready, { ...ready, busy: false, error });
+      }
+      throw error;
+    }
   } else {
     // A state no newer than one this record already answered does not show the reply's outcome: re-read, never replay.
     const stale = record.answered !== undefined && next.revision <= record.answered;
@@ -105,9 +101,10 @@ async function acceptState(record: Pending, next: NativeCreationState) {
   }
 }
 
-async function request(record: Pending, reply?: NativeCreationReply) {
+async function request(record: Pending, reply?: NativeCreationReply, deadline?: number) {
   assertCurrent(record);
   if (record.busy) return;
+  if (deadline === undefined && (reply?.action === 'ready' || record.operation.phase === 'ready')) deadline = Date.now() + 120_000;
   const pending: Pending = { ...record, busy: true, error: undefined };
   if (reply) pending.answered = record.operation.revision;
   if (reply?.action === 'ready') { pending.readyReplied = true; markReadyReplied(record.operation, true); }
@@ -116,7 +113,7 @@ async function request(record: Pending, reply?: NativeCreationReply) {
     const next = reply
       ? await opencodeClient.replyNativeCreation(record.directory, record.operation.operationId, reply)
       : await opencodeClient.readNativeCreation(record.directory, record.operation.operationId);
-    await acceptState(pending, next);
+    await acceptState(pending, next, deadline);
   } catch (cause) {
     // Keep the original operation after ambiguity. Re-read is allowed; replay is not.
     const state = useSessionUIStore.getState();
@@ -124,21 +121,22 @@ async function request(record: Pending, reply?: NativeCreationReply) {
     // re-read; an uncertain one never is.
     const refused = reply?.action === 'ready' && cause instanceof NativeCreationError && cause.status === 409;
     if (refused) markReadyReplied(record.operation, false);
+    const error = pending.operation.phase === 'ready' && !(cause instanceof NativeCreationError && cause.code === 'stale')
+      ? new NativeCreationError('history', cause) : cause instanceof NativeCreationError ? cause : new NativeCreationError('unknown', cause);
     if ([...state.nativeDraftCreations.values()].includes(pending)) {
       publishNativeCreation(pending, { ...pending, busy: false, readyReplied: refused ? undefined : pending.readyReplied,
-        answered: refused ? record.answered : pending.answered,
-        error: cause instanceof NativeCreationError ? cause : new NativeCreationError('unknown', cause) });
+        answered: refused ? record.answered : pending.answered, error });
     }
-    throw cause;
+    throw error;
   }
 }
 
-export async function refreshNativeCreation(): Promise<void> {
+export async function refreshNativeCreation(deadline?: number): Promise<void> {
   const { record } = current();
-  if (record?.status === 'pending') await request(record);
+  if (record?.status === 'pending') await request(record, undefined, deadline);
 }
 
-export async function replyNativeCreation(action: NativeCreationReply['action']): Promise<void> {
+export async function replyNativeCreation(action: NativeCreationReply['action'], deadline?: number): Promise<void> {
   const { record } = current();
   if (record?.status !== 'pending' || record.busy || record.error || record.unreadable
     || action === 'ready' && record.readyReplied) throw new NativeCreationError('required');
@@ -149,7 +147,7 @@ export async function replyNativeCreation(action: NativeCreationReply['action'])
     || action === 'cancel' && !['awaiting-trust', 'starting', 'ready-required'].includes(state.phase)) throw new NativeCreationError('stale');
   const binding = { generation: state.generation, revision: state.revision };
   await request(record, action === 'ready'
-    ? { ...binding, action, native: state.native! } : { ...binding, action });
+    ? { ...binding, action, native: state.native! } : { ...binding, action }, deadline);
 }
 
 /** Leave this draft's unreadable start behind (smarty-code#340): the server settles it cancelled for good; the record is

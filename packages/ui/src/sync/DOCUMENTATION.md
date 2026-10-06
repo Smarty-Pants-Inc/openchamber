@@ -403,6 +403,13 @@ runtime. A mismatched directory is an uncertain result, not worktree
 canonicalization or permission to create again. Only known pre-create failures
 permit an explicit read-only recheck.
 
+For interactive starts, a successful Ready operation remains authoritative when
+the session-detail GET fails. Detail reads and backoff share the settle window's
+120-second deadline. Exhaustion reports a load failure, not an uncertain create.
+Check again only reads the same operation and session; a later explicit Send can
+retry that read, without another create or Ready reply. Neither path grants input
+admission before the existing history loader accepts the owner's view.
+
 `native-draft-send.ts` requires the exact owner's accepted ready loader view
 before dispatch. The prepared native intent crosses the complete composer/store
 boundary and cannot fall through to another runtime's legacy materialization.

@@ -255,14 +255,19 @@ async function finish(key: string, record: () => ReturnType<typeof nativeCreatio
 }
 
 async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, wait: (ms: number) => Promise<void>) {
-  const began = Date.now(); let unreadable = false, waitingForInput = false;
-  const answer = (action: 'trust' | 'ready') => replyNativeCreation(action).catch(cause => { throw nativeCreationFailure(cause); });
+  const began = Date.now(), deadline = began + LIMIT_MS; let unreadable = false, waitingForInput = false;
+  const answer = (action: 'trust' | 'ready') => replyNativeCreation(action, deadline).catch(cause => { throw nativeCreationFailure(cause); });
   for (;;) {
     const now = record();
     if (!now) throw new NativeCreationError('stale');
     if (now.status === 'created') return;
     if (now.status === 'failed') throw now.error;
-    if (now.status === 'pending' && now.error) throw now.error;
+    if (now.status === 'pending' && now.error) {
+      // A later explicit Send may load this known Ready owner, never create or answer Ready again (#931).
+      if (now.operation.phase !== 'ready' || now.error.code !== 'history' || now.busy) throw now.error;
+      await refreshNativeCreation(deadline).catch(cause => { throw nativeCreationFailure(cause); });
+      continue;
+    }
     if (now.status === 'pending' && !now.busy) {
       const { phase, canInitialReady, native } = now.operation;
       if (STOPPED.includes(phase)) throw new NativeCreationError('stopped');
@@ -282,6 +287,6 @@ async function settle(record: () => ReturnType<typeof nativeCreationForDraft>, w
     if (Date.now() - began > LIMIT_MS) throw new NativeCreationError(unreadable ? 'unknown' : waitingForInput ? 'notReady' : 'required');
     await wait(POLL_MS);
     const later = record();
-    if (later?.status === 'pending' && !later.busy) await refreshNativeCreation().catch(cause => { throw nativeCreationFailure(cause); });
+    if (later?.status === 'pending' && !later.busy) await refreshNativeCreation(deadline).catch(cause => { throw nativeCreationFailure(cause); });
   }
 }
