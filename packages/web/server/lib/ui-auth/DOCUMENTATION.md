@@ -188,8 +188,7 @@ configuration, for example
 Loopback names and IP addresses pass only this Host layer, not human authentication.
 
 All runtime ingress handlers apply this human-only Host check directly before their
-other gates. Terminal checks it before Origin, dev-tunnel before authentication and
-port discovery, realtime-proxy before authentication, and session voice before
+other gates. Terminal checks it before Origin, realtime-proxy before authentication, and session voice before
 parameter validation. Event-stream, including global and directory paths, and
 dictation check it before human `requireUpgradeAuth`. That adapter calls
 `humanAuth.protect` before upgrading the raw socket. Session deletion and expiry

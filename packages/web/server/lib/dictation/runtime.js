@@ -26,7 +26,7 @@ import { WebSocketServer } from 'ws';
 import { DictationStreamManager } from './stream-manager.js';
 import { createDictationService } from './service.js';
 
-const DICTATION_WS_PATH = '/api/dictation/ws';
+export const DICTATION_WS_PATH = '/api/dictation/ws';
 
 const DICTATION_WS_MAX_PAYLOAD_BYTES = 512 * 1024;
 const DICTATION_WS_HEARTBEAT_INTERVAL_MS = 30000;

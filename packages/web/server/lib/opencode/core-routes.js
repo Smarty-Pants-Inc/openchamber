@@ -247,19 +247,6 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     return uiAuthController.requireAuth(req, res, next);
   };
 
-  app.post('/api/system/shutdown', async (req, res, next) => {
-    try {
-      await requireShutdownAuth(req, res, () => {
-        res.json({ ok: true });
-        gracefulShutdown({ exitProcess: true }).catch((error) => {
-          console.error('Shutdown request failed:', error?.message || error);
-        });
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   app.post('/api/system/dev-shutdown', express.json({ limit: '64kb' }),
     (req, res, next) => uiAuthController?.humanMode ? requireShutdownAuth(req, res, next) : next(), async (req, res) => {
     if (!isDevShutdownAllowed()) {
@@ -361,16 +348,10 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     clientPairingRuntime,
     readSettingsFromDiskMigrated,
     normalizeTunnelSessionTtlMs,
-    // Returns the relay pairing candidate ({ type:'relay', relayUrl, serverId,
-    // hostEncPubJwk, priority }) when the host relay is enabled, else null.
-    // Injected lazily because the relay service is constructed after these routes.
-    getRelayPairingCandidate = async () => null,
-    // Re-evaluate the relay lifecycle after pairing/device changes.
-    reconcileRelay = async () => {},
-    // Returns { local, lan, relayAvailable } — the direct transport URLs the
-    // server can actually be reached on (LAN derived from the server bind, not
-    // the UI origin), for the create-device dialog.
-    getPairingTransports = () => ({ local: null, lan: null, relayAvailable: true }),
+    // Returns { local, lan } — the direct transport URLs the server can
+    // actually be reached on (LAN derived from the server bind, not the UI
+    // origin), for the create-device dialog.
+    getPairingTransports = () => ({ local: null, lan: null }),
     // Returns ALL direct LAN URLs the server is currently reachable on (client-
     // reached address first, then interface scan) for the candidates-refresh
     // endpoint. Empty when the server is loopback-only.
@@ -556,41 +537,22 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   // desktop UI reaches its own server over loopback, so the request origin is not
   // scannable — it passes the LAN URL instead). Falls back to the request origin
   // for remote callers where the Host header IS the reachable address.
-  //
-  // `includeRelay` is the per-link transport choice from the create-link dialog:
-  //   true  → add the relay candidate, enabling the relay host on demand;
-  //   false → direct only, never relay;
-  //   undefined → legacy: advertise relay only if it is already enabled.
-  // `includeDirect === false` produces a relay-only link (no direct candidate).
-  const pairingServerCandidates = async (req, { preferredServerUrl, includeRelay, includeDirect = true } = {}) => {
+  const pairingServerCandidates = (req, { preferredServerUrl } = {}) => {
     const candidates = [];
-    if (includeDirect) {
-      const preferred = normalizeCandidateUrl(preferredServerUrl);
-      const origin = normalizeCandidateUrl(requestOrigin(req));
-      const direct = preferred || origin;
-      if (direct) {
-        candidates.push({ type: candidateUrlType(direct), url: direct, priority: 10 });
-      }
-      // The origin the creator is browsing over (e.g. a public https domain in
-      // front of a reverse proxy) is a reachable address the server cannot
-      // discover from its own interfaces. Carry it as an additional direct
-      // candidate so the paired device can keep using that same domain instead
-      // of depending on LAN hairpin behavior or relay availability. Loopback
-      // origins (desktop shell, localhost dev) are unreachable from another
-      // device and are skipped.
-      if (origin && direct && origin !== direct && !isLoopbackCandidateUrl(origin)) {
-        candidates.push({ type: candidateUrlType(origin), url: origin, priority: 20 });
-      }
+    const preferred = normalizeCandidateUrl(preferredServerUrl);
+    const origin = normalizeCandidateUrl(requestOrigin(req));
+    const direct = preferred || origin;
+    if (direct) {
+      candidates.push({ type: candidateUrlType(direct), url: direct, priority: 10 });
     }
-    // The client races candidates and falls back to relay only if the direct URL
-    // is unreachable (relay carries a higher priority number).
-    if (includeRelay !== false) {
-      try {
-        const relayCandidate = await getRelayPairingCandidate({ ensureEnabled: includeRelay === true });
-        if (relayCandidate) candidates.push(relayCandidate);
-      } catch {
-        // A relay enable/status failure must not break direct pairing.
-      }
+    // The origin the creator is browsing over (e.g. a public https domain in
+    // front of a reverse proxy) is a reachable address the server cannot
+    // discover from its own interfaces. Carry it as an additional direct
+    // candidate so the paired device can keep using that same domain instead
+    // of depending on LAN hairpin behavior. Loopback origins (desktop shell,
+    // localhost dev) are unreachable from another device and are skipped.
+    if (origin && direct && origin !== direct && !isLoopbackCandidateUrl(origin)) {
+      candidates.push({ type: candidateUrlType(origin), url: origin, priority: 20 });
     }
     return candidates;
   };
@@ -783,7 +745,6 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       if (!result.revoked) {
         return res.status(404).json({ revoked: false, error: 'Client not found' });
       }
-      void reconcileRelay();
       res.json(result);
     });
   });
@@ -799,26 +760,18 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
         }
       }
       const result = await remoteClientAuthRuntime.purgeRevokedClients();
-      void reconcileRelay();
       res.json(result);
     });
   });
 
   app.post('/api/client-auth/pairing/sessions', express.json({ limit: '64kb' }), async (req, res, next) => {
     await runWithClientCreateAuth(req, res, next, async (authContext) => {
-      const candidates = await pairingServerCandidates(req, {
-        preferredServerUrl: req.body?.serverUrl,
-        includeRelay: typeof req.body?.includeRelay === 'boolean' ? req.body.includeRelay : undefined,
-        includeDirect: req.body?.includeDirect !== false,
-      });
-      const usesRelay = candidates.some((candidate) => candidate.type === 'relay');
+      const candidates = pairingServerCandidates(req, { preferredServerUrl: req.body?.serverUrl });
       const result = await clientPairingRuntime.createPairingSession({
         label: req.body?.label,
         allowedClientKinds: req.body?.allowedClientKinds,
         createdByClientId: clientIdFromAuthContext(authContext),
-        usesRelay,
       });
-      void reconcileRelay();
       res.setHeader('Cache-Control', 'no-store');
       res.status(201).json({
         ...result,
@@ -829,10 +782,9 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
 
   // Current reachable transports for an ALREADY-PAIRED device. Pairing-payload
   // candidates are a snapshot: when DHCP hands this machine a new address, the
-  // device's saved LAN candidate goes stale and it is stuck on the relay forever.
+  // device's saved LAN candidate goes stale.
   // A client that connected over any live transport calls this to learn the
-  // server's present LAN URLs (plus the relay candidate when enabled) and update
-  // its saved candidate set. `serverId` lets the client bind the response — and
+  // server's present LAN URLs and update its saved candidate set. `serverId` lets the client bind the response — and
   // later /health probes of the learned addresses — to this server's identity
   // before trusting them with its bearer token.
   // Auth: UI session or client bearer; never the short-lived URL token.
@@ -850,12 +802,6 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       for (const url of directUrls) {
         const normalized = normalizeCandidateUrl(url);
         if (normalized) candidates.push({ type: 'lan', url: normalized, priority: 10 });
-      }
-      try {
-        const relayCandidate = await getRelayPairingCandidate({ ensureEnabled: false });
-        if (relayCandidate) candidates.push(relayCandidate);
-      } catch {
-        // Relay status failure must not break the direct-candidate refresh.
       }
       let serverId = null;
       try {
@@ -893,7 +839,6 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       if (!result.cancelled) {
         return res.status(404).json({ cancelled: false, error: 'Pairing session not found' });
       }
-      void reconcileRelay();
       res.json(result);
     });
   });
@@ -920,9 +865,6 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
         dedupeKey: req.body?.dedupeKey,
       });
       clearPairingRedeemRateLimit(req);
-      // The session became a device: relay demand may have moved from the pending
-      // session to the paired device (or a non-relay redeem may drop it).
-      void reconcileRelay();
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         ok: true,
@@ -1086,8 +1028,7 @@ export const registerCommonRequestMiddleware = (app, dependencies) => {
       req.path.startsWith('/api/goals') ||
       req.path.startsWith('/api/text') ||
       req.path.startsWith('/api/voice') ||
-      req.path.startsWith('/api/tts') ||
-      req.path.startsWith('/api/openchamber/tunnel')
+      req.path.startsWith('/api/tts')
     ) {
       express.json({ limit: '50mb' })(req, res, next);
     } else if (req.path.startsWith('/api')) {

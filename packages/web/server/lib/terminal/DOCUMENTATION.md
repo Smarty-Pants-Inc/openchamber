@@ -57,7 +57,7 @@ spawn attempt rechecks that authority immediately before invoking the provider.
 A refused or closed request cannot spawn, replace a PTY or clear its history.
 A spawn already invoked while authorized may settle normally after withdrawal.
 
-The WebSocket path must remain in both `isUrlAuthWebSocketPath` and relay `ALLOWED_WS_PATHS`. The client must use `getRuntimeUrlResolver().websocket()` and `openRuntimeWebSocket`; direct local URLs or raw browser WebSockets break relay and URL-token authentication.
+The WebSocket path must remain in both `isUrlAuthWebSocketPath` and the served paths `index.js` passes to `attachUnclaimedUpgradeRefusal` (`lib/security/unclaimed-upgrade.js`); an upgrade to a path that list does not name is refused with 404. The client must use `getRuntimeUrlResolver().websocket()` and `openRuntimeWebSocket`; direct local URLs or raw browser WebSockets break relay and URL-token authentication.
 
 ## Verification
 
@@ -65,5 +65,5 @@ Run:
 
 ```sh
 bun test packages/web/server/lib/terminal/runtime.test.js packages/web/server/lib/terminal/terminal-ws-protocol.test.js
-bun test packages/web/server/lib/ui-auth/ui-auth.test.js packages/web/server/lib/relay/cross-compat.test.js
+bun test packages/web/server/lib/ui-auth/ui-auth.test.js
 ```

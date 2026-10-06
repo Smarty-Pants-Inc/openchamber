@@ -27,7 +27,7 @@ export async function getWorktreeStatus(worktreePath: string): Promise<WorktreeM
 // `git rev-parse`, whose answer is effectively static for the lifetime of a
 // session — the location of a repo's git directory does not change while the
 // app is open. Caching it (with in-flight dedupe) collapses what used to be an
-// N² burst of `/api/fs/exec` calls into roughly one resolution per directory.
+// N² burst of root lookups into roughly one resolution per directory.
 const RESOLVED_ROOT_TTL_MS = 60_000;
 const RESOLVED_ROOT_CACHE_MAX_ENTRIES = 500;
 const RESOLVED_ROOT_CACHE_MAX_BYTES = 1024 * 1024;

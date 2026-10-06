@@ -81,23 +81,6 @@ function getDesktopLocalAuthHeader(port, requestHeaders) {
   return token ? `Bearer ${token}` : null;
 }
 
-async function requestServerShutdown(port, hostOverride) {
-  if (!Number.isFinite(port) || port <= 0) return false;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1500);
-  try {
-    const resp = await fetch(buildLocalUrl(port, '/api/system/shutdown', hostOverride), {
-      method: 'POST',
-      signal: controller.signal,
-    });
-    return resp.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function requestJson(port, endpoint, options = {}) {
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
     ? Math.trunc(options.timeoutMs)
@@ -172,47 +155,6 @@ async function isServerHealthReady(port, timeoutMs = 1000) {
   }
 }
 
-async function waitForServerHealth(port, {
-  timeoutMs = 60000,
-  intervalMs = 250,
-  onTick,
-} = {}) {
-  const start = Date.now();
-  const deadline = start + timeoutMs;
-  while (Date.now() < deadline) {
-    const elapsedMs = Date.now() - start;
-    if (typeof onTick === 'function') {
-      onTick({ elapsedMs, timeoutMs });
-    }
-    if (await isServerHealthReady(port, Math.min(1000, intervalMs * 2))) {
-      if (typeof onTick === 'function') {
-        onTick({ elapsedMs: Math.min(Date.now() - start, timeoutMs), timeoutMs, complete: true });
-      }
-      return true;
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-  if (typeof onTick === 'function') {
-    onTick({ elapsedMs: timeoutMs, timeoutMs, timedOut: true });
-  }
-  return false;
-}
-
-
-async function fetchTunnelProvidersFromPort(port, fetchImpl = globalThis.fetch) {
-  if (!Number.isFinite(port) || port <= 0 || typeof fetchImpl !== 'function') {
-    return null;
-  }
-  try {
-    const response = await fetchImpl(buildLocalUrl(port, '/api/openchamber/tunnel/providers'));
-    if (!response.ok) return null;
-    const body = await response.json().catch(() => null);
-    if (!body || !Array.isArray(body.providers)) return null;
-    return body.providers;
-  } catch {
-    return null;
-  }
-}
 
 async function fetchSystemInfoFromPort(port, fetchImpl = globalThis.fetch, hostOverride) {
   if (!Number.isFinite(port) || port <= 0 || typeof fetchImpl !== 'function') {
@@ -243,10 +185,7 @@ async function fetchSystemInfoFromPort(port, fetchImpl = globalThis.fetch, hostO
 
 
 export {
-  requestServerShutdown,
   requestJson,
   isServerHealthReady,
-  waitForServerHealth,
-  fetchTunnelProvidersFromPort,
   fetchSystemInfoFromPort,
 };

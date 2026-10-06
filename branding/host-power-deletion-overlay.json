@@ -1,0 +1,141 @@
+{
+  "provenance": {
+    "task": "hostdel",
+    "issue": "smarty-code#1398",
+    "note": "Deletes fs exec, HTTP shutdown, update check/install, tunnel and relay host routes, the dev-tunnel byte pipe, git write routes and provider-key routes. Successor of every earlier ledger; earlier ledgers are unchanged."
+  },
+  "files": [
+    {
+      "path": "packages/electron/main.mjs",
+      "predecessorSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
+      "sha256": "b2a668f17512ad73c473cf23db1b1157a9e46f2638e86ca310decd41ebd13401",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/ui/src/components/layout/Header.tsx",
+      "predecessorSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "sha256": "accd11d7d2c549d7ad62483ebf68fb1f8710fbbdb13e704110ae3a99278cac6d",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/ui/src/components/sections/openchamber/AboutSettings.tsx",
+      "predecessorSha256": "79701a8a9c6c72964983fa5adab0916e0020f39d3f69754e06a0ebee7377f1e0",
+      "sha256": "f5f68dc9ac0546ee34ad54853c71195df2f169e753fca247924ef490e760e445",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/ui/src/components/sections/remote-instances/RemoteInstancesPage.tsx",
+      "predecessorSha256": "ac2f586032201b52439090d0880ffe6da4aa2a7ca4cc274ce7d40c0b73c86401",
+      "sha256": "17214445969f7dc5af84830909fda3a0643cc6f24cfaee2c91f391a6dcddf2f9",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/cli-output.js",
+      "predecessorSha256": "023df43958b1abff3f7199a7dc4997ac108db9cd52853882664d65ae1c3c3fc3",
+      "sha256": "9eafac192714f6a5210bbe825b48c2ded72f657856cf064b33d9508664ea70a5",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/cli.js",
+      "predecessorSha256": "cf61bbe61b91e6765fdfbcc79ed9122f68ca4f4236e7e20dc40efd06f87e6a40",
+      "sha256": "9a7084ef42648c88577118dcd699ea7001535739cd3ebb16264f70c61daa3b6c",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/cli.test.js",
+      "predecessorSha256": "ba7993bab585518b958ebbe1fe9e0f1def529687701edda8a83f9d017506cf6e",
+      "sha256": "4797391c5539e93bb92a6479e68ca757b1d1bc2aec72f5f3c6a2eaa3fd43e3a5",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/lib/cli-args.js",
+      "predecessorSha256": "662deee94319ce5468812b94bb3597f77b37c727aa3d00cdddb103453adc25b8",
+      "sha256": "c8488acf860f71ae359a5f14078a490c492440446ff7e1f674e134837d2821b7",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/lib/cli-network.js",
+      "predecessorSha256": "c5d4ccf03b8bd3cb9723dcab57334fe8991d281d70231362d122a6e3a8e37042",
+      "sha256": "0a34c1d1c7372fbd6ca0ecab1932fc837ad3d7490785a11714f06fc5379c0947",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/lib/commands-connect-url.js",
+      "predecessorSha256": "7ab835427983ebcc762e49d1dcdb0ee788db734d71359b8173ff72620f722a01",
+      "sha256": "66ab8d800fe64039bace80e86f56569e3c6bc50a69a8376a7c461085e46b51fe",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/lib/commands-lifecycle.js",
+      "predecessorSha256": "494a85157e5f703f3751d0553ab8a318da30a73f24468ce8bb95ecd0f99d65d3",
+      "sha256": "0267c44b7a9c1a5d56424504a97687ec6d5a47aaffd1d037b886446cd80281e7",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/bin/lib/commands-tunnel.js",
+      "predecessorSha256": "5ee842f8b0b266f1a83d2ced8908ce5e6962d3594f0f431d7d6beed0a982df17",
+      "sha256": null,
+      "note": "Deleted: the file only served a removed host-power surface (smarty-code#1398)."
+    },
+    {
+      "path": "packages/web/bin/lib/commands-update.js",
+      "predecessorSha256": "2a5815eb6e90ae551d34867741d2b1a1fb6fc384491be0aed8057f106cd8edfe",
+      "sha256": null,
+      "note": "Deleted: the file only served a removed host-power surface (smarty-code#1398)."
+    },
+    {
+      "path": "packages/web/server/index.js",
+      "predecessorSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
+      "sha256": "be21c6e159ccf08d9868c7bff9ac3d448c2e89a4ae8523f777f55927fbf74302",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/notifications/apns-runtime.js",
+      "predecessorSha256": "63f4e32a97c11f5a1a432c06ffd7c3ab20033d5f914520acaa06a769d50f57e9",
+      "sha256": "de0e303c6218f2373361bd90b7bf6936df59befd3d74b50619913329e8c7bfb4",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/auth.js",
+      "predecessorSha256": "81977de0bf1e13bcb113462e1368d4e9e308dbe7392eddfe7b215b37cc8490a1",
+      "sha256": "634272120c356f1a30aa6208096d1043dce06a04d247b3cd5378d382dabf5126",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/core-routes.js",
+      "predecessorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "sha256": "fc66f061059e5afacf8f56ca16ee5398cb540012beffa3c2f4861af487f5b7e0",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/core-routes.test.js",
+      "predecessorSha256": "65026ad5f336405cb3670e13b3ab4334e9487992812c93ed28a0246660624084",
+      "sha256": "c8f6141dc7ff4c2ecab2e188c072b1a5d399e00e6b7447ac9b56d1204db95368",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.js",
+      "predecessorSha256": "6279be8f9230108dc423fb830119f56c83697a11c930da55716adb84347f3f89",
+      "sha256": "d519256a66776241ec6b96a091de72a10d55c5cb6f02bef13213fd3c70894ae9",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/openchamber-routes.test.js",
+      "predecessorSha256": "a24f6ae53946220871010b7a68eadeae8d18a089f2fefc33767673911c13668d",
+      "sha256": null,
+      "note": "Deleted: the file only served a removed host-power surface (smarty-code#1398)."
+    },
+    {
+      "path": "packages/web/server/lib/opencode/routes.js",
+      "predecessorSha256": "9d7c4112981ed0f06e5239f083caabb2aea8be9bc015f8c823913327d3f10354",
+      "sha256": "8d2aa9ae2002948aa2fcf57214a8cde9417002b4a69062f5439d4639038b68ff",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    },
+    {
+      "path": "scripts/apply-brand.test.mjs",
+      "predecessorSha256": "cf130ef80aaec64bd02f07749ce4e0bb8460ff9fd4dc59806d239526c891e0d5",
+      "sha256": "7d25fb259009410603d5bdc7e4cbe49a3f252dda1406505c37a6ccb1db5aa748",
+      "note": "Host-power deletion (smarty-code#1398): removed routes, their callers, or tests/docs of them; no branding change."
+    }
+  ]
+}

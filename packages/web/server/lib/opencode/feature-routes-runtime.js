@@ -28,7 +28,7 @@ import { parseNpmSpec, parsePathSpec, isExactSemver } from './plugin-spec.js';
 import { registerOpenCodeRoutes } from './routes.js';
 import { registerManagedCatalogGuard } from './managed-catalog-guard.js';
 import { createManagedCatalogReader } from './managed-catalog-reader.js';
-import { getProviderSources, removeProviderConfig, upsertProviderConfig } from './providers.js';
+import { getProviderSources, upsertProviderConfig } from './providers.js';
 import { getAgentSources, getAgentConfig, createAgent, updateAgent, deleteAgent } from './agents.js';
 import { getCommandSources, createCommand, updateCommand, deleteCommand } from './commands.js';
 import { listMcpConfigs, getMcpConfig, createMcpConfig, updateMcpConfig, deleteMcpConfig } from './mcp.js';
@@ -166,7 +166,6 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       validateDirectoryPath,
       resolveProjectDirectory,
       getProviderSources,
-      removeProviderConfig,
       upsertProviderConfig,
       refreshOpenCodeAfterConfigChange,
       buildOpenCodeUrl,

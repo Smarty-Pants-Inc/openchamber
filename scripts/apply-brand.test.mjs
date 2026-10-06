@@ -279,18 +279,6 @@ test('quoted product names produce a TypeScript-safe Capacitor appName', async (
     assert.equal(generatedBrandModule.brandText('OpenChamber'), `Fixture's "Brand" & $& <tag>`);
     assert.match(installer, /printf '%s\\n' /);
     assert.doesNotMatch(installer, /printf '  .*Fixture/);
-    const cliFixtureDir = path.join(fixture, 'packages/web/bin/lib');
-    mkdirSync(cliFixtureDir, { recursive: true });
-    for (const relative of ['packages/web/bin/lib/cli-args.js', 'packages/web/bin/lib/cli-errors.js']) {
-      const destination = path.join(fixture, relative);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      copyFileSync(path.join(root, relative), destination);
-    }
-    const { generateCompletionScript } = await import(`${pathToFileURL(path.join(cliFixtureDir, 'cli-args.js')).href}?quoted-completion=${Date.now()}`);
-    const completion = generateCompletionScript('zsh');
-    assert.equal(completion.includes("'logs:Tail Fixture'\\''s \"Brand\" & $& <tag> logs'"), true);
-    const zshCheck = spawnSync('zsh', ['-n'], { input: completion, encoding: 'utf8' });
-    if (zshCheck.error?.code !== 'ENOENT') assert.equal(zshCheck.status, 0, `${zshCheck.stdout}\n${zshCheck.stderr}`);
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
@@ -472,11 +460,8 @@ test('runtime branding is limited to owned templates and compatibility identitie
   assert.match(miniChatIndex, /<title>__PRODUCT_NAME_HTML__ Mini Chat<\/title>/);
   const electronMain = readFileSync(path.join(root, 'packages/electron/main.mjs'), 'utf8');
   const staticRoutes = readFileSync(path.join(root, 'packages/web/server/lib/opencode/static-routes-runtime.js'), 'utf8');
-  const updateRoutes = readFileSync(path.join(root, 'packages/web/server/lib/opencode/openchamber-routes.js'), 'utf8');
   assert.match(electronMain, /aria-label="\$\{escapeHtml\(PRODUCT_NAME\)\} loading icon/);
   assert.match(staticRoutes, /aria-label="\$\{escapeHtml\(PRODUCT_NAME\)\} logo/);
-  assert.match(updateRoutes, /quotePosix\(`Update successful, restarting \$\{PRODUCT_NAME\}/);
-  assert.match(updateRoutes, /quoteCmd\(`Update successful, restarting \$\{PRODUCT_NAME\}/);
   const englishBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.json'), 'utf8'));
   const frenchBundle = JSON.parse(readFileSync(path.join(root, 'packages/vscode/l10n/bundle.l10n.fr.json'), 'utf8'));
   assert.equal(englishBundle['Smarty Code: No folder is open. Open a folder to start a new session.'], 'Smarty Code: No folder is open. Open a folder to start a new session.');
@@ -527,8 +512,6 @@ test('runtime branding is limited to owned templates and compatibility identitie
     'packages/web/bin/lib/commands-lifecycle.js',
     'packages/web/bin/lib/commands-startup.js',
     'packages/web/bin/lib/commands-status.js',
-    'packages/web/bin/lib/commands-tunnel.js',
-    'packages/web/bin/lib/commands-update.js',
     'packages/web/bin/lib/cli-api-target.js',
     'packages/web/bin/lib/cli-network.js',
     'packages/web/bin/lib/cli-ports.js',
@@ -548,8 +531,6 @@ test('runtime branding is limited to owned templates and compatibility identitie
     'packages/web/bin/lib/commands-lifecycle.js': ['OpenChamber Stop', 'OpenChamber Restart', 'OpenChamber Desktop', 'OpenChamber instance', 'Stopping OpenChamber', 'Stopped OpenChamber'],
     'packages/web/bin/lib/commands-startup.js': ['OpenChamber Startup'],
     'packages/web/bin/lib/commands-status.js': ['OpenChamber Status'],
-    'packages/web/bin/lib/commands-tunnel.js': ['OpenChamber Desktop app', 'OpenChamber CLI', 'OpenChamber instance', 'Select OpenChamber', 'Waiting for OpenChamber'],
-    'packages/web/bin/lib/commands-update.js': ['OpenChamber Update'],
     'packages/web/bin/lib/cli-api-target.js': ['Multiple OpenChamber instances', 'No running OpenChamber server'],
     'packages/web/bin/lib/cli-network.js': ['OpenChamber UI'],
     'packages/web/bin/lib/cli-ports.js': ['OpenChamber Desktop', 'OpenChamber instance'],
@@ -569,8 +550,6 @@ test('runtime branding is limited to owned templates and compatibility identitie
 
   const cliServe = readFileSync(path.join(root, 'packages/web/bin/lib/commands-serve.js'), 'utf8');
   assert.match(cliServe, /`openchamber status`|`openchamber stop --port/);
-  const cliTunnel = readFileSync(path.join(root, 'packages/web/bin/lib/commands-tunnel.js'), 'utf8');
-  assert.match(cliTunnel, /`openchamber serve/);
   const envRuntime = readFileSync(path.join(root, 'packages/web/server/lib/opencode/env-runtime.js'), 'utf8');
   assert.match(envRuntime, /OPENCODE_BINARY_INVALID/);
   assert.equal(envRuntime.includes('OpenCode(?: Dev| Beta)?\\.app'), true);

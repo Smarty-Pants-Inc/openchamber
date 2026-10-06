@@ -11,7 +11,6 @@ import { PRODUCT_NAME } from '../brand.generated.js';
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
 import { requestControlAction } from './lib/cli-control.js';
-import { inspectTunnelAttachability } from './lib/cli-lifecycle.js';
 import { startupCommand } from './lib/commands-startup.js';
 import { formatGoal } from './lib/commands-schedule.js';
 import {
@@ -23,11 +22,6 @@ import {
 import { formatModelsOutput } from './lib/commands-models.js';
 import { formatProjectLine } from './lib/commands-projects.js';
 import { resolveTargetPort } from './lib/cli-api-target.js';
-import { DEFAULT_TUNNEL_PROVIDER_CAPABILITIES } from './lib/cli-tunnel-capabilities.js';
-import {
-  TUNNEL_PROVIDER_CLOUDFLARE,
-  TUNNEL_PROVIDER_NGROK,
-} from '../server/lib/tunnels/types.js';
 import {
   assertAuthenticatedNetworkExposure,
   commands,
@@ -35,7 +29,6 @@ import {
   discoverLifecycleInstances,
   discoverRunningInstances,
   discoverUnconfirmedRegistryInstanceOnPort,
-  ensureTunnelProfilesMigrated,
   EXIT_CODE,
   generateUiPassword,
   getInstanceFilePath,
@@ -122,7 +115,7 @@ function runCliDiagnostic(kind, json = false) {
 async function startMockOpenChamberServer(options = {}) {
   const runtime = options.runtime || 'web';
   const pid = Number.isFinite(options.pid) ? options.pid : null;
-  let shutdownRequested = false;
+  let mutatingRequests = 0;
   let closed = false;
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/api/system/info') {
@@ -131,20 +124,7 @@ async function startMockOpenChamberServer(options = {}) {
       return;
     }
 
-    if (req.method === 'POST' && req.url === '/api/system/shutdown') {
-      shutdownRequested = true;
-      res.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
-      res.end(JSON.stringify({ ok: true }));
-      try {
-        server.close(() => {
-          closed = true;
-        });
-      } catch {
-        closed = true;
-      }
-      return;
-    }
-
+    if (req.method !== 'GET') mutatingRequests += 1;
     res.writeHead(404);
     res.end('not found');
   });
@@ -154,8 +134,8 @@ async function startMockOpenChamberServer(options = {}) {
   const port = typeof address === 'object' && address ? address.port : 0;
   return {
     port,
-    get shutdownRequested() {
-      return shutdownRequested;
+    get mutatingRequests() {
+      return mutatingRequests;
     },
     close: async () => {
       if (closed || !server.listening) return;
@@ -226,13 +206,6 @@ function spawnOpenChamberLikeHungServer(port) {
 }
 
 describe('cli args', () => {
-  it('loads fallback tunnel provider capabilities for CLI startup', () => {
-    expect(DEFAULT_TUNNEL_PROVIDER_CAPABILITIES.map((provider) => provider.provider)).toEqual([
-      TUNNEL_PROVIDER_CLOUDFLARE,
-      TUNNEL_PROVIDER_NGROK,
-    ]);
-  });
-
   it('accepts legacy daemon flags as no-ops', () => {
     expect(parseArgs(['serve', '--daemon']).removedFlagErrors).toEqual([]);
     expect(parseArgs(['serve', '-d']).removedFlagErrors).toEqual([]);
@@ -252,11 +225,11 @@ describe('cli args', () => {
     expect(parsed.options.server).toBe('http://homebridge:3002');
   });
 
-  it('parses connect-url --relay flag', () => {
+  it('rejects the removed connect-url --relay flag', () => {
     const parsed = parseArgs(['connect-url', '--relay', '--name', 'My laptop']);
 
     expect(parsed.command).toBe('connect-url');
-    expect(parsed.options.relay).toBe(true);
+    expect(parsed.removedFlagErrors).toEqual(['Unknown option: --relay']);
     expect(parsed.options.name).toBe('My laptop');
   });
 
@@ -622,17 +595,6 @@ describe('cli args', () => {
     })).toContain('status:busy');
   });
 
-  it('parses tunnel auto-start server options', () => {
-    const parsed = parseArgs(['tunnel', 'start', '--port', '3002', '--api-only', '--lan', '--ui-password', 'secret']);
-
-    expect(parsed.command).toBe('tunnel');
-    expect(parsed.subcommand).toBe('start');
-    expect(parsed.options.port).toBe(3002);
-    expect(parsed.options.apiOnly).toBe(true);
-    expect(parsed.options.host).toBe('0.0.0.0');
-    expect(parsed.options.uiPassword).toBe('secret');
-  });
-
   it('maps --lan to wildcard bind host', () => {
     const parsed = parseArgs(['serve', '--lan', '--port', '3002']);
 
@@ -644,13 +606,6 @@ describe('cli args', () => {
     const parsed = parseArgs(['serve', '--hostname', '0.0.0.0']);
 
     expect(parsed.options.host).toBe('0.0.0.0');
-  });
-
-  it('keeps --hostname for tunnel commands', () => {
-    const parsed = parseArgs(['tunnel', 'start', '--hostname', 'app.example.com']);
-
-    expect(parsed.options.hostname).toBe('app.example.com');
-    expect(parsed.options.host).toBeUndefined();
   });
 });
 
@@ -796,52 +751,6 @@ describe('serve host resolution', () => {
   });
 });
 
-describe('compatibility exports', () => {
-  it('allows tunnel profile migration before command options are initialized', async () => {
-    await withTempOpenChamberDataDir(async () => {
-      const store = ensureTunnelProfilesMigrated();
-
-      expect(store).toEqual({ version: 1, profiles: [] });
-    });
-  });
-
-  it('includes ngrok in fallback tunnel providers when no server is reachable', async () => {
-    await withTempOpenChamberDataDir(async () => {
-      const port = await allocateLoopbackPort();
-      const output = await captureStdout(async () => {
-        await commands.tunnel({ json: true, explicitPort: true, port }, 'providers');
-      });
-
-      const body = JSON.parse(output);
-      expect(body.source).toBe('fallback');
-      expect(body.providers.map((entry) => entry.provider)).toContain('ngrok');
-    });
-  });
-
-  it('supports ngrok quick dry-run with an explicit port', async () => {
-    await withTempOpenChamberDataDir(async () => {
-      const output = await captureStdout(async () => {
-        await commands.tunnel({
-          json: true,
-          dryRun: true,
-          explicitPort: true,
-          port: 3003,
-          provider: 'ngrok',
-          mode: 'quick',
-        }, 'start');
-      });
-
-      const body = JSON.parse(output);
-      expect(body).toEqual(expect.objectContaining({
-        ok: true,
-        dryRun: true,
-        provider: 'ngrok',
-        mode: 'quick',
-      }));
-    });
-  });
-});
-
 describe('CLI HTTP helpers', () => {
   it('sends one typed request to the shared control endpoint', async () => {
     const originalFetch = globalThis.fetch;
@@ -891,17 +800,17 @@ describe('CLI HTTP helpers', () => {
       };
 
       try {
-        const { response, body } = await requestJson(port, '/api/openchamber/tunnel/start', {
+        const { response, body } = await requestJson(port, '/api/openchamber/control', {
           method: 'POST',
-          body: JSON.stringify({ provider: 'ngrok', mode: 'quick' }),
+          body: JSON.stringify({ action: 'session.status', input: {} }),
         });
 
         expect(response.ok).toBe(true);
         expect(body).toEqual({ ok: true });
         expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
-          '/api/openchamber/tunnel/start',
+          '/api/openchamber/control',
           '/auth/session',
-          '/api/openchamber/tunnel/start',
+          '/api/openchamber/control',
         ]);
       } finally {
         globalThis.fetch = originalFetch;
@@ -1147,21 +1056,6 @@ describe('lifecycle instance discovery', () => {
         pid: 934,
         runtime: 'desktop',
       }));
-    });
-  });
-
-  it('does not mark tunnel attachability as desktop for a different explicit port', async () => {
-    await withTempOpenChamberDataDir(async (dir) => {
-      fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ desktopLocalPort: 57123 }, null, 2));
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () => createMockJsonResponse({ runtime: 'desktop', pid: 934 });
-      try {
-        const attachability = await inspectTunnelAttachability(3004, { requireHealthy: false });
-
-        expect(attachability.reason).not.toBe('desktop');
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
     });
   });
 
@@ -1423,13 +1317,17 @@ describe('lifecycle commands with unmanaged explicit ports', () => {
     });
   });
 
-  it('stop --port reaches unmanaged shutdown when the registry is empty', async () => {
+  it('stop --port signals the pid an unmanaged instance reports, without an HTTP shutdown request', async () => {
     await withTempOpenChamberDataDir(async () => {
-      const server = await startMockOpenChamberServer();
+      const child = spawn('sleep', ['30'], { stdio: 'ignore' });
+      const server = await startMockOpenChamberServer({ pid: child.pid });
       try {
         await commands.stop({ explicitPort: true, port: server.port, quiet: true, suppressQuietOutput: true });
-        expect(server.shutdownRequested).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+        expect(server.mutatingRequests).toBe(0);
       } finally {
+        child.kill('SIGKILL');
         await server.close();
       }
     });
@@ -1470,7 +1368,7 @@ describe('lifecycle commands with unmanaged explicit ports', () => {
 
         await commands.stop({ quiet: true, suppressQuietOutput: true });
 
-        expect(server.shutdownRequested).toBe(false);
+        expect(server.mutatingRequests).toBe(0);
         expect(fs.existsSync(pidFile)).toBe(false);
         expect(fs.existsSync(instanceFile)).toBe(false);
       } finally {

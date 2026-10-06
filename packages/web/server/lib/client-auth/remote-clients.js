@@ -86,8 +86,6 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
           expiresAt: normalizeTimestamp(client.expiresAt),
           clientKind: normalizeOptionalString(client.clientKind),
           dedupeKey: normalizeOptionalString(client.dedupeKey),
-          usesRelay: client.usesRelay === true,
-          lastTransport: client.lastTransport === 'relay' || client.lastTransport === 'direct' ? client.lastTransport : null,
           ...normalizeMetadata(client),
         }))
         .filter((client) => client.tokenHash.length > 0)
@@ -126,32 +124,12 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     devicePlatform: client.devicePlatform,
     deviceModel: client.deviceModel,
     appVersion: client.appVersion,
-    usesRelay: client.usesRelay === true,
-    lastTransport: client.lastTransport ?? null,
   });
 
   const listClients = async () => {
     return withStoreMutation(async () => {
       const store = await readStore();
       return store.clients.map(publicClient);
-    });
-  };
-
-  // Relay-transport demand from paired devices: any non-revoked, non-expired
-  // client that was paired over the relay OR was actually observed connecting
-  // through the relay tunnel (lastTransport). The observed transport is the
-  // authoritative signal — it covers records written before usesRelay existed
-  // and devices re-paired via a QR that carried no relay candidate.
-  const hasActiveRelayClients = async () => {
-    return withStoreMutation(async () => {
-      const store = await readStore();
-      const now = Date.now();
-      return store.clients.some((client) => {
-        if (client.usesRelay !== true && client.lastTransport !== 'relay') return false;
-        if (client.revokedAt) return false;
-        const expires = Date.parse(client.expiresAt || '');
-        return !Number.isFinite(expires) || expires > now;
-      });
     });
   };
 
@@ -167,7 +145,6 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     devicePlatform,
     deviceModel,
     appVersion,
-    usesRelay,
   } = {}) => {
     return withStoreMutation(async () => {
       const store = await readStore();
@@ -196,7 +173,6 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
         devicePlatform: normalizeOptionalString(devicePlatform),
         deviceModel: normalizeOptionalString(deviceModel),
         appVersion: normalizeOptionalString(appVersion),
-        usesRelay: usesRelay === true,
       };
       if (normalizedDedupeKey) {
         store.clients = store.clients.filter((entry) => entry.dedupeKey !== normalizedDedupeKey);
@@ -242,16 +218,10 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     });
   };
 
-  const authenticateBearerToken = async (token, req) => {
+  const authenticateBearerToken = async (token) => {
     if (typeof token !== 'string' || !token.startsWith(TOKEN_PREFIX)) {
       return null;
     }
-    // Which transport carried this request: the relay tunnel proxy stamps every
-    // forwarded request with x-openchamber-relay-connection; anything else is a
-    // direct (local/LAN/tunnel-URL) request. Feeds device display AND relay
-    // demand (hasActiveRelayClients), so a relay request must never be
-    // misclassified as direct.
-    const transport = req?.headers?.['x-openchamber-relay-connection'] ? 'relay' : 'direct';
     return withStoreMutation(async () => {
       const tokenHash = hashToken(token);
       const store = await readStore();
@@ -260,17 +230,9 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
       if (client.expiresAt && Date.parse(client.expiresAt) <= Date.now()) return null;
       const now = Date.now();
       const lastUsedAt = Date.parse(client.lastUsedAt || '');
-      // Self-heal the paired-over-relay flag from the authoritative signal: a
-      // request that arrived through the tunnel proves this device uses the
-      // relay, regardless of what the pairing-time snapshot recorded. Sticky on
-      // purpose — a later LAN request must not turn the relay host off again.
-      const healUsesRelay = transport === 'relay' && client.usesRelay !== true;
-      if (healUsesRelay) client.usesRelay = true;
-      // Write on the throttle interval — or immediately when the transport
-      // changed, so a LAN⇄relay switch is visible right away, not a minute late.
-      if (healUsesRelay || !Number.isFinite(lastUsedAt) || now - lastUsedAt >= LAST_USED_WRITE_INTERVAL_MS || client.lastTransport !== transport) {
+      // Write on the throttle interval only.
+      if (!Number.isFinite(lastUsedAt) || now - lastUsedAt >= LAST_USED_WRITE_INTERVAL_MS) {
         client.lastUsedAt = new Date(now).toISOString();
-        client.lastTransport = transport;
         await writeStore(store);
       }
       return { ok: true, clientId: client.id, sessionToken: client.id, client: publicClient(client) };
@@ -281,7 +243,6 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     authenticateBearerToken,
     createClient,
     listClients,
-    hasActiveRelayClients,
     purgeRevokedClients,
     revokeClient,
   };

@@ -170,32 +170,8 @@ export const createManagedTunnelConfigRuntime = (deps) => {
     });
   };
 
-  const resolveManagedRemoteTunnelToken = async ({ presetId, hostname }) => {
-    const normalizedPresetId = typeof presetId === 'string' ? presetId.trim() : '';
-    const normalizedHostname = normalizeManagedRemoteTunnelHostname(hostname);
-    const config = await readManagedRemoteTunnelConfigFromDisk();
-
-    if (normalizedPresetId) {
-      const byId = config.tunnels.find((entry) => entry.id === normalizedPresetId);
-      if (byId?.token) {
-        return byId.token;
-      }
-    }
-
-    if (normalizedHostname) {
-      const byHostname = config.tunnels.find((entry) => entry.hostname === normalizedHostname);
-      if (byHostname?.token) {
-        return byHostname.token;
-      }
-    }
-
-    return '';
-  };
-
   return {
-    readManagedRemoteTunnelConfigFromDisk,
     syncManagedRemoteTunnelConfigWithPresets,
     upsertManagedRemoteTunnelToken,
-    resolveManagedRemoteTunnelToken,
   };
 };

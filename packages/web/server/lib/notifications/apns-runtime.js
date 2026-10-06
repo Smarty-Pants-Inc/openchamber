@@ -12,7 +12,7 @@
 import {
   getOrCreateRelaySigningKeypair,
   signRelayMessage as signRelayMessageShared,
-} from '../relay/signing-key.js';
+} from '../security/server-signing-key.js';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const APNS_TOKENS_VERSION = 1;
@@ -67,7 +67,7 @@ export const createApnsRuntime = (deps) => {
   // device token alone can't be used to push. Zero-config: the keypair generates on first use.
   // ---------------------------------------------------------------------------
 
-  // Key access lives in lib/relay/signing-key.js now (shared with the private
+  // Key access lives in lib/security/server-signing-key.js now (shared with the private
   // relay identity — same keypair, same storage, same serverId derivation).
   const getOrCreateRelayKeypair = async () => {
     if (cachedRelayKey) return cachedRelayKey;

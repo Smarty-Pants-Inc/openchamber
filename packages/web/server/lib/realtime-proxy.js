@@ -2,7 +2,7 @@ import { applicationAuthority, browserRequestAllowed } from './security/browser-
 import { WebSocket, WebSocketServer } from 'ws';
 
 const PROXY_SSE_PATH = '/api/openchamber/realtime-proxy/sse';
-const PROXY_WS_PATH = '/api/openchamber/realtime-proxy/ws';
+export const PROXY_WS_PATH = '/api/openchamber/realtime-proxy/ws';
 
 const isAllowedSsePath = (pathname) => {
   return pathname === '/api/event'

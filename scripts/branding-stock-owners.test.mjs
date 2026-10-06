@@ -409,7 +409,7 @@ test('the #538 layer binds its exact feature commit over the message row and the
   for (const entry of overlay.files.filter(file => file.design538Sha256)) {
     // The #739 Fabric row (voiceFabric) is the layer above it on the message row.
     assert.equal(entry.design538Sha256, entry.preVoiceFabricCombinedSha256 ?? entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256));
     assert.ok(entry.design538Note);
   }
 });

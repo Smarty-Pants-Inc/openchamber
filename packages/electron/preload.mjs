@@ -158,21 +158,6 @@ ipcRenderer.on('openchamber:emit', (_evt, payload) => {
   dispatchNativeEvent(event, payload.detail);
 });
 
-const relayDevTunnelPorts = new Map();
-let relayDevTunnelHandler = null;
-ipcRenderer.on('openchamber:relay-dev-tunnel-connect', (event, payload) => {
-  if (!isLocalPage || !payload || typeof payload.connectionId !== 'string' || !event.ports?.[0]) return;
-  const port = event.ports[0];
-  relayDevTunnelPorts.set(payload.connectionId, port);
-  port.onmessage = (messageEvent) => relayDevTunnelHandler?.({
-    connectionId: payload.connectionId,
-    remotePort: payload.remotePort,
-    message: messageEvent.data,
-  });
-  port.start();
-  relayDevTunnelHandler?.({ connectionId: payload.connectionId, remotePort: payload.remotePort, message: { type: 'connect' } });
-});
-
 // The desktop bridge is exposed on all pages; the main-process gate in
 // ipcMain.handle('openchamber:invoke') decides per-command what is safe
 // for non-local callers (window/host-switcher ops yes, file/shell ops
@@ -184,15 +169,5 @@ const desktopBridge = {
   openExternal: (url) => ipcRenderer.invoke('openchamber:invoke', 'desktop_open_external_url', { url }),
   listen: async (event, handler) => addListener(event, handler),
 };
-
-if (isLocalPage) {
-  desktopBridge.relayDevTunnelListen = (handler) => {
-    relayDevTunnelHandler = typeof handler === 'function' ? handler : null;
-  };
-  desktopBridge.relayDevTunnelPost = (connectionId, message) => {
-    relayDevTunnelPorts.get(connectionId)?.postMessage(message);
-    if (message?.type === 'close') relayDevTunnelPorts.delete(connectionId);
-  };
-}
 
 contextBridge.exposeInMainWorld('__OPENCHAMBER_DESKTOP__', desktopBridge);

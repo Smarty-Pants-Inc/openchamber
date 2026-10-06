@@ -3,7 +3,7 @@ import { applicationAuthority } from '../security/browser-origin.js';
 
 // Smarty Code session voice: one browser WebSocket per call, proxied to the Code gateway's
 // session voice socket. The gateway owns the call; this edge only authenticates and pipes.
-const VOICE_SOCKET_PATH = /^\/api\/session\/([^/]+)\/voice\/socket$/;
+export const VOICE_SOCKET_PATH = /^\/api\/session\/([^/]+)\/voice\/socket$/;
 const MAX_FRAME_BYTES = 64 * 1024;
 // About two seconds of PCM16 24 kHz audio; a slower page drops audio instead of buffering.
 const MAX_AUDIO_BACKLOG_BYTES = 24_000 * 2 * 2;

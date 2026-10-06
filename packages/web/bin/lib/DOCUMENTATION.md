@@ -6,7 +6,7 @@ This directory contains the non-entrypoint implementation for the OpenChamber CL
 
 - `../cli.js`
   - Owns process bootstrap, package/version lookup, command table wiring, signal handlers, top-level error handling, and legacy exports used by tests or external consumers.
-  - Injects runtime dependencies into command factories, such as `serveCommand`, `stopCommand`, package-manager loading, cancel cleanup, and foreground server state setters.
+  - Injects runtime dependencies into command factories, such as `serveCommand`, cancel cleanup, and foreground server state setters.
   - Should not grow command-specific behavior. If a new branch needs more than dispatch/wiring, move it here into a command or helper module instead.
 
 ## Command Modules
@@ -19,11 +19,11 @@ Command modules implement user-facing commands and preserve output contracts acr
 
 - `commands-lifecycle.js`
   - Implements `openchamber stop` and `openchamber restart`.
-  - Owns lifecycle stop/restart semantics, desktop-managed port rejection, unmanaged instance shutdown attempts, PID/instance cleanup, and restart reuse of stored instance options.
+  - Owns lifecycle stop/restart semantics, desktop-managed port rejection, PID/instance cleanup, and restart reuse of stored instance options. Instances are stopped by signal: the server has no HTTP shutdown route (smarty-code#1398), so an unmanaged instance is stopped through the pid its `/api/system/info` reports.
 
 - `commands-status.js`
   - Implements `openchamber status`.
-  - Formats discovered instances and tunnel readiness/status for human, quiet, and JSON output.
+  - Formats discovered instances for human, quiet, and JSON output.
 
 - `commands-session.js`
   - Implements `openchamber session create`, `send`, `fork`, `list`, `status`, and `messages`.
@@ -53,53 +53,30 @@ Command modules implement user-facing commands and preserve output contracts acr
   - Implements `openchamber connect-url`.
   - Finds or starts a local instance and prints the browser/connect URL according to the selected output mode.
   - Emits a **pairing v2** link (`openchamber://connect?v=2&p=<base64url>`): it creates a one-time pairing session in the shared store (`client-pairing-sessions.json`) and encodes the pairing id + secret + transport candidates. The client redeems the secret over whichever candidate connects first (`/api/client-auth/pairing/redeem`). No standalone token is embedded — the QR itself is the single-use credential.
-  - The default form advertises the resolved server URL as a direct (lan/tunnel) candidate and folds in a relay candidate when the host relay is enabled, so one link works on-LAN and off-network.
-  - `--relay` builds a relay-only pairing link (the sole candidate is the relay transport), for sharing with a device that is not on the host's network — no server URL, no auto-start. The relay endpoint follows `OPENCHAMBER_RELAY_URL` / the stored setting / the default, matching the running host; the host must be running with the relay enabled to serve the redeem over the tunnel.
-
-- `commands-update.js`
-  - Implements `openchamber update`.
-  - Loads the package-manager helper, performs update flow, and coordinates restart behavior after updates.
-
-- `commands-tunnel.js`
-  - Implements `openchamber tunnel` and its subcommands: `profile`, `providers`, `ready`, `doctor`, `status`, `start`, `stop`, and `completion`.
-  - Owns tunnel-specific command flow, interactive prompt decisions, managed-local/managed-remote startup, QR display rules, tunnel start/stop API calls, and tunnel profile command handling.
-  - Receives `serveCommand` and `stopCommand` by dependency injection. Do not reach back into `cli.js` command globals from this module.
+  - Advertises the resolved server URL as the single direct (lan/tunnel) candidate. The server hosts no relay, so links carry no relay candidate.
+  - There is no `openchamber update` or `openchamber tunnel` command: both called server routes that were removed (smarty-code#1398).
 
 ## Shared Helper Modules
 
 These modules hold reusable, non-presentational logic for commands.
 
 - `cli-args.js`
-  - Argument parsing, defaults, help text, completion script generation, and typo suggestions.
+  - Argument parsing, defaults, help text, and typo suggestions.
 
 - `cli-errors.js`
-  - CLI exit codes and typed tunnel CLI errors.
+  - CLI exit codes and the typed CLI error (`TunnelCliError`, a legacy name).
 
 - `cli-paths.js`
-  - Data, run, log, settings, tunnel profile, and managed-local config paths.
-
-- `cli-settings-accessors.js`
-  - Minimal settings.json read/write for CLI contexts that must not load the
-    full web settings runtime (`connect-url` relay identity resolution).
-  - Mirrors the settings runtime's guarantees so a CLI read-modify-write can
-    never corrupt shared state: atomic tmp+rename writes (no concurrent reader
-    in the running app can observe a torn file), a strict read that throws on
-    corrupt/unreadable payloads, and the same `0600` file mode.
-  - Parse errors retain only a fixed, content-free cause, not private input fragments.
-    The strict read rejects corrupt data, null, and arrays before relay
-    identity regeneration. A callback write is serialized per accessor, reads
-    that current strict document, and writes its returned replacement; returning
-    the unchanged object skips the write. Explicit object replacement remains
-    available for deliberate recovery from invalid data.
+  - Data, run, log, and settings paths.
 
 - `cli-process.js`
   - PID files, instance registry files, process identity checks, runtime metadata checks, and process termination helpers.
 
 - `cli-lifecycle.js`
-  - Instance discovery, live health probing, attachability checks, provider discovery, and status aggregation used by lifecycle/status/tunnel commands.
+  - Instance discovery, live health probing, and status aggregation used by lifecycle/status commands.
 
 - `cli-http.js`
-  - HTTP helpers for health checks, shutdown requests, JSON API calls, tunnel provider fetches, and system info fetches.
+  - HTTP helpers for health checks, JSON API calls, and system info fetches.
   - Owns local desktop bearer auth and managed CLI-instance UI password retry for control-plane requests.
 
 - `cli-control.js`
@@ -126,15 +103,6 @@ These modules hold reusable, non-presentational logic for commands.
 
 - `cli-startup.js`
   - Native startup service detection, install/uninstall/status helpers, and platform-specific startup command execution.
-
-- `cli-tunnel-profiles.js`
-  - Tunnel profile normalization, token resolution/redaction, profile storage, migration, file-permission warnings, and managed-remote pair persistence.
-
-- `cli-tunnel-utils.js`
-  - Tunnel-specific command string builders, TTL parsing/formatting, and replay command helpers.
-
-- `cli-tunnel-capabilities.js`
-  - Built-in tunnel provider capability fallbacks used when a live server cannot provide tunnel metadata.
 
 ## Placement Rules
 
