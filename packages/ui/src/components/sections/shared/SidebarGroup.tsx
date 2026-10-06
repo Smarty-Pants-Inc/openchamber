@@ -77,7 +77,7 @@ export const SidebarGroup: React.FC<SidebarGroupProps> = ({
       <div
         id={contentId}
         hidden={!expanded}
-        className="mt-0.5 space-y-0.5 ml-2 pl-3 border-l-2 border-[var(--interactive-border)]"
+        className="mt-0.5 space-y-0.5 ml-2 pl-3"
       >
         {children}
       </div>
