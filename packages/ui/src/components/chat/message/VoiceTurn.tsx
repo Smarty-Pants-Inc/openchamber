@@ -31,8 +31,8 @@ function Fold({ label, warn = false, children }: { label: string; warn?: boolean
                 <Icon name={open ? 'arrow-down-s' : 'arrow-right-s'} className="size-3.5" aria-hidden />
             </button>
             {open && (
-                <div className={cn('mt-1.5 space-y-1 whitespace-pre-wrap break-words border-l-2 pl-3 typography-markdown',
-                    warn ? 'border-[var(--status-warning)] text-foreground' : 'border-border text-muted-foreground')}>
+                <div className={cn('mt-1.5 space-y-1 whitespace-pre-wrap break-words rounded-md px-3 py-2 typography-markdown',
+                    warn ? 'bg-[var(--status-warning-background)] text-foreground' : 'bg-muted/40 text-muted-foreground')}>
                     {children}
                 </div>
             )}
