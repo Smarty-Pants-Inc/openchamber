@@ -1,4 +1,8 @@
 import { afterAll, expect, test } from 'bun:test';
+import { plugin } from 'bun';
+import { readdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
@@ -15,6 +19,25 @@ const requests: string[] = [];
 const fetcher = async (url: string) => { requests.push(url); return orgAgentResponse(); };
 const sent: FeedReply[] = [];
 
+const win = new Window({ url: 'http://localhost' });
+const values = { window: win, document: win.document, navigator: win.navigator, localStorage: win.localStorage, IS_REACT_ACT_ENVIRONMENT: true, HTMLElement: win.HTMLElement,
+  Element: win.Element, Node: win.Node, customElements: win.customElements, MutationObserver: win.MutationObserver, ResizeObserver: win.ResizeObserver, getComputedStyle: win.getComputedStyle.bind(win),
+  requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0), cancelAnimationFrame: (id: number) => clearTimeout(id),
+  // The inbox list reads /api/inbox; this page test has no server, so it reads an empty inbox.
+  fetch: async () => new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } }) };
+const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
+// The page renders chat rows, whose modules use Vite's worker-URL and import.meta.glob transforms, which Bun lacks
+// (as ElectronMiniChatApp.recovery.test.tsx).
+await plugin({ name: 'feed-view-vite-transforms', setup(build) {
+  build.onLoad({ filter: /markdown-shiki\.worker\.ts\?worker&url$/ }, () => ({ contents: "export default 'data:text/javascript,'", loader: 'js' }));
+  build.onLoad({ filter: /useProviderLogo\.ts$/ }, async ({ path }) => {
+    const logos = Object.fromEntries(readdirSync(fileURLToPath(new URL('../../../assets/provider-logos/', import.meta.url)))
+      .filter((name) => name.endsWith('.svg')).map((name) => [`../assets/provider-logos/${name}`, `/assets/provider-logos/${name}`]));
+    const source = await readFile(path, 'utf8');
+    return { contents: source.replace(/import\.meta\.glob<string>\([\s\S]*?\);/, `${JSON.stringify(logos)};`), loader: 'ts' };
+  });
+} });
 const { FeedView } = await import('./FeedView');
 const { readFeedDraft, useFeedStore } = await import('./feedStore');
 const { loadOrgAgent } = await import('@/lib/smartyOrgAgent');
@@ -24,13 +47,9 @@ const services: Partial<FeedServices> = {
   send: async (reply) => { sent.push(reply); },
   Conversation: ({ agent }) => <p data-conversation={agent.sessionId}>{agent.name}</p>,
 };
-const View = () => <I18nProvider><FeedView onClose={() => undefined} services={services} /></I18nProvider>;
+const { useInboxStore } = await import('@/lib/smartyInbox');
+const View = ({ compact = false }: { compact?: boolean }) => <I18nProvider><FeedView compact={compact} onClose={() => undefined} services={services} /></I18nProvider>;
 
-const win = new Window({ url: 'http://localhost' });
-const values = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true, HTMLElement: win.HTMLElement,
-  Element: win.Element };
-const previous = new Map(Object.keys(values).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
-for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
@@ -40,10 +59,10 @@ afterAll(async () => {
 
 
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 20)); });
-const mount = async () => {
+const mount = async (compact = false) => {
   const host = document.createElement('div'); document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => root.render(<View />)); await settle();
+  await act(async () => root.render(<View compact={compact} />)); await settle();
   return { host, root };
 };
 // happy-dom's keydown does not reach React's root listener here (a click does): the handler is called as React would,
@@ -87,5 +106,40 @@ test('the page shows the org agent conversation and sends a reply to its session
   expect(sent[0]?.messageID.startsWith('msg')).toBe(true);
   expect(readFeedDraft('ses_kate_smarty')).toBe('');
   expect(box.value).toBe('');
+  await act(async () => root.unmount());
+});
+
+test('on a phone the inbox opens as a modal sheet, and closing it returns focus to the Inbox button', async () => {
+  orgAgentResponse = () => json(kate);
+  useInboxStore.setState({ available: true, openCount: 2 });
+  const { host, root } = await mount(true);
+  const inboxButton = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Inbox (2)');
+  if (!inboxButton) throw new Error('no Inbox button in the header');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => { inboxButton.focus(); inboxButton.click(); }); await settle();
+  const sheet = document.querySelector('[role="dialog"]');
+  expect(sheet?.getAttribute('aria-label')).toBe('Inbox (2)');
+  expect(inboxButton.getAttribute('aria-expanded')).toBe('true');
+  const close = sheet?.querySelector<HTMLButtonElement>('button[aria-label="Close inbox"]');
+  if (!close) throw new Error('no Close in the sheet');
+  await act(async () => { close.click(); }); await settle();
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(inboxButton.getAttribute('aria-expanded')).toBe('false');
+  expect(document.activeElement).toBe(inboxButton);
+  await act(async () => root.unmount());
+});
+
+test('the header opens the chat Timeline for the org agent session', async () => {
+  orgAgentResponse = () => json(kate);
+  let open = false;
+  const timelineServices: Partial<FeedServices> = { ...services, Conversation: ({ timelineOpen }) => { open = timelineOpen; return null; } };
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<I18nProvider><FeedView onClose={() => undefined} services={timelineServices} /></I18nProvider>)); await settle();
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="Conversation Timeline"]');
+  if (!button) throw new Error('no Timeline button in the header');
+  expect(open).toBe(false);
+  await act(async () => { button.click(); });
+  expect(open).toBe(true);
   await act(async () => root.unmount());
 });

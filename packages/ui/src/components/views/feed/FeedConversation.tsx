@@ -8,9 +8,11 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus, useSessionMessageLoadState, useSessionMessageRecords, useSessionRenderable } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useViewOnlyWatch } from '@/sync/view-only-watch';
+import { TimelineDialog } from '@/components/chat/TimelineDialog';
 import { ensureGlobalSessionsLoaded, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { feedEntries } from './feedEntries';
 import { FeedNotice, FeedTranscript } from './FeedTranscript';
+import { scrollFeedByTurn, scrollToFeedEntry } from './feedScroll';
 
 type SessionLocation = { state: 'loading' } | { state: 'missing' } | { state: 'failed' } | { state: 'ready'; directory: string };
 
@@ -33,16 +35,21 @@ function useSessionLocation(sessionId: string): SessionLocation {
   return hasLoaded ? { state: 'missing' } : { state: 'loading' };
 }
 
-export function FeedConversation({ agent }: { agent: OrgAgent }): React.ReactNode {
+/** `timelineOpen`: the chat's Timeline dialog for this session, opened from the Feed header; it jumps between the person's messages. */
+export type FeedConversationProps = { agent: OrgAgent; timelineOpen: boolean; onTimelineOpenChange: (open: boolean) => void };
+
+export function FeedConversation({ agent, timelineOpen, onTimelineOpenChange }: FeedConversationProps): React.ReactNode {
   const { t } = useI18n();
   const location = useSessionLocation(agent.sessionId);
   if (location.state === 'loading') return <FeedNotice>{t('feed.loading')}</FeedNotice>;
   if (location.state === 'missing') return <FeedNotice alert>{t('feed.sessionMissing')}</FeedNotice>;
   if (location.state === 'failed') return <FeedNotice alert>{t('feed.historyFailed')}</FeedNotice>;
-  return <FeedHistory sessionId={agent.sessionId} directory={location.directory} name={agent.name} />;
+  return <FeedHistory sessionId={agent.sessionId} directory={location.directory} name={agent.name} timelineOpen={timelineOpen} onTimelineOpenChange={onTimelineOpenChange} />;
 }
 
-function FeedHistory({ sessionId, directory, name }: { sessionId: string; directory: string; name: string }): React.ReactNode {
+function FeedHistory({ sessionId, directory, name, timelineOpen, onTimelineOpenChange }: {
+  sessionId: string; directory: string; name: string; timelineOpen: boolean; onTimelineOpenChange: (open: boolean) => void;
+}): React.ReactNode {
   const sync = useSync();
   const records = useSessionMessageRecords(sessionId, directory);
   const load = useSessionMessageLoadState(sessionId, directory);
@@ -63,9 +70,16 @@ function FeedHistory({ sessionId, directory, name }: { sessionId: string; direct
   }, [directory, key, renderable, sessionId, sync]);
   const entries = React.useMemo(() => feedEntries(records), [records]);
   const settledWithout = !renderable && load.status !== 'loading' && loaded.current === key;
+  const scroller = React.useRef<HTMLDivElement | null>(null);
   return (
-    <FeedTranscript entries={entries} name={name} working={status?.type === 'busy' || status?.type === 'retry'}
-      loading={!renderable && !settledWithout && load.status !== 'error'} failed={load.status === 'error' || settledWithout}
-      onRetry={() => void sync.ensureSessionRenderable(sessionId, true, directory)} />
+    <>
+      <FeedTranscript entries={entries} name={name} working={status?.type === 'busy' || status?.type === 'retry'}
+        loading={!renderable && !settledWithout && load.status !== 'error'} failed={load.status === 'error' || settledWithout}
+        onRetry={() => void sync.ensureSessionRenderable(sessionId, true, directory)} scrollerRef={scroller} />
+      <TimelineDialog open={timelineOpen} onOpenChange={onTimelineOpenChange} sessionId={sessionId} directory={directory}
+        onScrollToMessage={async messageId => scrollToFeedEntry(scroller.current, messageId)}
+        onScrollByTurnOffset={offset => scrollFeedByTurn(scroller.current, offset)}
+        onResumeToLatest={() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }} />
+    </>
   );
 }

@@ -1,8 +1,10 @@
 // smarty-code#1407: the Feed, Kate's "org feed": only the person's conversation with their Smarty (their org agent),
 // their inbox beside it, and a reply box. A bandaid until the Smarty app lands, so the layout stays plain: one readable
-// column for the conversation, the inbox to its right on a desktop and below it, behind a toggle, on a phone.
+// column for the conversation, the inbox to its right on a desktop and, on a phone, in a modal sheet the header's
+// Inbox button opens. The header's Timeline button opens the chat's Timeline to jump between the person's messages.
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/components/ui';
 import { Icon } from '@/components/icon/Icon';
@@ -17,7 +19,7 @@ import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { usePromptsInFlight } from '@/sync/prompts-in-flight';
 import { isAmbiguousSendFailure } from '@/sync/send-failure-classification';
 import { ascendingId } from '@/sync/session-actions';
-import { FeedConversation } from './FeedConversation';
+import { FeedConversation, type FeedConversationProps } from './FeedConversation';
 import { FeedNotice } from './FeedTranscript';
 import { FeedSendUnavailableError, sendFeedReply, type FeedReply } from './feedSend';
 import { readFeedDraft, useFeedDraft, useFeedStore } from './feedStore';
@@ -27,7 +29,7 @@ export type { FeedReply } from './feedSend';
 export type FeedServices = {
   loadOrgAgent: () => Promise<OrgAgentResult>;
   send: (reply: FeedReply) => Promise<void>;
-  Conversation: React.ComponentType<{ agent: OrgAgent }>;
+  Conversation: React.ComponentType<FeedConversationProps>;
 };
 const defaultServices: FeedServices = { loadOrgAgent: () => loadOrgAgent(), send: sendFeedReply, Conversation: FeedConversation };
 
@@ -50,39 +52,54 @@ export function FeedView({ onClose, compact = false, services }: { onClose: () =
   const inboxAvailable = useInboxStore(state => state.available);
   const openCount = useInboxStore(state => state.openCount);
   const [inboxShown, setInboxShown] = React.useState(!compact);
-  const inboxToggle = inboxAvailable ? (
-    <Button variant={inboxShown ? 'secondary' : 'outline'} size="sm" aria-pressed={inboxShown} aria-expanded={inboxShown}
-      className={cn(compact && 'w-full justify-between rounded-none border-x-0 border-b-0')} onClick={() => setInboxShown(shown => !shown)}>
-      {t('feed.inbox.toggle', { count: openCount })}
-      {compact ? <Icon name={inboxShown ? 'arrow-down-s' : 'arrow-up-s'} className="size-4" /> : null}
-    </Button>) : null;
+  const [timelineOpen, setTimelineOpen] = React.useState(false);
+  const inboxButton = React.useRef<HTMLButtonElement | null>(null);
+  const inboxLabel = t('feed.inbox.toggle', { count: openCount });
 
   const ready = agent.state === 'ready' ? agent.agent : null;
   let body: React.ReactNode;
-  if (ready) body = <><Conversation agent={ready} /><FeedReplyBox agent={ready} send={send} /></>;
+  if (ready) body = <><Conversation agent={ready} timelineOpen={timelineOpen} onTimelineOpenChange={setTimelineOpen} /><FeedReplyBox agent={ready} send={send} /></>;
   else if (agent.state === 'none') body = <FeedNotice>{t('feed.noOrgAgent')}</FeedNotice>;
   else if (agent.state === 'failed') body = <FeedNotice alert action={<Button size="sm" variant="outline" onClick={() => setAttempt(n => n + 1)}>{t('feed.retry')}</Button>}>{t('feed.loadFailed')}</FeedNotice>;
   else body = <FeedNotice>{t('feed.loading')}</FeedNotice>;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex items-center gap-2 border-b border-border px-4 py-2">
+      <header className={cn('flex items-center gap-2 border-b border-border', compact ? 'px-3 py-2' : 'px-4 py-3')}>
         <Icon name="chat-ai-3" className="size-4 shrink-0 text-muted-foreground" />
         <h1 className="truncate typography-ui-header font-semibold text-foreground">{ready?.name ?? t('feed.nav.label')}</h1>
-        {ready ? <span className="shrink-0 typography-micro text-muted-foreground">{ready.live ? t('feed.status.live') : t('feed.status.offline')}</span> : null}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {compact ? null : inboxToggle}
+        {ready ? (
+          <span className="flex shrink-0 items-center gap-1.5 typography-micro text-muted-foreground">
+            <span aria-hidden="true" className={cn('size-1.5 rounded-full', ready.live ? 'bg-[var(--status-success)]' : 'bg-muted-foreground/50')} />
+            {ready.live ? t('feed.status.live') : t('feed.status.offline')}
+          </span>) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {ready ? (
+            <Button variant="ghost" size="icon" className="size-8" aria-label={t('chat.timeline.title')} title={t('chat.timeline.title')}
+              aria-haspopup="dialog" onClick={() => setTimelineOpen(true)}><Icon name="time" className="size-4" /></Button>) : null}
+          {inboxAvailable ? (
+            <Button ref={inboxButton} variant={inboxShown ? 'secondary' : 'outline'} size="sm" aria-expanded={inboxShown}
+              aria-haspopup={compact ? 'dialog' : undefined} aria-pressed={compact ? undefined : inboxShown} onClick={() => setInboxShown(shown => !shown)}>
+              {inboxLabel}
+            </Button>) : null}
           <Button variant="ghost" size="icon" className="size-8" aria-label={t('feed.close')} onClick={onClose}><Icon name="close" className="size-4" /></Button>
         </div>
       </header>
-      <div className={cn('flex min-h-0 flex-1', compact ? 'flex-col' : 'flex-row')}>
+      <div className="flex min-h-0 flex-1 flex-row">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">{body}</section>
-        {compact ? inboxToggle : null}
-        {inboxAvailable && inboxShown ? (
-          <aside className={cn('min-h-0 shrink-0 bg-background', compact ? 'h-[55%] border-t border-border' : 'w-1/3 min-w-[320px] border-l border-border')}>
+        {!compact && inboxAvailable && inboxShown ? (
+          <aside className="w-1/3 min-w-[320px] min-h-0 shrink-0 border-l border-border bg-background">
             <InboxView compact onClose={() => setInboxShown(false)} />
           </aside>) : null}
       </div>
+      {/* On a phone the inbox is a modal sheet: focus stays inside while it is open and returns to the Inbox button. */}
+      {compact && inboxAvailable ? (
+        <Dialog open={inboxShown} onOpenChange={setInboxShown}>
+          <DialogContent showCloseButton={false} finalFocus={inboxButton} aria-label={inboxLabel}
+            className="mt-auto -mb-4 h-[86dvh] max-w-none gap-0 overflow-hidden rounded-b-none border-b-0 p-0">
+            <InboxView compact onClose={() => setInboxShown(false)} />
+          </DialogContent>
+        </Dialog>) : null}
     </div>
   );
 }
