@@ -190,6 +190,14 @@ and the send path reading the same grammar.
   an explicit re-send. The watchdog restores input on the current verified owner;
   a late acceptance removes only its own untouched copy. This transfer never
   posts input automatically and ordinary navigation does not transfer recovery.
+  If a move meets another recovery group for the same target and content, both
+  client IDs and their live attempts remain tracked. For the unchanged content
+  signature, a restored copy does not permit another Send until every colliding
+  outcome is known. A reservation conflict remains unresolved, not a definite
+  refusal or acceptance. Content signatures still use the current whole editor
+  text and restored parts. Joining copies to newer text or restoring duplicate
+  synthetic parts can change that signature; the bucket fence alone does not
+  recognize those copies as a retry.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It

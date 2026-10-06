@@ -29,7 +29,7 @@ type Hooks = {
   clearIfUntouched: () => void;
   notify: (kind: RecoveryNotice) => void;
 };
-type Group = Hooks & { key: string; target: string; messageID: string; pending: number; delivered: boolean; copyInComposer: boolean; saved: boolean;
+type Group = Hooks & { key: string; target: string; messageID: string; pending: number; reservationUnresolved: boolean; delivered: boolean; copyInComposer: boolean; saved: boolean;
   due: RecoveryNotice | null; timers: Set<ReturnType<typeof setTimeout>> };
 export type RecoveryAttempt = {
   /** The client message ID this attempt must send with (the group's, fixed at its first Send). */
@@ -44,17 +44,45 @@ export type RecoveryAttempt = {
 type Timers = { set: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>; clear: (t: ReturnType<typeof setTimeout>) => void };
 
 export class SendRecovery {
-  private groups = new Map<string, Group>();
+  /** A target/content bucket owns every colliding group until all attempts and reservations are accounted for.
+   * Keeping settled members during that lifetime makes the collision fence travel with the bucket on later moves. */
+  private groups = new Map<string, Group[]>();
   constructor(private ms: () => number, private newID: () => string,
     private timers: Timers = { set: (fn, ms) => setTimeout(fn, ms), clear: t => clearTimeout(t) }) {}
+
+  private isReservationUnresolved(group: Group) {
+    return group.pending > 0 || group.reservationUnresolved;
+  }
+
+  private blockingGroup(groups: Group[]) {
+    if (groups.length > 1) return groups.find(group => this.isReservationUnresolved(group));
+    return groups.find(group => this.isReservationUnresolved(group) && (group.delivered || !group.copyInComposer));
+  }
+
+  /** Acceptance resolves this ID's reservation, not other attempts' outcomes or another colliding ID. */
+  private retireDeliveredGroups(group: Group) {
+    const groups = this.groups.get(group.key);
+    if (!groups || groups.some(candidate => this.isReservationUnresolved(candidate))) return;
+    for (const candidate of groups) if (candidate.delivered) this.drop(candidate);
+  }
+
+  private removeGroup(group: Group) {
+    const groups = this.groups.get(group.key);
+    if (!groups) return;
+    const remaining = groups.filter(candidate => candidate !== group);
+    if (remaining.length) this.groups.set(group.key, remaining);
+    else this.groups.delete(group.key);
+  }
 
   /** The content signature: text plus the identity of every attached file and context part. */
   static signature(text: string, attachments: readonly string[] = []) { return JSON.stringify([text, [...attachments].sort()]); }
 
   /** True when a Send of `content` to `target` would post it twice (its send is unanswered and its text not given back). */
   wouldBlock(target: string, content: string) {
-    const g = this.groups.get(`${target}\u0000${content}`);
-    return !!g && !g.delivered && g.pending > 0 && !g.copyInComposer;
+    const key = `${target}\u0000${content}`;
+    const groups = this.groups.get(key);
+    if (!groups) return false;
+    return !!this.blockingGroup(groups);
   }
 
   /**
@@ -63,32 +91,47 @@ export class SendRecovery {
    */
   begin(target: string, content: string, hooks: Hooks): RecoveryAttempt | null {
     const key = `${target}\u0000${content}`;
-    let g = this.groups.get(key);
-    if (g && !g.delivered && g.pending > 0 && !g.copyInComposer) { g.notify('still-pending'); return null; }
-    if (g && !g.delivered && g.copyInComposer) {
-      // The restored copy goes again: the same message, the same ID. The copy leaves the composer (it clears at Send).
-      g.copyInComposer = false; g.saved = false; g.due = null; Object.assign(g, hooks);
-    } else {
-      if (g) this.drop(g);
-      g = { key, target, ...hooks, messageID: this.newID(), pending: 0, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
-      this.groups.set(key, g);
+    let group: Group | undefined;
+    const groups = this.groups.get(key);
+    if (groups?.length) {
+      const blocking = this.blockingGroup(groups);
+      if (blocking) { blocking.notify('still-pending'); return null; }
+      group = groups.find(candidate => !candidate.delivered && candidate.copyInComposer);
+      // Only fully accounted-for groups can be retired here. A restored singleton still retries its own ID.
+      for (const candidate of groups) if (candidate !== group) this.drop(candidate);
     }
-    const group = g; let settled = false;
-    group.pending += 1;
-    const timer = this.arm(group);
-    const settle = () => { if (settled) return false; settled = true; group.pending -= 1; this.timers.clear(timer); group.timers.delete(timer); return true; };
+    if (group && !group.delivered && group.copyInComposer) {
+      // The restored copy goes again: the same message, the same ID. The copy leaves the composer (it clears at Send).
+      group.copyInComposer = false; group.saved = false; group.due = null; Object.assign(group, hooks);
+    } else {
+      if (group) this.drop(group);
+      group = { key, target, ...hooks, messageID: this.newID(), pending: 0, reservationUnresolved: false, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
+      this.groups.set(key, [group]);
+    }
+    const activeGroup = group; let settled = false;
+    activeGroup.pending += 1;
+    const timer = this.arm(activeGroup);
+    const settle = () => { if (settled) return false; settled = true; activeGroup.pending -= 1; this.timers.clear(timer); activeGroup.timers.delete(timer); return true; };
     return {
-      messageID: group.messageID,
+      messageID: activeGroup.messageID,
       accepted: () => {
         if (!settle()) return;
-        group.delivered = true; group.due = null;
-        if (group.copyInComposer || group.saved) { group.copyInComposer = group.saved = false; group.clearIfUntouched(); group.notify('delivered-late'); }
-        this.drop(group);
+        activeGroup.reservationUnresolved = false;
+        activeGroup.delivered = true; activeGroup.due = null;
+        if (activeGroup.copyInComposer || activeGroup.saved) { activeGroup.copyInComposer = activeGroup.saved = false; activeGroup.clearIfUntouched(); activeGroup.notify('delivered-late'); }
+        this.retireDeliveredGroups(activeGroup);
       },
-      conflict: () => { if (settle() && !group.delivered) this.arm(group); return group.delivered; },
+      conflict: () => {
+        if (settle()) {
+          if (!activeGroup.delivered) { activeGroup.reservationUnresolved = true; this.arm(activeGroup); }
+          this.retireDeliveredGroups(activeGroup);
+        }
+        return activeGroup.delivered;
+      },
       refused: () => {
-        if (!settle() || group.delivered || group.copyInComposer || group.pending > 0) return;
-        this.giveBack(group, null);
+        if (!settle()) return;
+        if (!activeGroup.delivered && !activeGroup.copyInComposer && activeGroup.pending === 0) this.giveBack(activeGroup, null);
+        this.retireDeliveredGroups(activeGroup);
       },
     };
   }
@@ -96,29 +139,35 @@ export class SendRecovery {
   /** A verified same-session owner move changes routing, never submission identity or attempt lifetime. */
   transferTarget(source: string, destination: string, copyRetained = true) {
     if (source === destination) return;
-    for (const g of [...this.groups.values()]) {
-      if (g.target !== source) continue;
-      const content = g.key.slice(source.length);
-      this.groups.delete(g.key);
-      g.target = destination;
-      g.key = `${destination}${content}`;
-      g.retarget?.(copyRetained);
-      if (!copyRetained) {
-        if (g.copyInComposer) g.due = 'still-pending';
-        g.copyInComposer = false;
-        g.saved = false;
+    for (const [sourceKey, sourceGroups] of [...this.groups.entries()]) {
+      if (!sourceGroups.some(group => group.target === source)) continue;
+      const moving = sourceGroups.filter(group => group.target === source);
+      const content = sourceKey.slice(source.length);
+      const destinationKey = `${destination}${content}`;
+      const destinationGroups = this.groups.get(destinationKey) ?? [];
+      const remaining = sourceGroups.filter(group => group.target !== source);
+      if (remaining.length) this.groups.set(sourceKey, remaining); else this.groups.delete(sourceKey);
+      for (const group of moving) {
+        group.target = destination;
+        group.key = destinationKey;
+        group.retarget?.(copyRetained);
+        if (!copyRetained) {
+          if (group.copyInComposer) group.due = 'still-pending';
+          group.copyInComposer = false;
+          group.saved = false;
+        }
       }
-      this.groups.set(g.key, g);
+      this.groups.set(destinationKey, [...destinationGroups, ...moving]);
     }
   }
 
   /** The composer shows `target` again: every group due there comes back now, in the order it became due. */
   flush(target: string) {
-    for (const g of [...this.groups.values()]) if (g.target === target && g.due && !g.delivered && !g.copyInComposer) this.giveBack(g, g.due === 'still-pending' ? null : g.due);
+    for (const g of [...this.groups.values()].flat()) if (g.target === target && g.due && !g.delivered && !g.copyInComposer) this.giveBack(g, g.due === 'still-pending' ? null : g.due);
   }
 
   /** Whether any group's input is due (not back yet): a reload waits (lib/newBuildReload). */
-  hasDue() { return [...this.groups.values()].some(g => g.due && !g.delivered && !g.copyInComposer); }
+  hasDue() { return [...this.groups.values()].flat().some(g => g.due && !g.delivered && !g.copyInComposer); }
 
   /** Brings a group's input back now, or marks it due for when its target is shown. */
   private giveBack(g: Group, notice: RecoveryNotice | null) {
@@ -144,6 +193,6 @@ export class SendRecovery {
   private drop(g: Group) {
     for (const t of g.timers) this.timers.clear(t);
     g.timers.clear();
-    if (this.groups.get(g.key) === g) this.groups.delete(g.key);
+    this.removeGroup(g);
   }
 }

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { mountedNativeComposer } from './nativeComposer.fixture';
 import { deferred, directory as A, session } from '@/sync/native-draft-fixture';
+import { adoptObservedSessionOwner } from '@/sync/session-actions';
 import { checkSelectedSessionOwner } from '@/sync/selected-session-owner';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -228,6 +229,97 @@ for (const persist of [false, true]) for (const timing of ['before', 'after'] as
     expect(c.text().trim()).toBe(persist ? destination : '');
     expect(readChatDraft(c.identity(B))).toEqual({ text: destination, confirmedMentions: new Set(['destination.md']) });
     expect(c.prompts()).toHaveLength(1);
+  });
+}
+
+for (const accepted of ['original-A', 'moved-B'] as const) {
+  test(`actual composer collision blocks untouched watchdog copy until every outcome is known, accepted ${accepted}`, async () => {
+    const c = await mount(), text = 'same-content collision';
+    await c.replace(text);
+    await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
+    sendUnconfirmed.ms = 1_000;
+    const original = deferred<Response>(), moved = deferred<Response>();
+    let dispatches = 0, admissions = 0;
+    c.handlers.prompt = async () => {
+      dispatches++;
+      if (dispatches === 1) return original.promise;
+      if (dispatches === 2) return moved.promise;
+      admissions++;
+      return new Response(null, { status: 204 });
+    };
+    try {
+      await c.submit();
+      expect(c.prompts()).toHaveLength(1);
+      await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
+      await settle();
+
+      // Offscreen adoption changes the session owner, not the mounted A recovery.
+      await act(async () => adoptObservedSessionOwner(row(B), A));
+      await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: B }));
+      await settle();
+      expect(c.text()).toBe('');
+      await c.replace(text);
+      await c.submit();
+      expect(c.prompts()).toHaveLength(2);
+      const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
+      expect(sent[1].messageID).not.toBe(sent[0].messageID);
+      expect(c.prompts().map(request => new URL(request.url).searchParams.get('directory'))).toEqual([A, B]);
+
+      // The selected-owner operation performs real strict/scoped detail reads and loader adoption.
+      await act(async () => c.children.ensureChild(A, { bootstrap: false }).setState({ session: [row(A)] }));
+      const baseFetch = globalThis.fetch;
+      let detailReads = 0;
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init), url = new URL(request.url);
+        if (request.method === 'GET' && url.hostname === 'synthetic.invalid' && url.pathname.endsWith(`/session/${session.id}`)) {
+          detailReads++; c.requests.push(request);
+          return Response.json(row(A));
+        }
+        return baseFetch(input, init);
+      };
+      try {
+        await act(async () => { await checkSelectedSessionOwner(session.id, B); });
+      } finally {
+        globalThis.fetch = baseFetch;
+      }
+      expect(detailReads).toBe(2);
+      expect(useSessionUIStore.getState().selectedManagedOwner?.status).toBe('live');
+      expect(useSessionUIStore.getState().currentSessionDirectory).toBe(A);
+      expect(c.prompts()).toHaveLength(2); // Verification never replays either POST.
+
+      await act(async () => { await sleep(1_100); });
+      expect(c.text()).toBe(text); // Both watchdogs restore; identical plain text remains one copy.
+      await c.submit(); // Untouched restored input, with no rewrite to hide a signature change.
+      expect(c.prompts()).toHaveLength(2);
+      expect(c.text()).toBe(text);
+
+      const receipt = accepted === 'original-A' ? original : moved;
+      const held = accepted === 'original-A' ? moved : original;
+      await act(async () => { admissions++; receipt.resolve(new Response(null, { status: 204 })); await sleep(20); });
+      expect(c.text()).toBe(''); // Late acceptance consumes its untouched restored copy.
+      await c.replace(text);
+      await c.submit();
+      expect(c.prompts()).toHaveLength(2); // The other original callback is still unresolved.
+      expect(c.text()).toBe(text);
+      expect(admissions).toBe(1);
+      await act(async () => { held.resolve(new Response(null, { status: 409 })); await sleep(20); });
+      expect(c.prompts()).toHaveLength(2);
+      expect(admissions).toBe(1); // Exactly one admission in the defined colliding settlement sequence.
+
+      // Fully accounted-for outcomes are not a permanent content ban. A deliberate new Send is allowed.
+      await c.replace('Different deliberate input');
+      await c.replace(text);
+      await c.submit(); await settle();
+      expect(c.prompts()).toHaveLength(3);
+      expect(admissions).toBe(2);
+      expect(c.creates()).toHaveLength(0);
+    } finally {
+      await act(async () => {
+        original.resolve(new Response(null, { status: 409 }));
+        moved.resolve(new Response(null, { status: 409 }));
+        await sleep(20);
+      });
+    }
   });
 }
 

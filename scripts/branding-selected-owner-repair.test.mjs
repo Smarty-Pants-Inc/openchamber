@@ -7,15 +7,15 @@ import { responsePolicyOutputSha256 } from './branding-response-policy.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const read = file => readFileSync(new URL(`../${file}`, import.meta.url));
-// Copied from the frozen round-4 parent-native receipt, SHA256 83c6f2b4.
+// Copied from the frozen round-4/security parent-native receipt, SHA256 17dadb0b.
 // Never learned from the candidate ledger or filesystem; no Git object dependency.
 const inventory = [
   ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', '6f2e45a900da3bafd8c6c2fd9b0892e140be2a23',
     'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', 'ca06443f2ae4567b5057e8dae4c2853abb099a0d1056b072d5cdbde6fc63a092',
     'Transfer pending recovery target and owned input only after verified same-session owner adoption.'],
-  ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', '2134c269430e53b822ebf0f18b2dc17921ca3520',
-    '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'aae854fa750dc23eee2287bfcfa79db9d08b3347234f29db8c10c089de735a67',
-    'Document pending Send recovery and client identity across a verified same-session owner move.'],
+  ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', 'f63bb8d703c736f92793ab53d52907bdc85cfd2d',
+    '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'e372648aa2a5096b9a5adad4bf7307997e66c496b552abab3fb91baba4de9e54',
+    'Document verified owner transfer and collision blocking until every Send outcome is accounted for.'],
   ['M', 'packages/ui/src/components/chat/composer/state/useComposerDraft.ts', 'a016acfef2c108e95982c945dd6005c1d77c4aae', '795c8717aa9f7ea0b167e89a2968cdfcdf68d08c',
     '6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011', '842c701a5ed447c9aa409f81b0c479ede079a07baed0c2c5a556d3fb6d03cc47',
     'Transfer live editor and pending-send recovery identity through the verified owner-move boundary.'],
@@ -25,15 +25,15 @@ const inventory = [
   ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx', null, '61b0f5cfd806fc8fb175f64b5c0041ac33b63301',
     null, '9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e',
     'Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection.'],
-  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '739479d0b06ee9e098237d9a2b93271446a9c260',
-    null, '94e91919fb5cf2c507610a2155bf0794cb5162699a0e5dc82bde00a1d2873a65',
-    'Cover held POST moves before and after watchdog restoration, drafts on/off, one client ID and late cleanup.'],
-  ['M', 'packages/ui/src/lib/sendRecovery.test.ts', '9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29', 'fb30e14db87d84e5c26136e32024f531a8b1f575',
-    'a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d', 'bd920b6d8f7d88804ac6deb79c9f34ba92a641e91d852653f96113c827447799',
-    'Cover transferred recovery groups, explicit resend deduplication, late acceptance and unrelated-target isolation.'],
-  ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '613f5a47cd5dc3b4304f2f82cdc12db93632c412',
-    '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', 'b5cd0ae30133737354df0227389f2012d1de307219c3e499b9b7a7410496ca3c',
-    'Retarget pending recovery groups only through verified same-session owner transfer while preserving client IDs and owned input.'],
+  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx', null, '2770e2a4a1048556fa25f839adda4d4892ba2c77',
+    null, '694d4dee5e585cfbd842e249a7c555c0c7c3e366c29f67ea6b9978eb3497812e',
+    'Cover held POST moves, offscreen recovery collisions, retry blocking, preserved callbacks and one synthetic native admission.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.test.ts', '9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29', 'adbc181b7a0a6a2e8d56e1133966067d435dc69c',
+    'a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d', 'b9326eeb9d5717c9d3e9ed94ada4d96c8e1df599c7220ac1869af3fa47ff38ad',
+    'Cover offscreen owner collisions, all settlement orders, reservation conflicts, later moves and safe same-ID retries.'],
+  ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '94456897742cef074705806ea1225455515968a0',
+    '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', 'd5b0a8fbac911b2665ecb59158f327a9fa932a5aa0ef5fc378ea406e55945b12',
+    'Preserve all colliding recovery groups, client IDs and unresolved reservations through verified owner moves; block retries until settlement.'],
   ['M', 'packages/ui/src/sync/DOCUMENTATION.md', '16d18c486a11185137809abd0787bb3f48157ddf', '5b0a9b84bec562a07524ec1b0ec6d7bc3c722a91',
     '6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4', 'b2500f9fddea9bd6138aa505dc6d059e302a771ddf6667d485e460acf6217a7f',
     'Document bounded quiet history recovery and verified pending submission ownership transfer.'],
@@ -74,14 +74,14 @@ const inventory = [
 const expected = {
   schemaVersion: 1, pullRequest: 549, issue: 'smarty-code#1378',
   baseHead: '11796181f2f7341730e3a467b347bdd0470b0642', sourceTreePath: 'packages/ui',
-  sourceTree: 'deaf2f4a126354d22ddaf2f4e5fe40c8d770e8da', objectFormat: 'sha1',
+  sourceTree: 'c257d60579e3d4935bf3c9f18ccaed263c49ca6a', objectFormat: 'sha1',
   predecessorLedgerSha256: '976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b',
   predecessorLedgerBytesSha256: '25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1',
   scope: inventory.map(([status, path]) => ({ status, path })),
   files: inventory.map(([status, path, predecessorBlob, blob, predecessorSha256, sha256, note]) => ({
     status, path, predecessorBlob, blob, predecessorMode: status === 'A' ? null : '100644', mode: '100644', predecessorSha256, sha256, note,
   })),
-  note: 'Parent-native export of the frozen PR549 round-4 repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
+  note: 'Parent-native export of the frozen PR549 round-4 and security collision repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
 };
 function assertInventory(candidate, readSource = read, ledgerBytes = read('branding/behavior-overlay.json')) {
   assert.deepEqual(candidate, expected);

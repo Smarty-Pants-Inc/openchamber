@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "deaf2f4a126354d22ddaf2f4e5fe40c8d770e8da",
+  "sourceTree": "c257d60579e3d4935bf3c9f18ccaed263c49ca6a",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -41,11 +41,11 @@
     },
     {
       "status": "M", "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md",
-      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405", "blob": "2134c269430e53b822ebf0f18b2dc17921ca3520",
+      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405", "blob": "f63bb8d703c736f92793ab53d52907bdc85cfd2d",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d",
-      "sha256": "aae854fa750dc23eee2287bfcfa79db9d08b3347234f29db8c10c089de735a67",
-      "note": "Document pending Send recovery and client identity across a verified same-session owner move."
+      "sha256": "e372648aa2a5096b9a5adad4bf7307997e66c496b552abab3fb91baba4de9e54",
+      "note": "Document verified owner transfer and collision blocking until every Send outcome is accounted for."
     },
     {
       "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts",
@@ -73,27 +73,27 @@
     },
     {
       "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
-      "predecessorBlob": null, "blob": "739479d0b06ee9e098237d9a2b93271446a9c260",
+      "predecessorBlob": null, "blob": "2770e2a4a1048556fa25f839adda4d4892ba2c77",
       "predecessorMode": null, "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "94e91919fb5cf2c507610a2155bf0794cb5162699a0e5dc82bde00a1d2873a65",
-      "note": "Cover held POST moves before and after watchdog restoration, drafts on/off, one client ID and late cleanup."
+      "sha256": "694d4dee5e585cfbd842e249a7c555c0c7c3e366c29f67ea6b9978eb3497812e",
+      "note": "Cover held POST moves, offscreen recovery collisions, retry blocking, preserved callbacks and one synthetic native admission."
     },
     {
       "status": "M", "path": "packages/ui/src/lib/sendRecovery.test.ts",
-      "predecessorBlob": "9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29", "blob": "fb30e14db87d84e5c26136e32024f531a8b1f575",
+      "predecessorBlob": "9fedb39b999a1c2ff654e4b4ee8307b68f9c0f29", "blob": "adbc181b7a0a6a2e8d56e1133966067d435dc69c",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "a311ecf41a20c64cfbb88e9f89ae2d75a8c98a3af019298f65efc1b15a201d8d",
-      "sha256": "bd920b6d8f7d88804ac6deb79c9f34ba92a641e91d852653f96113c827447799",
-      "note": "Cover transferred recovery groups, explicit resend deduplication, late acceptance and unrelated-target isolation."
+      "sha256": "b9326eeb9d5717c9d3e9ed94ada4d96c8e1df599c7220ac1869af3fa47ff38ad",
+      "note": "Cover offscreen owner collisions, all settlement orders, reservation conflicts, later moves and safe same-ID retries."
     },
     {
       "status": "M", "path": "packages/ui/src/lib/sendRecovery.ts",
-      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e", "blob": "613f5a47cd5dc3b4304f2f82cdc12db93632c412",
+      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e", "blob": "94456897742cef074705806ea1225455515968a0",
       "predecessorMode": "100644", "mode": "100644",
       "predecessorSha256": "52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42",
-      "sha256": "b5cd0ae30133737354df0227389f2012d1de307219c3e499b9b7a7410496ca3c",
-      "note": "Retarget pending recovery groups only through verified same-session owner transfer while preserving client IDs and owned input."
+      "sha256": "d5b0a8fbac911b2665ecb59158f327a9fa932a5aa0ef5fc378ea406e55945b12",
+      "note": "Preserve all colliding recovery groups, client IDs and unresolved reservations through verified owner moves; block retries until settlement."
     },
     {
       "status": "M", "path": "packages/ui/src/sync/DOCUMENTATION.md",
@@ -192,5 +192,5 @@
       "note": "Arm and consume only the selected verified same-session draft transfer under runtime and reveal revision fences."
     }
   ],
-  "note": "Parent-native export of the frozen PR549 round-4 repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the frozen PR549 round-4 and security collision repair: 20 UI files, 13 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }

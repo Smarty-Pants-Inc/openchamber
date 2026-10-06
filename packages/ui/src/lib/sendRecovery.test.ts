@@ -4,9 +4,12 @@ import { SendRecovery, type RecoveryNotice } from './sendRecovery';
 // smarty-code#827 (openchamber#375 reviews 2 and 3): each submission's recovery is its own, keyed by target and content;
 // its client ID is fixed at its first Send; its input comes back only into its own target's composer.
 function harness() {
-  let now = 0; const due: { at: number; fn: () => void; id: number }[] = []; let next = 1, ids = 0;
-  const timers = { set: (fn: () => void, ms: number) => { const id = next++; due.push({ at: now + ms, fn, id }); return id as unknown as ReturnType<typeof setTimeout>; },
-    clear: (t: ReturnType<typeof setTimeout>) => { const i = due.findIndex(d => d.id === (t as unknown as number)); if (i >= 0) due.splice(i, 1); } };
+  let now = 0; const due: { at: number; fn: () => void; id: ReturnType<typeof setTimeout> }[] = []; let ids = 0;
+  const timers = { set: (fn: () => void, ms: number) => {
+    // Use an immediately cancelled native handle as identity; only advance() executes the fixture callback.
+    const id = setTimeout(() => {}, 0); clearTimeout(id);
+    due.push({ at: now + ms, fn, id }); return id;
+  }, clear: (t: ReturnType<typeof setTimeout>) => { const i = due.findIndex(d => d.id === t); if (i >= 0) due.splice(i, 1); } };
   const advance = (ms: number) => { now += ms; for (let d; (d = due.filter(x => x.at <= now).sort((a, b) => a.at - b.at)[0]); ) { due.splice(due.indexOf(d), 1); d.fn(); } };
   const r = new SendRecovery(() => 15_000, () => `msg_${++ids}`, timers);
   const log: string[] = [];
@@ -16,6 +19,27 @@ function harness() {
   return { r, log, advance, hooks, show: (t: string) => { shown = t; r.flush(t); } };
 }
 const A = SendRecovery.signature('text A'), B = SendRecovery.signature('text B');
+
+// Navigation does not transfer recovery. Only the later verified B -> A adoption does.
+function offscreenCollision() {
+  const h = harness();
+  const original = h.r.begin('s1', A, h.hooks('original'))!;
+  h.show('s2');
+  let target = 's2', destination = 's1';
+  const movedHooks = () => ({
+    restore: () => h.hooks('moved', target).restore(),
+    retarget: () => { target = destination; },
+    clearIfUntouched: h.hooks('moved').clearIfUntouched,
+    notify: h.hooks('moved').notify,
+  });
+  const moved = h.r.begin('s2', A, movedHooks())!;
+  const move = (next: string, copyRetained = true) => {
+    const source = target; destination = next;
+    h.r.transferTarget(source, next, copyRetained);
+  };
+  h.show('unrelated'); move('s1');
+  return { ...h, original, moved, movedHooks, move };
+}
 
 test('an unanswered send gives its input back after 15 s; a late acceptance clears that copy', () => {
   const { r, log, advance, hooks } = harness();
@@ -54,6 +78,160 @@ for (const timing of ['before', 'after', 'due'] as const) test(`verified target 
   retry.conflict(); advance(15_000);
   first.accepted(); expect(log).toContain('clear s2');
   advance(60_000); expect(log.filter(entry => entry.startsWith('restore'))).toHaveLength(2);
+});
+
+test('an offscreen owner move keeps a destination collision reservation blocking retries', () => {
+  const { r, log, advance, hooks, show } = harness();
+  const first = r.begin('s1', A, hooks('first', 's1'))!;
+  show('unrelated'); advance(15_000);
+  show('s1'); expect(log).toContain('restore first'); show('unrelated');
+  const destination = r.begin('s2', A, hooks('destination', 's2'))!;
+  r.transferTarget('s1', 's2');
+  first.accepted();
+  expect(r.begin('s2', A, hooks('duplicate', 's2'))).toBeNull();
+  expect(destination.messageID).not.toBe(first.messageID);
+  destination.refused();
+});
+
+test('exact offscreen B -> A adoption preserves the original A reservation after B settles', () => {
+  const { r, original, moved, advance, show, hooks } = offscreenCollision();
+  expect(moved.messageID).not.toBe(original.messageID);
+  moved.accepted();
+  advance(15_000); show('s1');
+  expect(r.wouldBlock('s1', A)).toBe(true);
+  expect(r.begin('s1', A, hooks('unsafe'))).toBeNull();
+  original.refused();
+});
+
+for (const first of ['original', 'moved'] as const) {
+  for (const outcome of ['accepted', 'refused', 'conflict'] as const) {
+    test(`collision remains fenced after ${first} ${outcome}, including restored copies and late moves`, () => {
+      const h = offscreenCollision();
+      h.advance(15_000); h.show('s1');
+      h[first][outcome]();
+      expect(h.r.wouldBlock('s1', A)).toBe(true);
+      expect(h.r.begin('s1', A, h.hooks('unsafe'))).toBeNull();
+      h.move('s3', false); h.show('s3');
+      expect(h.r.wouldBlock('s3', A)).toBe(true);
+      expect(h.r.begin('s3', A, h.hooks('unsafe', 's3'))).toBeNull();
+      h.move('s4'); h.advance(60_000); h.show('s4');
+      expect(h.r.wouldBlock('s4', A)).toBe(true);
+      expect(h.r.begin('s4', A, h.hooks('unsafe', 's4'))).toBeNull();
+    });
+  }
+}
+
+test('a conflicted collision member remains reserved after the other member accepts', () => {
+  const h = offscreenCollision();
+  h.moved.conflict(); h.original.accepted();
+  h.advance(15_000); h.show('s1');
+  expect(h.r.wouldBlock('s1', A)).toBe(true);
+  expect(h.r.begin('s1', A, h.hooks('unsafe'))).toBeNull();
+  h.move('s3'); h.show('s3');
+  expect(h.r.wouldBlock('s3', A)).toBe(true);
+  expect(h.r.begin('s3', A, h.hooks('unsafe', 's3'))).toBeNull();
+  // Duplicate callbacks cannot turn the earlier conflict into a definite refusal or acceptance.
+  h.moved.refused(); h.moved.accepted();
+  expect(h.r.wouldBlock('s3', A)).toBe(true);
+});
+
+for (const finalOutcome of ['accepted', 'refused', 'conflict'] as const) {
+  test(`an accepted group remains indexed until its pending same-ID retry ${finalOutcome}`, () => {
+    const { r, advance, hooks } = harness();
+    const original = r.begin('s1', A, hooks('original'))!;
+    advance(15_000);
+    const retry = r.begin('s1', A, hooks('retry'))!;
+    expect(retry.messageID).toBe(original.messageID);
+    original.accepted();
+    expect(r.wouldBlock('s1', A)).toBe(true);
+    expect(r.begin('s1', A, hooks('unsafe'))).toBeNull();
+    r.transferTarget('s1', 's2');
+    expect(r.wouldBlock('s2', A)).toBe(true);
+    retry[finalOutcome]();
+    expect(r.wouldBlock('s2', A)).toBe(false);
+    const fresh = r.begin('s2', A, hooks('new', 's2'))!;
+    expect(fresh.messageID).not.toBe(original.messageID);
+  });
+}
+
+test('a settled accepted group with a live retry still participates in a later collision', () => {
+  const { r, advance, hooks, show } = harness();
+  const original = r.begin('s1', A, hooks('original'))!;
+  advance(15_000);
+  const retry = r.begin('s1', A, hooks('retry'))!;
+  original.accepted();
+  const other = r.begin('s2', A, hooks('other', 's2'))!;
+  r.transferTarget('s2', 's1'); other.refused(); show('s1');
+  expect(r.begin('s1', A, hooks('unsafe'))).toBeNull();
+  retry.conflict();
+  expect(r.wouldBlock('s1', A)).toBe(false);
+});
+
+for (const order of ['original-first', 'moved-first'] as const) {
+  test(`all definitely refused collision outcomes allow an explicit same-ID retry, ${order}`, () => {
+    const h = offscreenCollision();
+    if (order === 'original-first') { h.original.refused(); h.moved.refused(); }
+    else { h.moved.refused(); h.original.refused(); }
+    h.show('s1');
+    expect(h.r.wouldBlock('s1', A)).toBe(false);
+    const retry = h.r.begin('s1', A, h.hooks('retry'))!;
+    expect([h.original.messageID, h.moved.messageID]).toContain(retry.messageID);
+    retry.accepted();
+    expect(h.r.begin('s1', A, h.hooks('genuinely new'))!.messageID).not.toBe(retry.messageID);
+  });
+}
+
+test('three colliding groups keep every reservation through multiple empty-target moves', () => {
+  const h = offscreenCollision();
+  const third = h.r.begin('s3', A, h.hooks('third', 's3'))!;
+  h.move('s3'); h.move('s4'); h.advance(15_000); h.show('s4');
+  h.original.accepted(); h.moved.refused();
+  expect(h.r.begin('s4', A, h.hooks('unsafe', 's4'))).toBeNull();
+  third.conflict();
+  h.move('s5'); h.show('s5');
+  expect(h.r.wouldBlock('s5', A)).toBe(true);
+  expect(h.r.begin('s5', A, h.hooks('unsafe', 's5'))).toBeNull();
+  expect(h.r.begin('s5', B, h.hooks('unrelated content', 's5'))).not.toBeNull();
+  expect(h.r.begin('other-session', A, h.hooks('unrelated session', 'other-session'))).not.toBeNull();
+});
+
+test('legitimate backend refusal fixture admits one native send and no automatic or unsafe collision retry', async () => {
+  const h = harness();
+  const posted: string[] = [], admitted: string[] = [];
+  let owner = 's1';
+  const send = (target: string, name: string) => {
+    let copyTarget = target;
+    const attempt = h.r.begin(target, A, {
+      ...h.hooks(name, target),
+      restore: () => h.hooks(name, copyTarget).restore(),
+      retarget: () => { copyTarget = owner; },
+    });
+    if (!attempt) return null;
+    posted.push(attempt.messageID);
+    let answer: (accepted: boolean) => void = () => { throw new Error('Native fixture receipt is not bound'); };
+    const receipt = new Promise<boolean>(resolve => { answer = resolve; });
+    const settled = receipt.then(accepted => {
+      if (accepted) { admitted.push(attempt.messageID); attempt.accepted(); }
+      else attempt.refused();
+    });
+    return { messageID: attempt.messageID, answer, settled };
+  };
+  const original = send('s1', 'original')!;
+  h.show('s2'); const moved = send('s2', 'moved')!;
+  expect(moved.messageID).not.toBe(original.messageID);
+  h.show('unrelated'); h.r.transferTarget('s2', 's1');
+  // Two POSTs already exist. This fixture requires B's definite backend refusal, not dedupe of distinct IDs.
+  moved.answer(false); await moved.settled;
+  h.advance(15_000); h.show('s1');
+  expect(send('s1', 'unsafe')).toBeNull();
+  owner = 's3'; h.r.transferTarget('s1', owner); h.show(owner);
+  expect(send(owner, 'unsafe')).toBeNull();
+  original.answer(true); await original.settled;
+  h.advance(60_000); h.show(owner);
+  expect(posted).toEqual([original.messageID, moved.messageID]);
+  expect(admitted).toEqual([original.messageID]);
+  expect(h.r.wouldBlock(owner, A)).toBe(false);
+  expect(h.log).toContain('clear original');
 });
 
 test('a transfer never rebinds another target\'s recovery or grants automatic resend', () => {
