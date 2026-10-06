@@ -244,7 +244,7 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
   const layer = overlay.files.filter(entry => 'hostPowerRemovalSha256' in entry);
   assert.equal(layer.length, 25);
   assert.equal(sha256(JSON.stringify(layer.map(entry => [entry.path, entry.hostPowerRemovalBaseSha256, entry.hostPowerRemovalSha256]))),
-    '507c1a004c3095ad211b0b67dac0875405f44894ef6970d73d391a533c0b9628');
+    '8185c3da631b2dacfb5881ff41d9d758a1ae2c12bcf4b07412f608ab6c520827');
   // Existing overlaps keep every earlier field; the layer records the exact predecessor bytes and its successor.
   const extended = layer.filter(entry => !entry.hostPowerRemovalAdded);
   assert.deepEqual(extended.map(entry => entry.path), [

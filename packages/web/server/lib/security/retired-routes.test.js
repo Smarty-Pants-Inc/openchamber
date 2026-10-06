@@ -43,6 +43,9 @@ const HOST_POWER_RETIRED = [
   ['DELETE', '/api/git/remotes'], ['DELETE', '/api/git/remote-branches'], ['POST', '/api/git/reset-to-commit'],
   ['GET', '/api/quota/credentials/exe-dev'], ['POST', '/api/quota/credentials/cursor/import'],
   ['DELETE', '/api/provider/openai/auth'],
+  // The engine's credential API (SDK auth.set / auth.remove).
+  ['PUT', '/api/auth/openai'], ['DELETE', '/api/auth/openai'], ['PATCH', '/api/auth/openai'],
+  ['PUT', '/API/Auth/openai'], ['PUT', '/api/%61uth/openai'], ['DELETE', '/api//auth/anthropic'], ['PUT', '/api/session/../auth/openai'],
   // Alternate spellings reach the same namespaces.
   ['POST', '/API/Git/Stage'], ['POST', '/api/%67it/%73tage'], ['POST', '/api//fs/exec'], ['POST', '/api/git/../system/shutdown'],
   ['DELETE', '/api/provider/%6fpenai/%61uth/x%zz'], ['POST', '/api\\git\\push'],
@@ -55,6 +58,9 @@ const HOST_POWER_KEPT = [
   ['GET', '/api/fs/read'], ['POST', '/api/fs/upload'], ['GET', '/api/fs/execs'], ['POST', '/api/system/dev-shutdown'], ['GET', '/api/system/info'],
   ['GET', '/api/openchamber/models-metadata'], ['GET', '/api/openchamber/tunnels'], ['GET', '/api/quota/providers'], ['GET', '/api/quota/exe-dev'],
   ['PUT', '/api/provider'], ['GET', '/api/provider/openai/source'], ['GET', '/api/provider/auth'], ['POST', '/api/provider/openai/oauth/callback'],
+  // Better Auth's sign-in, callback and session routes and the legacy reset refusal share /api/auth.
+  ['POST', '/api/auth/sign-in/social'], ['GET', '/api/auth/callback/google'], ['GET', '/api/auth/get-session'],
+  ['POST', '/api/auth/sign-out'], ['POST', '/api/auth/reset'],
 ];
 
 test('every host-power route and its alternate spellings are retired for its retired methods', () => {
@@ -79,4 +85,6 @@ test('preflights are classified by the method they request; a bare OPTIONS on a 
   assert.equal(isRetiredRouteRequest(request('/api/config/settings')), false);
   assert.equal(isRetiredRouteRequest({ method: 'POST', originalUrl: '/api/git/push', headers: {} }), true);
   assert.equal(isRetiredRouteRequest({ method: 'GET', originalUrl: '/api/git/branches', headers: {} }), false);
+  assert.equal(isRetiredRouteRequest(request('/api/auth/openai', 'PUT')), true);
+  assert.equal(isRetiredRouteRequest(request('/api/auth/sign-in/social', 'POST')), false);
 });

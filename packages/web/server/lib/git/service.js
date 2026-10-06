@@ -5,6 +5,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
+import { z } from 'zod';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
 
@@ -954,8 +955,8 @@ const runGitCommand = async (cwd, args) => {
 const resolveGitCommitFilePath = async (repoRoot, hash, candidates) => {
   for (const candidate of candidates) {
     const [originalTreeResult, modifiedTreeResult] = await Promise.all([
-      runGitCommand(repoRoot, ['ls-tree', '--name-only', `${hash}^`, '--', candidate]),
-      runGitCommand(repoRoot, ['ls-tree', '--name-only', hash, '--', candidate]),
+      runGitCommand(repoRoot, ['ls-tree', '--name-only', '--end-of-options', `${hash}^`, '--', candidate]),
+      runGitCommand(repoRoot, ['ls-tree', '--name-only', '--end-of-options', hash, '--', candidate]),
     ]);
 
     if ((originalTreeResult.success && originalTreeResult.stdout.trim()) || (modifiedTreeResult.success && modifiedTreeResult.stdout.trim())) {
@@ -2454,8 +2455,40 @@ export async function getUntrackedDiffs(directory, filePaths = [], { concurrency
   return results;
 }
 
+/**
+ * Git reads an argument that starts with `-` as an option, even where a
+ * revision is expected: `git show --output=<path>` creates or truncates that
+ * file. Read routes therefore refuse such a request value with a 400 before any
+ * git command runs, and still put `--end-of-options` before every revision.
+ */
+export class GitArgumentRefusedError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'GitArgumentRefusedError';
+    this.statusCode = 400;
+  }
+}
+
+const CommitHash = z.string().regex(/^[0-9a-f]{7,64}$/i);
+// A single string (not a repeated query value) that git cannot read as an option.
+const RevisionArgument = z.string().trim().refine((value) => !value.startsWith('-'));
+
+/** Returns the value when it is a commit hash; throws GitArgumentRefusedError otherwise. */
+const requireCommitHash = (name, value) => {
+  const parsed = CommitHash.safeParse(value);
+  if (!parsed.success) throw new GitArgumentRefusedError(`${name} must be a commit hash`);
+  return parsed.data;
+};
+
+/** Returns the trimmed revision; throws GitArgumentRefusedError for a non-string or option-like value. */
+const requireRevisionArgument = (name, value) => {
+  const parsed = RevisionArgument.safeParse(value);
+  if (!parsed.success) throw new GitArgumentRefusedError(`${name} must be a single revision that does not start with "-"`);
+  return parsed.data;
+};
+
 const refResolvesToCommit = async (git, ref) => git
-  .raw(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+  .raw(['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`])
   .then((value) => Boolean(String(value || '').trim()))
   .catch(() => false);
 
@@ -2474,9 +2507,9 @@ async function assertRangeRefsResolve(git, refs) {
 }
 
 export async function getRangeDiff(directory, { base, head, path: filePath, contextLines = 3 } = {}) {
+  const baseRef = requireRevisionArgument('base', base ?? '');
+  const headRef = requireRevisionArgument('head', head ?? '');
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
-  const baseRef = typeof base === 'string' ? base.trim() : '';
-  const headRef = typeof head === 'string' ? head.trim() : '';
   if (!baseRef || !headRef) {
     throw new Error('base and head are required');
   }
@@ -2521,7 +2554,7 @@ export async function getRangeDiff(directory, { base, head, path: filePath, cont
   if (typeof contextLines === 'number' && !Number.isNaN(contextLines)) {
     args.push(`-U${Math.max(0, contextLines)}`);
   }
-  args.push(`${resolvedBase}...${headRef}`);
+  args.push('--end-of-options', `${resolvedBase}...${headRef}`);
   if (filePath) {
     const fileContext = await resolveGitFileContext(directoryPath, directoryGit, filePath, repoRoot);
     args.push('--', fileContext.repoPath);
@@ -2568,7 +2601,7 @@ export function parseBranchCreationSource(reflogText) {
  * start, reflog expired) — callers must not fall back to main/master.
  */
 export async function getBranchBase(directory, branch) {
-  const branchName = String(branch || '').trim();
+  const branchName = requireRevisionArgument('branch', branch ?? '');
   if (!branchName) {
     throw new Error('branch is required');
   }
@@ -2577,7 +2610,7 @@ export async function getBranchBase(directory, branch) {
 
   let reflog = '';
   try {
-    reflog = await git.raw(['reflog', 'show', '--format=%gs', branchName]);
+    reflog = await git.raw(['reflog', 'show', '--format=%gs', '--end-of-options', branchName]);
   } catch {
     return { base: null };
   }
@@ -2588,7 +2621,7 @@ export async function getBranchBase(directory, branch) {
   }
 
   const resolves = await git
-    .raw(['rev-parse', '--verify', '--quiet', source])
+    .raw(['rev-parse', '--verify', '--quiet', '--end-of-options', source])
     .then((value) => Boolean(String(value || '').trim()))
     .catch(() => false);
   if (!resolves) {
@@ -2599,9 +2632,9 @@ export async function getBranchBase(directory, branch) {
 }
 
 export async function getRangeFiles(directory, { base, head } = {}) {
+  const baseRef = requireRevisionArgument('base', base ?? '');
+  const headRef = requireRevisionArgument('head', head ?? '');
   const { git } = await createRepositoryGitContext(directory);
-  const baseRef = typeof base === 'string' ? base.trim() : '';
-  const headRef = typeof head === 'string' ? head.trim() : '';
   if (!baseRef || !headRef) {
     throw new Error('base and head are required');
   }
@@ -2622,7 +2655,7 @@ export async function getRangeFiles(directory, { base, head } = {}) {
   // `-C` (copy detection among changed files only, so cheap) makes copies
   // surface as C entries instead of plain additions; rename detection is on
   // by default.
-  const raw = await git.raw(['diff', '--name-status', '-z', '-C', `${resolvedBase}...${headRef}`]);
+  const raw = await git.raw(['diff', '--name-status', '-z', '-C', '--end-of-options', `${resolvedBase}...${headRef}`]);
   // -z format: STATUS\0PATH\0[ORIG\0] repeated. For rename/copy entries
   // (`R100`, `C75`) the first path token is the ORIGINAL path and the second
   // is the DESTINATION — the diff (and the UI) must address the destination.
@@ -3077,8 +3110,11 @@ export async function listStashes(directory) {
 }
 
 export async function countStashFiles(directory, refs = []) {
+  if (!Array.isArray(refs)) {
+    throw new GitArgumentRefusedError('refs must be an array of stash refs');
+  }
+  const uniqueRefs = Array.from(new Set(refs.map((ref) => requireRevisionArgument('stash ref', ref)).filter(Boolean)));
   const { git } = await createRepositoryGitContext(directory);
-  const uniqueRefs = Array.from(new Set((Array.isArray(refs) ? refs : []).map((ref) => String(ref || '').trim()).filter(Boolean)));
   const counts = {};
   const concurrency = 4;
   let cursor = 0;
@@ -3088,7 +3124,7 @@ export async function countStashFiles(directory, refs = []) {
       const ref = uniqueRefs[cursor++];
       if (!ref) continue;
       try {
-        const names = await git.raw(['stash', 'show', '--name-only', ref]);
+        const names = await git.raw(['stash', 'show', '--name-only', '--end-of-options', ref]);
         counts[ref] = String(names || '').split('\n').map((line) => line.trim()).filter(Boolean).length;
       } catch {
         counts[ref] = 0;
@@ -4439,6 +4475,9 @@ export async function resolveBaseRefForLog(from, checkRef) {
 }
 
 export async function getLog(directory, options = {}) {
+  for (const name of ['from', 'to']) {
+    if (options[name] !== undefined) requireRevisionArgument(name, options[name]);
+  }
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
 
   try {
@@ -4510,7 +4549,7 @@ export async function getLog(directory, options = {}) {
     // cannot be resolved (e.g. user has never checked out the base branch).
     const checkRef = async (ref) => {
       try {
-        const out = await git.raw(['rev-parse', '--verify', ref]);
+        const out = await git.raw(['rev-parse', '--verify', '--end-of-options', ref]);
         return Boolean(out && out.trim());
       } catch {
         return false;
@@ -4534,11 +4573,11 @@ export async function getLog(directory, options = {}) {
     ];
 
     if (resolvedFrom && options.to) {
-      logArgs.push(`${resolvedFrom}..${options.to}`);
+      logArgs.push('--end-of-options', `${resolvedFrom}..${options.to}`);
     } else if (resolvedFrom) {
-      logArgs.push(`${resolvedFrom}..HEAD`);
+      logArgs.push('--end-of-options', `${resolvedFrom}..HEAD`);
     } else if (options.to) {
-      logArgs.push(options.to);
+      logArgs.push('--end-of-options', options.to);
     }
 
     if (filePath) {
@@ -4768,6 +4807,7 @@ export async function canonicalizeWorktreeState(directory) {
 }
 
 export async function getCommitFiles(directory, commitHash) {
+  requireCommitHash('hash', commitHash);
   const { git } = await createRepositoryGitContext(directory);
 
   try {
@@ -4776,6 +4816,7 @@ export async function getCommitFiles(directory, commitHash) {
       'show',
       '--numstat',
       '--format=',
+      '--end-of-options',
       commitHash
     ]);
 
@@ -4819,6 +4860,7 @@ export async function getCommitFiles(directory, commitHash) {
       'show',
       '--name-status',
       '--format=',
+      '--end-of-options',
       commitHash
     ]).catch(() => '');
 
@@ -5180,6 +5222,7 @@ export async function getCommitFileDiff(directory, hash, filePath, isBinary) {
   if (!directory || !hash || !filePath) {
     throw new Error('directory, hash, and path are required for getCommitFileDiff');
   }
+  requireCommitHash('hash', hash);
 
   if (isBinary) {
     return { original: '', modified: '', isBinary: true };
@@ -5196,8 +5239,8 @@ export async function getCommitFileDiff(directory, hash, filePath, isBinary) {
 
   for (const candidate of candidates) {
     const [candidateOriginalResult, candidateModifiedResult] = await Promise.all([
-      runGitCommand(repoRoot, ['show', `${hash}^:${candidate}`]),
-      runGitCommand(repoRoot, ['show', `${hash}:${candidate}`]),
+      runGitCommand(repoRoot, ['show', '--end-of-options', `${hash}^:${candidate}`]),
+      runGitCommand(repoRoot, ['show', '--end-of-options', `${hash}:${candidate}`]),
     ]);
 
     if (candidateOriginalResult.success || candidateModifiedResult.success) {
@@ -5210,8 +5253,8 @@ export async function getCommitFileDiff(directory, hash, filePath, isBinary) {
   if (!originalResult || !modifiedResult) {
     const resolvedPath = await resolveGitCommitFilePath(repoRoot, hash, candidates);
     [originalResult, modifiedResult] = await Promise.all([
-      runGitCommand(repoRoot, ['show', `${hash}^:${resolvedPath}`]),
-      runGitCommand(repoRoot, ['show', `${hash}:${resolvedPath}`]),
+      runGitCommand(repoRoot, ['show', '--end-of-options', `${hash}^:${resolvedPath}`]),
+      runGitCommand(repoRoot, ['show', '--end-of-options', `${hash}:${resolvedPath}`]),
     ]);
   }
 

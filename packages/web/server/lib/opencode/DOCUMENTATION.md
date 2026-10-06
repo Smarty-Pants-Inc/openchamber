@@ -412,9 +412,12 @@ retired namespace: the deleted web terminal (`/api/terminal`) and the host-power
 routes removed in smarty-code#1398 slice 2 (`/api/fs/exec`,
 `/api/system/shutdown`, `/api/openchamber/update-check` and `update-install`,
 `/api/openchamber/tunnel`, `/api/openchamber/relay`, `/api/dev-tunnel`, the git
-write routes, `/api/quota/credentials` and `/api/provider/:id/auth`). A
+write routes, `/api/quota/credentials` and `/api/provider/:id/auth`), plus the
+engine's credential API: `PUT`, `PATCH` and `DELETE /api/auth/:providerID`
+(the SDK's `auth.set` and `auth.remove`). A
 namespace that still serves read methods (`/api/git/branches`, `identities`,
-`remotes`) lists only its retired write methods. A retired request, in any case,
+`remotes`) lists only its retired write methods; Better Auth's sign-in and
+session routes share `/api/auth` but use only `GET` and `POST`, which stay served. A retired request, in any case,
 encoding, slash or dot spelling, gets a local 404 after authentication and never
 reaches the upstream proxy or the served index; a packaged-client CORS preflight
 for a retired method gets the same 404 instead of 204. The upgrade listener is

@@ -740,14 +740,14 @@
       "path": "packages/web/server/lib/git/service.js",
       "brandingSha256": "e0b51a40a1bfbfe3b8a52a84bb56d64ce6ffee9195b704ed9362eb423fb03d8f",
       "behaviorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
-      "combinedSha256": "5949b03dff9795c73e5e2945283dcbc0a5969a04197f7396491fe77db9562626",
+      "combinedSha256": "981bee772a280d4dcfce1a8168220caf004821600d038f2eccaa9ca7ef5a3f93",
       "reason": "OPENCHAMBER_WORKTREE_ROOT (smarty-code#629) places managed worktrees at <root>/<repository folder>/; in that shared root, removal deletes only git-registered worktrees, never an unregistered folder (#354 review). Branded strings are unchanged.",
       "worktreeRootAdded": true,
       "worktreeRootSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
       "preHostPowerRemovalCombinedSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
       "hostPowerRemovalBaseSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
-      "hostPowerRemovalSha256": "5949b03dff9795c73e5e2945283dcbc0a5969a04197f7396491fe77db9562626",
-      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: worktree create/validate refuse startCommand, ensureRemoteName and ensureRemoteUrl with a 400 before any git command runs; the start-command runner, project start command and remote provisioning are removed; branded strings unchanged."
+      "hostPowerRemovalSha256": "981bee772a280d4dcfce1a8168220caf004821600d038f2eccaa9ca7ef5a3f93",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: worktree create/validate refuse startCommand, ensureRemoteName and ensureRemoteUrl with a 400 before any git command runs; the start-command runner, project start command and remote provisioning are removed; the git read routes parse each request revision (a commit hash, or a single ref that does not start with \"-\") and pass it after --end-of-options (openchamber#554 review F3); branded strings unchanged."
     },
     {
       "path": ".github/workflows/docs-source.yml",

@@ -1,10 +1,36 @@
+import { execFile } from 'node:child_process';
 import express from 'express';
 import { normalizeCustomOpenAIBaseURL } from './base-url.js';
 import { summarizeText, sanitizeForTTS, sanitizeForNote } from '../text/summarization.js';
 
 import { detectTextLanguage, languageOfLocale, pickVoiceForLanguage } from './language-detect.js';
 
-export function registerTtsRoutes(app, { sayTTSCapability }) {
+// macOS `say` runs as a fixed executable with an argument array, never through
+// a shell. Voice and rate are validated before it runs, and the text goes
+// through stdin, so request text is spoken as data and never read as an option.
+const SAY_VOICE_PATTERN = /^[A-Za-z0-9()._][A-Za-z0-9 ()._-]{0,63}$/;
+const SAY_RATE_MIN = 50;
+const SAY_RATE_MAX = 500;
+
+// Number.isFinite never coerces, so a string rate is refused too.
+const isValidSayRate = (rate) => Number.isFinite(rate) && rate >= SAY_RATE_MIN && rate <= SAY_RATE_MAX;
+
+// An installed-voice list from `say -v '?'` is authoritative; without one only the pattern applies.
+const isAllowedSayVoice = (voice, voices) => (
+  SAY_VOICE_PATTERN.test(voice) && (voices.length === 0 || voices.some((entry) => entry?.name === voice))
+);
+
+const runSay = ({ voice, rate, outputFile, text }) => new Promise((resolve, reject) => {
+  const child = execFile('say', ['-v', voice, '-r', String(rate), '-o', outputFile, '--data-format=aac'], (error) => {
+    if (error) reject(error);
+    else resolve();
+  });
+  // say may exit before reading all of stdin; its exit status reports the failure.
+  child.stdin.on('error', () => {});
+  child.stdin.end(text);
+});
+
+export function registerTtsRoutes(app, { sayTTSCapability, platform = process.platform }) {
   let ttsModulePromise = null;
   const getTtsModule = async () => {
     if (!ttsModulePromise) {
@@ -162,9 +188,18 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
       if (!text || typeof text !== 'string' || !text.trim()) {
         return res.status(400).json({ error: 'Text is required' });
       }
+
+      const capability = await sayTTSCapability;
+      const voices = Array.isArray(capability?.voices) ? capability.voices : [];
+      if (!isValidSayRate(rate)) {
+        return res.status(400).json({ error: `rate must be a number from ${SAY_RATE_MIN} to ${SAY_RATE_MAX}` });
+      }
+      if (!isAllowedSayVoice(voice, voices)) {
+        return res.status(400).json({ error: 'voice must be an installed say voice' });
+      }
       
       // Check if we're on macOS
-      if (process.platform !== 'darwin') {
+      if (platform !== 'darwin') {
         return res.status(503).json({ error: 'macOS say command not available on this platform' });
       }
 
@@ -174,8 +209,6 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
       // reads the text, just with an accent — rather than failing.
       let resolvedLanguage = null;
       if (language === 'auto') {
-        const capability = await sayTTSCapability;
-        const voices = Array.isArray(capability?.voices) ? capability.voices : [];
         const sample = typeof languageSample === 'string' && languageSample.trim() ? languageSample.slice(0, 4000) : text;
         resolvedLanguage = detectTextLanguage(sample).language;
         const chosen = voices.find((entry) => entry.name === voice);
@@ -185,27 +218,20 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
         }
       }
       
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
       const fs = await import('fs');
       const os = await import('os');
       const path = await import('path');
-      const execAsync = promisify(exec);
       
       // Create temp file for audio output (use m4a for browser compatibility)
       const tempDir = os.tmpdir();
       const tempFile = path.join(tempDir, `say-${Date.now()}.m4a`);
       
-      // Escape text for shell - escape both single quotes and double quotes
-      const escapedText = text.trim().replace(/'/g, "'\\''").replace(/"/g, '\\"');
-      
       // Generate audio file using 'say' command
       // -o outputs to file, -r sets rate (words per minute)
       // --data-format=aac outputs as m4a which browsers can decode
-      const cmd = `say -v "${voice}" -r ${rate} -o "${tempFile}" --data-format=aac '${escapedText}'`;
       console.log('[TTS-Say] Generating speech:', { textLength: text.length, voice, rate });
       
-      await execAsync(cmd);
+      await runSay({ voice, rate, outputFile: tempFile, text: text.trim() });
       
       // Read the generated audio file
       const audioBuffer = await fs.promises.readFile(tempFile);

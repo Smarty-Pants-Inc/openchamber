@@ -73,6 +73,7 @@ bootstrap, tracking is left unset rather than writing `branch.*.remote` /
 ### Log Operations
 - `getLog(directory, options)`: Get commit history with stats (supports maxCount, from, to, file filters).
 - `getCommitFiles(directory, commitHash)`: Get file changes for a specific commit.
+- Revision arguments from requests (`getCommitFiles`/`getCommitFileDiff` hash, `getBranchBase` branch, `countStashFiles` refs, `getLog` from/to, `getRangeDiff`/`getRangeFiles` base/head) are parsed before any git command runs: a hash must match `^[0-9a-f]{7,64}$`, and any other ref must be a single string that does not start with `-` (git would read it as an option, e.g. `--output=<path>` writes a file). A refused value throws `GitArgumentRefusedError` (HTTP 400); the routes answer 400. Every revision is also passed after `--end-of-options`.
 - `getCommitFileDiff(directory, hash, filePath, isBinary)`: Get before/after content for a specific file in a commit. Returns `{ original, modified, isBinary }`. Runs `git show <hash>^:<path>` and `git show <hash>:<path>` in parallel; returns empty strings on failure (added/deleted/root-commit edge cases).
 
 ### Merge and Rebase Operations

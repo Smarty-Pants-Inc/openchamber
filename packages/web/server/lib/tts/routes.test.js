@@ -1,4 +1,7 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it, afterEach, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 
@@ -93,6 +96,107 @@ describe('tts routes', () => {
       summarized: false,
       reason: 'Model summarization provider unavailable',
     });
+  });
+});
+
+// A stand-in `say` on PATH records its argv and stdin and writes the audio
+// file, so the argument boundary is observable on every platform.
+describe.skipIf(process.platform === 'win32')('macOS say speak argument boundary', () => {
+  const voices = [{ name: 'Samantha', locale: 'en_US' }, { name: 'Lesya (Enhanced)', locale: 'uk_UA' }];
+  const originalPath = process.env.PATH;
+  const originalLog = process.env.FAKE_SAY_LOG;
+  let root;
+  let marker;
+  let argvLog;
+  let stdinLog;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'openchamber-say-'));
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    const say = path.join(bin, 'say');
+    fs.writeFileSync(say, [
+      '#!/bin/sh',
+      'out=""',
+      'prev=""',
+      'for arg in "$@"; do',
+      '  printf \'%s\\n\' "$arg" >> "$FAKE_SAY_LOG.argv"',
+      '  if [ "$prev" = "-o" ]; then out="$arg"; fi',
+      '  prev="$arg"',
+      'done',
+      'cat > "$FAKE_SAY_LOG.stdin"',
+      'printf \'fake-audio\' > "$out"',
+      '',
+    ].join('\n'));
+    fs.chmodSync(say, 0o755);
+    marker = path.join(root, 'marker');
+    argvLog = path.join(root, 'say.argv');
+    stdinLog = path.join(root, 'say.stdin');
+    process.env.PATH = `${bin}${path.delimiter}${originalPath}`;
+    process.env.FAKE_SAY_LOG = path.join(root, 'say');
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+    if (originalLog === undefined) delete process.env.FAKE_SAY_LOG;
+    else process.env.FAKE_SAY_LOG = originalLog;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const speak = (body) => {
+    const app = express();
+    app.use(express.json());
+    registerTtsRoutes(app, { sayTTSCapability: Promise.resolve({ available: true, voices }), platform: 'darwin' });
+    return request(app).post('/api/tts/say/speak').send(body);
+  };
+
+  // Cases take the marker path at run time: it exists only once beforeEach ran.
+  it.each([
+    ['single and double quotes', (target) => `it's a "quoted" line'; touch ${target}; echo '`],
+    ['command substitution', (target) => `$(touch ${target}) and \`touch ${target}\``],
+    ['separators', (target) => `hello; touch ${target} && touch ${target} | touch ${target}`],
+    ['a leading option', (target) => `-o ${target}`],
+  ])('speaks text with %s as stdin data, never as a command or option', async (_label, textFor) => {
+    const text = textFor(marker);
+    const response = await speak({ text, voice: 'Samantha', rate: 200 });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['x-speech-voice']).toBe('Samantha');
+    expect(fs.readFileSync(stdinLog, 'utf8')).toBe(text);
+    const argv = fs.readFileSync(argvLog, 'utf8').split('\n').filter(Boolean);
+    expect(argv.slice(0, 4)).toEqual(['-v', 'Samantha', '-r', '200']);
+    expect(argv[4]).toBe('-o');
+    expect(argv.slice(6)).toEqual(['--data-format=aac']);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it.each([
+    ['voice with quotes and a separator', (target) => ({ voice: `Samantha" ; touch ${target}; "`, rate: 200 })],
+    ['voice with command substitution', (target) => ({ voice: `$(touch ${target})`, rate: 200 })],
+    ['voice with backticks', (target) => ({ voice: `\`touch ${target}\``, rate: 200 })],
+    ['voice that is an option', () => ({ voice: '--help', rate: 200 })],
+    ['voice that is not installed', () => ({ voice: 'Nobody', rate: 200 })],
+    ['rate with a separator', (target) => ({ voice: 'Samantha', rate: `200; touch ${target}` })],
+    ['rate with command substitution', (target) => ({ voice: 'Samantha', rate: `$(touch ${target})` })],
+    ['non-numeric rate', () => ({ voice: 'Samantha', rate: 'fast' })],
+    ['numeric-string rate', () => ({ voice: 'Samantha', rate: '200' })],
+    ['rate below the range', () => ({ voice: 'Samantha', rate: 10 })],
+    ['rate above the range', () => ({ voice: 'Samantha', rate: 1e9 })],
+  ])('refuses a %s with a 400 before say runs', async (_label, fieldsFor) => {
+    const response = await speak({ text: 'Hello there.', ...fieldsFor(marker) });
+
+    expect(response.status).toBe(400);
+    expect(fs.existsSync(argvLog)).toBe(false);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('refuses an invalid voice on every platform, before the macOS check', async () => {
+    const response = await request(createApp(Promise.resolve({ available: false, voices: [] })))
+      .post('/api/tts/say/speak')
+      .send({ text: 'Hello there.', voice: `$(touch ${marker})`, rate: 200 });
+
+    expect(response.status).toBe(400);
+    expect(fs.existsSync(marker)).toBe(false);
   });
 });
 

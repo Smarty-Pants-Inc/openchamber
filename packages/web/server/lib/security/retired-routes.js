@@ -35,6 +35,10 @@ const RETIRED_NAMESPACES = [
   // Provider keys.
   { segments: ['api', 'quota', 'credentials'], methods: ALL_METHODS },
   { segments: ['api', 'provider', '*', 'auth'], methods: ALL_METHODS },
+  // The engine's credential API: the SDK's auth.set (PUT) and auth.remove (DELETE) send
+  // /auth/{providerID} under the /api base. Better Auth's sign-in and session routes share
+  // /api/auth but use only GET and POST, so only the credential write methods are retired.
+  { segments: ['api', 'auth', '*'], methods: ['PUT', 'PATCH', 'DELETE'] },
 ];
 
 // Tolerant, repeated percent-decoding (security round 2): a malformed escape never stops decoding the

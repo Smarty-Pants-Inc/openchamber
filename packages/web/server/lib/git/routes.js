@@ -27,6 +27,14 @@ export function registerGitRoutes(app) {
       .join('\n');
   };
 
+  // A refused revision argument (option-like, non-string or repeated query
+  // value) is the client's error, answered 400 before any git command runs.
+  const sendRefusedGitArgument = (res, error, GitArgumentRefusedError) => {
+    if (!(error instanceof GitArgumentRefusedError)) return false;
+    res.status(400).json({ error: error.message });
+    return true;
+  };
+
   const isNonRepoGitError = (error) => /not a git repository/i.test(extractGitErrorText(error));
 
   const nonRepoStatusPayload = () => ({
@@ -264,7 +272,7 @@ export function registerGitRoutes(app) {
   });
 
   app.get('/api/git/range-diff', async (req, res) => {
-    const { getRangeDiff } = await getGitLibraries();
+    const { getRangeDiff, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory || typeof directory !== 'string') {
@@ -289,20 +297,21 @@ export function registerGitRoutes(app) {
 
       res.json({ diff });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get git range diff:', error);
       res.status(500).json({ error: error.message || 'Failed to get git range diff' });
     }
   });
 
   app.get('/api/git/branch-base', async (req, res) => {
-    const { getBranchBase } = await getGitLibraries();
+    const { getBranchBase, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = resolveDirectoryQuery(req.query.directory);
       if (!directory) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const branch = resolveDirectoryQuery(req.query.branch);
+      const { branch } = req.query;
       if (!branch) {
         return res.status(400).json({ error: 'branch parameter is required' });
       }
@@ -310,21 +319,21 @@ export function registerGitRoutes(app) {
       const result = await getBranchBase(directory, branch);
       res.json(result);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get branch base:', error);
       res.status(500).json({ error: error.message || 'Failed to get branch base' });
     }
   });
 
   app.get('/api/git/range-files', async (req, res) => {
-    const { getRangeFiles } = await getGitLibraries();
+    const { getRangeFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = resolveDirectoryQuery(req.query.directory);
       if (!directory) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const base = resolveDirectoryQuery(req.query.base);
-      const head = resolveDirectoryQuery(req.query.head);
+      const { base, head } = req.query;
       if (!base || !head) {
         return res.status(400).json({ error: 'base and head parameters are required' });
       }
@@ -332,6 +341,7 @@ export function registerGitRoutes(app) {
       const files = await getRangeFiles(directory, { base, head });
       res.json({ files });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get git range files:', error);
       res.status(500).json({ error: error.message || 'Failed to get git range files' });
     }
@@ -350,12 +360,13 @@ export function registerGitRoutes(app) {
   });
 
   app.post('/api/git/stashes/file-counts', async (req, res) => {
-    const { countStashFiles } = await getGitLibraries();
+    const { countStashFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
       res.json({ counts: await countStashFiles(directory, req.body?.refs) });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to count stash files:', error);
       res.status(500).json({ error: error.message || 'Failed to count stash files' });
     }
@@ -614,7 +625,7 @@ export function registerGitRoutes(app) {
   });
 
   app.get('/api/git/log', async (req, res) => {
-    const { getLog } = await getGitLibraries();
+    const { getLog, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory) {
@@ -632,13 +643,14 @@ export function registerGitRoutes(app) {
       });
       res.json(log);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get log:', error);
       res.status(500).json({ error: error.message || 'Failed to get commit log' });
     }
   });
 
   app.get('/api/git/commit-files', async (req, res) => {
-    const { getCommitFiles } = await getGitLibraries();
+    const { getCommitFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const { directory, hash } = req.query;
       if (!directory) {
@@ -651,6 +663,7 @@ export function registerGitRoutes(app) {
       const result = await getCommitFiles(directory, hash);
       res.json(result);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get commit files:', error);
       res.status(500).json({ error: error.message || 'Failed to get commit files' });
     }
