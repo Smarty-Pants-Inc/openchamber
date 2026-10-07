@@ -11,7 +11,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useHumanAuth } from '@/lib/human-auth';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
-import { setPersonalSidebarView } from '@/lib/sidebar-view';
+import { readPersonalSidebarOwner, setPersonalSidebarView } from '@/lib/sidebar-view';
+import { captureRuntimeRequestScope } from '@/lib/runtime-switch';
 import { findSessionRevealTarget, useSessionReveal, useRevealSessionPagination } from '@/components/session/sidebar/list/sessionReveal';
 import type { SessionGroup, SessionNode } from '@/components/session/sidebar/types';
 
@@ -31,8 +32,12 @@ const server = createServer((request, response) => {
     request.setEncoding('utf8');
     request.on('data', (chunk: string) => { body += chunk; });
     request.on('end', () => { writes.push(patchSchema.parse(JSON.parse(body))); response.end('{}'); });
-  } else response.end(JSON.stringify({ owner: { issuer: 'private-test', subject: owner },
-    projects: { p: true }, groups: { 'p:worktree:held': true } }));
+  } else {
+    // A loaded runner answers the preference GET after several event-loop turns (openchamber#542 CI).
+    const body = JSON.stringify({ owner: { issuer: 'private-test', subject: owner },
+      projects: { p: true }, groups: { 'p:worktree:held': true } });
+    setTimeout(() => response.end(body), 25);
+  }
 });
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 const baseUrl = `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`;
@@ -59,7 +64,12 @@ function Probe() {
 const settle = () => act(async () => { await sleep(0); await sleep(0); });
 async function mounted(run: () => Promise<void>) {
   const root = createRoot(document.createElement('div'));
-  try { await act(async () => root.render(<Probe />)); await settle(); await run(); }
+  try {
+    await act(async () => root.render(<Probe />));
+    // Reveal waits for the preference GET; join it instead of hoping it lands within settle().
+    await act(async () => { await readPersonalSidebarOwner(captureRuntimeRequestScope()); });
+    await settle(); await run();
+  }
   finally { await act(async () => root.unmount()); }
 }
 const open = () => act(async () => useSessionUIStore.getState().setCurrentSession('selected', heldProject.path));

@@ -333,16 +333,33 @@ test('the Code-made session-list layer binds its exact commit over the inbox str
   assert.deepEqual(overlay.files.filter(file => file.codeMadeListSha256).map(file => file.path), ['packages/web/server/lib/opencode/proxy.js']);
 });
 
-test('the proxy Connection layer binds its exact source and successor over the Code-made list layer (openchamber#491)', () => {
+test('the native session-list layer binds its exact source and successor over proxy Connection (openchamber#542)', () => {
   const file = 'packages/web/server/lib/opencode/proxy.js';
   const entry = overlays.get(file);
+  assert.equal(overlay.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
+  assert.deepEqual(overlay.files.filter(candidate => 'nativeListSha256' in candidate).map(candidate => candidate.path), [file]);
+  assert.equal(entry.preNativeListCombinedSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+  assert.equal(entry.preNativeListCombinedSha256, entry.proxyConnectionSha256);
+  assert.equal(entry.nativeListSha256, 'ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78');
+  assert.notEqual(entry.nativeListSha256, entry.preNativeListCombinedSha256);
+  assert.equal(entry.nativeListSha256, entry.combinedSha256);
+  assert.equal(sha256(read(file)), entry.nativeListSha256);
+  assert.ok(entry.nativeListNote);
+});
+
+test('the proxy Connection layer binds its exact source and successor over the Code-made list layer (openchamber#491)', () => {
+  const file = 'packages/web/server/lib/opencode/proxy.js';
+  const entry = structuredClone(overlays.get(file));
+  // Reverse only the two native-list fields so the original Connection byte oracle still runs.
+  entry.combinedSha256 = entry.preNativeListCombinedSha256;
+  const connectionSource = read(file).toString().replace("  'nativeRuntime',\n  'ordinary',\n", '');
   assert.equal(overlay.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   assert.deepEqual(overlay.files.filter(candidate => 'proxyConnectionSha256' in candidate).map(candidate => candidate.path), [file]);
   assert.equal(entry.preProxyConnectionCombinedSha256, 'a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68');
   assert.equal(entry.preProxyConnectionCombinedSha256, entry.codeMadeListSha256);
   assert.equal(entry.proxyConnectionSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
   assert.equal(entry.proxyConnectionSha256, entry.combinedSha256);
-  assert.equal(sha256(read(file)), entry.proxyConnectionSha256);
+  assert.equal(sha256(connectionSource), entry.proxyConnectionSha256);
   assert.ok(entry.proxyConnectionNote);
 });
 
@@ -510,7 +527,23 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
-  // The Smarties layer (smarty-code#1407) is the newest, above PR486: unwind it first.
+  // openchamber#542 native ownership fields are the newest layer, above the Smarties layer (smarty-code#1407): unwind them first.
+  assert.equal(historical.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
+  delete historical.nativeListSource;
+  const nativeList = historical.files.filter(entry => 'nativeListSha256' in entry);
+  assert.deepEqual(nativeList.map(entry => entry.path), ['packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of nativeList) {
+    assert.equal(entry.nativeListSha256, 'ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78');
+    assert.equal(entry.nativeListSha256, entry.combinedSha256);
+    assert.equal(entry.preNativeListCombinedSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+    assert.equal(entry.preNativeListCombinedSha256, entry.proxyConnectionSha256);
+    assert.ok(entry.nativeListNote);
+    entry.combinedSha256 = entry.preNativeListCombinedSha256;
+    delete entry.preNativeListCombinedSha256;
+    delete entry.nativeListSha256;
+    delete entry.nativeListNote;
+  }
+  // The Smarties layer (smarty-code#1407) sits above PR486: unwind it next.
   assert.equal(historical.smarties1407Source, '689ca2f8d21367829cf9b937ae64f6aa30d04cda');
   delete historical.smarties1407Source;
   for (const entry of historical.files.filter(file => file.smarties1407Sha256)) {
@@ -520,7 +553,7 @@ test('human Host boundary binds exactly two successors and preserves every histo
     delete entry.smarties1407Sha256;
     delete entry.smarties1407Note;
   }
-  // Then PR486: the layer above inbox Steps; the result is the exact smarty-code ledger.
+  // Then PR486: the layer above inbox Steps; all three successors must be removed before checking the complete predecessor ledger.
   historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
   for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
     assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);
