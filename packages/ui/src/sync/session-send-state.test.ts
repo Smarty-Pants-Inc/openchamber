@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import { nativeDraftFixture, deferred, directory, session } from './native-draft-fixture';
 import { routeMessage } from './session-ui-store';
 import { sessionSendState } from './session-send-state';
+import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { markAmbiguousTransportFailure } from '@/lib/relay/transport-error';
 import { isAmbiguousSendFailure } from './send-failure-classification';
 import { isClientIdConflict } from '@/lib/sendRecovery';
@@ -38,6 +39,40 @@ test('route atomically refuses another same-session Send before the first await'
     f.dispose();
   }
 });
+
+// smarty-code#1427: ownership comes from every authoritative source, not only the directory row.
+const globalOrdinary = Object.assign({}, session, { nativeRuntime: 'ordinary', ordinary: { generation: 'g1', sequence: 1,
+  model: { providerID: 'p', modelID: 'm', name: 'M' }, thinkingLevel: 'high' } });
+for (const [label, prepare] of [
+  ['global-only row before directory bootstrap', async (f: ReturnType<typeof nativeDraftFixture>) => {
+    f.children.ensureChild(directory, { bootstrap: false }).setState({ session: [] });
+    useGlobalSessionsStore.getState().applySnapshot([globalOrdinary], []);
+  }],
+  ['accepted loader view with no indexed row', async (f: ReturnType<typeof nativeDraftFixture>) => {
+    const child = f.children.ensureChild(directory, { bootstrap: false });
+    child.setState({ session: [globalOrdinary] });
+    await f.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
+    child.setState({ session: [] });
+  }],
+] as const) {
+  test(`route reserves an ordinary owner known from ${label}`, async () => {
+    const f = nativeDraftFixture(), held = deferred<Response>();
+    let posts = 0;
+    f.handlers.prompt = async () => ++posts === 1 ? held.promise : new Response(null, { status: 204 });
+    const params = { runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'First', providerID: 'p', modelID: 'm' };
+    try {
+      await prepare(f);
+      const first = routeMessage(params).catch(() => undefined);
+      expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(true);
+      const second = await routeMessage({ ...params, content: 'Unrelated' }).then(() => 'accepted', () => 'refused');
+      expect(second).toBe('refused');
+      expect(posts).toBeLessThanOrEqual(1);
+      held.resolve(new Response(null, { status: 204 }));
+      await first;
+      expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+    } finally { held.resolve(new Response(null, { status: 204 })); f.dispose(); }
+  });
+}
 
 test('stock prompt concurrency remains unchanged', async () => {
   const f = nativeDraftFixture(), held = deferred<Response>();

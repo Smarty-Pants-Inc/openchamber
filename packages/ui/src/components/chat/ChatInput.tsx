@@ -108,8 +108,8 @@ import { isAmbiguousSendFailure } from '@/sync/send-failure-classification';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
-import { getAllSyncSessions, getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
-import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
+import { getSyncMessages } from '@/sync/sync-refs';
+import { isOrdinarySendTarget } from '@/sync/selected-session-owner';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
     assignImageAttachmentFilenames,
@@ -1172,10 +1172,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleQueueMessageRef = React.useRef<() => Promise<void>>(async () => {});
     // An ordinary (Pi) session takes a message while its agent works: the server steers it into the running turn
     // (co-steer, MVP 1 G5). So its Send never queues, steers locally or pre-reads the status; it just sends.
-    const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => Boolean(sessionId) && (
-        readOrdinaryModel(getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
-            .find(session => session.id === sessionId))
-        ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === sessionId))) !== undefined,
+    // The store's admission classifier: a global row or accepted loader view counts before directory bootstrap (#1427).
+    const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => !!sessionId
+        && isOrdinarySendTarget(getRuntimeKey(), sessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined),
     [currentDirectory, currentSessionDirectoryForSync]);
     const sendsWhileWorking = !isBtwActive && (Boolean(displayedStopStatus?.ordinary) || isOrdinarySession(currentSessionId));
 

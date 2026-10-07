@@ -14,7 +14,7 @@
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
-import { isSelectedOwnerCurrent, selectedOwnerOrdinaryState } from "./selected-session-owner"
+import { isOrdinarySendTarget, isSelectedOwnerCurrent, selectedOwnerOrdinaryState } from "./selected-session-owner"
 import type { Session, Part, TextPart } from "@opencode-ai/sdk/v2/client"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
@@ -185,9 +185,11 @@ function readRouteOrdinary(params: RouteMessageParams) {
 
 export async function routeMessage(params: RouteMessageParams): Promise<'command' | 'prompt' | 'shell'> {
   const runtimeKey = params.runtimeKey ?? getRuntimeKey()
-  // Stock sends retain their established concurrency. A held ordinary reservation
-  // remains authoritative even if a replacement provider has not indexed its row yet.
-  if (!readRouteOrdinary(params) && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
+  // Stock sends retain their established concurrency. Ordinary ownership comes from every authoritative
+  // observation, including a global row or accepted loader view before directory bootstrap (smarty-code#1427).
+  // A held ordinary reservation remains authoritative even if a replacement provider has not indexed its row yet.
+  if (!isOrdinarySendTarget(runtimeKey, params.sessionId, normalizePath(params.directory) ?? undefined)
+    && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
     return dispatchRouteMessage(params, () => {})
   }
   const scope = captureRuntimeRequestScope()

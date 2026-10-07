@@ -12,7 +12,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useSessionUIStore } from './session-ui-store';
 import type { ChildStoreManager } from './child-store';
 import { useDirectoryStore, useSyncRuntime } from './sync-context';
-import { getSyncSessions } from './sync-refs';
+import { getAllSyncSessions, getSyncSessions } from './sync-refs';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
 import { checkSelectedSessionOwner, retainSelectedSessionOwner, getSelectedOwnerSelectionEpoch, hasActiveSelectedOwnerOperation } from './selected-owner-operation';
 export { checkSelectedSessionOwner, retainSelectedSessionOwner } from './selected-owner-operation';
@@ -90,6 +90,21 @@ export function selectedOwnerOrdinaryState(sessionID: string, directory: string 
   if (!owner) return undefined;
   return owner.status === 'live'
     ? readOrdinaryModel(getSyncSessions(owner.row.directory).find(row => row.id === sessionID)) ?? unavailable : unavailable;
+}
+/**
+ * smarty-code#1427: whether a Send to this session takes ordinary (Pi) admission. Any authoritative ordinary
+ * observation counts: selected-owner state, a directory or other sync row, the global listing, or a loader view
+ * accepted as ordinary history. The directory bootstrap can lag the global listing and loader, so a missing
+ * directory row is not evidence of a stock session. Only stock sessions, with no such observation, keep their
+ * concurrent prompts. This classifies admission only; it never chooses a model or route.
+ */
+export function isOrdinarySendTarget(runtimeKey: string, sessionID: string, directory: string | undefined): boolean {
+  if (selectedOwnerOrdinaryState(sessionID, directory)) return true;
+  const ordinary = (row: Session | undefined) => row?.id === sessionID && readOrdinaryModel(row) !== undefined;
+  if (getSyncSessions(directory).some(ordinary) || getAllSyncSessions().some(ordinary)
+    || ordinary(useGlobalSessionsStore.getState().entityById.get(sessionID))) return true;
+  const loader = getImperativeSessionMessageLoader(), target = { sessionID, directory: directory ?? '' };
+  return Boolean(loader && (loader.isOrdinary(target, runtimeKey) || loader.getSendableOrdinaryView(target, runtimeKey)));
 }
 export function useSelectedSessionOwner(sessionID: string | null | undefined, directory: string | undefined, historyReadOnly: boolean | undefined) {
   const { childStores, messageLoader, runtimeKey } = useSyncRuntime();
