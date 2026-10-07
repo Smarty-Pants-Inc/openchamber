@@ -213,8 +213,6 @@ function SmartyPage({ smarty, all, me, compact, services }: {
  * client ID, so a send the gateway accepted (but whose answer was lost) is never delivered twice, and later typing
  * never merges into it (openchamber#558 P2).
  */
-/** The gateway dedupes a client ID for 10 minutes from its first send; a retry reuses the ID only well inside that. */
-const RETRY_ID_MS = 9 * 60_000;
 const NO_FAILED: readonly FailedSend[] = [];
 
 function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
@@ -241,10 +239,11 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
     useFeedStore.getState().setDraftAt(key, '');
     deliver({ text, clientId: ascendingId('msg'), at: Date.now() });
   };
+  // Always the same client ID: the original may have been accepted with its answer lost, and only the ID lets the
+  // gateway (which dedupes it for 24 h) drop the repeat.
   const sendAgain = (message: FailedSend) => {
     useFeedStore.getState().removeFailedSend(key, message.clientId);
-    // Past the gateway's window the old ID no longer dedupes: the retry is a new send.
-    deliver(Date.now() - message.at < RETRY_ID_MS ? message : { text: message.text, clientId: ascendingId('msg'), at: Date.now() });
+    deliver(message);
   };
 
   return (

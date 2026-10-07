@@ -66,7 +66,7 @@ export function openSmartyStream(id: string, handlers: { onBlocks: (feed: Smarty
   if (!globalThis.EventSource) return { close: () => undefined };
   const source = new EventSource(getRuntimeUrlResolver().sse(`${smartyPath(id)}/stream`), { withCredentials: true });
   let dropped = false;
-  source.addEventListener('blocks', event => {
+  source.addEventListener('blocks', (event: MessageEvent<string>) => {
     const parsed = feedSchema.safeParse((() => { try { return JSON.parse(event.data); } catch { return null; } })());
     if (parsed.success) handlers.onBlocks(parsed.data);
   });

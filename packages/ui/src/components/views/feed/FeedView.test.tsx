@@ -348,25 +348,22 @@ test('opening the Smarty view reads only /api/me/smarties feeds: never /api/sess
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
 });
 
-test('a retry after the dedupe window, counted from the first send (not the failure), gets a new client ID', async () => {
-  let release: () => void = () => undefined;
+test('Send again always retries under the same client ID, however late (the gateway dedupes it for 24 h; openchamber#558 P2)', async () => {
   const realNow = Date.now;
   let now = realNow();
   Date.now = () => now;
   try {
-    // Sent at t=0; the failure arrives at t=2 min.
-    sendResult = () => new Promise((_, reject) => { release = () => reject(new Error('lost')); });
+    // Accepted by the gateway, but its answer was lost.
+    sendResult = async () => { throw new Error('response lost'); };
     const { host, unmount } = await mount(view());
     await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
-    await pressEnter(host.querySelector('textarea')!);
-    now += 2 * 60_000;
-    await act(async () => { release(); }); await settle();
-    // Retried at t=10 min: past the gateway's window from the first send.
-    now += 8 * 60_000;
+    await pressEnter(host.querySelector('textarea')!); await settle();
+    // Retried an hour later.
+    now += 60 * 60_000;
     sendResult = async () => undefined;
     await act(async () => { button(host, 'Send again')!.click(); }); await settle();
-    expect(sent).toHaveLength(2);
-    expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
+    expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
+    expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
     await unmount();
   } finally { Date.now = realNow; }
 });
