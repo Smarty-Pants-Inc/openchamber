@@ -38,7 +38,8 @@ test('a buffered R1 fleet body cannot restore an unavailable marker after switch
 }))
 
 for (const replacement of ['stock', 'managed', 'same-key endpoint'] as const) {
-  test(`runtime switch retires unavailable notice and grace for ${replacement} at the same path`, async () => fixture(async ({ entered, release }) => {
+  const sameKey = replacement === 'same-key endpoint'
+  test(`runtime switch ${sameKey ? 'keeps' : 'retires'} unavailable notice and grace for ${replacement} at the same path`, async () => fixture(async ({ entered, release }) => {
     await entered; release({}); await drain()
     const path = '/same/path', original = globalThis.fetch
     const location = Object.getOwnPropertyDescriptor(window, 'location')
@@ -61,10 +62,17 @@ for (const replacement of ['stock', 'managed', 'same-key endpoint'] as const) {
       const unsubscribe = useStatusUnavailableStore.subscribe(state => notices.push(state.directories.size))
       try {
         switchRuntimeEndpoint({ apiBaseUrl: 'https://replacement.invalid',
-          runtimeKey: replacement === 'same-key endpoint' ? 'async-publication' : 'replacement', clientToken: 'fixture' })
+          runtimeKey: sameKey ? 'async-publication' : 'replacement', clientToken: 'fixture' })
         opencodeClient.reconnectToRuntimeBaseUrl()
         // Stock R2 has no fleet sample that could incidentally clear R1's marker.
         expect(await opencodeClient.getSessionStatusForDirectory(path)).toEqual({ replacement: { type: 'busy' } })
+        if (sameKey) {
+          // Same runtime, new transport: the notice and the already-held grace stay.
+          expect(isStatusUnavailable(path)).toBe(true)
+          expect(notices).not.toContain(0)
+          expect(noteStatusUnavailablePoll(path)).toBe(true)
+          return
+        }
         expect(isStatusUnavailable(path)).toBe(false)
         expect(notices).toContain(0)
         if (replacement !== 'stock') {

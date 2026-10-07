@@ -32,7 +32,10 @@ let runtimeSubscribed = false;
 const ensureRuntimeSubscription = (): void => {
   if (runtimeSubscribed || !globalThis.window) return;
   runtimeSubscribed = true;
-  subscribeRuntimeEndpointChanged(() => recordStatusUnavailable([]));
+  // A new runtime must not inherit another runtime's notice or grace; a same-runtime transport change keeps both.
+  subscribeRuntimeEndpointChanged(({ runtimeKey, previousRuntimeKey }) => {
+    if (runtimeKey !== previousRuntimeKey) recordStatusUnavailable([]);
+  });
 };
 
 /** Replaces the set wholesale: a directory is unknown only while the latest successful fleet read says so. */

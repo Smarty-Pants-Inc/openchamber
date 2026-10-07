@@ -188,10 +188,11 @@ Reconciliation walks the running turns and asks the snapshot whether it covers e
 ### Unknown fleet status
 
 `status-unavailable.ts` owns unavailable-directory notices and first-poll grace.
-Both clear on every runtime endpoint change, including a transport change that
-keeps the runtime key. A healthy stock runtime at the same directory cannot
-inherit another runtime's notice or consumed grace. Unknown status is not proof
-that Pi ended and does not authorize finalizing unfinished messages or tools.
+Both clear when an endpoint change switches the runtime key; a transport change
+that keeps the runtime key keeps both. A healthy stock runtime at the same
+directory cannot inherit another runtime's notice or consumed grace. A failed or
+stale fleet read neither spends grace nor clears activity. Unknown status is not
+proof that Pi ended and does not authorize finalizing unfinished messages or tools.
 
 The active-session watchdog in `sync-context.tsx` (per-directory status polls and child-session discovery lists) runs its network calls through the shared background-network gate in `@/lib/background-network`, alongside poll-shaped git reads, global session pages, and command/skill discovery. Background fan-out must stay under that gate so the browser's per-origin connection pool keeps free sockets for interactive traffic — an uncapped startup burst previously queued the first session-open message fetch for seconds.
 
