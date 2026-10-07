@@ -328,7 +328,14 @@ function reconcileSessionMove(
     directory: destinationDirectory,
   } as Session
 
-  if (!destinationStore || !destinationState || sourceStore === destinationStore) {
+  if (!destinationStore || !destinationState) return movedSession
+  if (sourceStore === destinationStore) {
+    const present = destinationState.session.some(row => row.id === session.id)
+    destinationStore.setState({ session: present
+      ? destinationState.session.map(row => row.id === session.id ? movedSession : row)
+      : [...destinationState.session, movedSession],
+      sessionTotal: present ? destinationState.sessionTotal : destinationState.sessionTotal + 1,
+      ...sessionMutationPatch(destinationState, session.id, false) })
     return movedSession
   }
 
@@ -385,6 +392,28 @@ function reconcileSessionMove(
   })
 
   return movedSession
+}
+
+/** Observe an external pane move locally. Never dispatch a control-plane move or transfer an accepted view. */
+export function adoptObservedSessionOwner(session: Session, sourceDirectory: string): void {
+  // This is the last verified boundary before local move reconciliation. Refuse a
+  // destination draft conflict before invalidation or attribution can mutate state.
+  useSessionUIStore.getState().prepareObservedOwnerDraftTransfer(session.id, sourceDirectory, session.directory)
+  invalidateSessionLoads(session.id, [sourceDirectory, session.directory])
+  const moved = reconcileSessionMove(session, sourceDirectory, session.directory)
+  // Other initialized children may still hold the losing row. Rewrite its metadata, not its history.
+  for (const [directory, store] of _childStores?.children ?? []) {
+    if (directory === session.directory) continue
+    const state = store.getState()
+    if (!state.session.some(row => row.id === session.id)) continue
+    store.setState({ session: state.session.map(row => row.id === session.id ? moved : row),
+      ...sessionMutationPatch(state, session.id, true) })
+  }
+  registerSessionDirectory(session.id, session.directory)
+  useGlobalSessionsStore.getState().upsertSession(moved)
+  const selection = useSessionUIStore.getState()
+  selection.setSessionDirectory(session.id, session.directory)
+  if (selection.currentSessionId === session.id) selection.setCurrentSession(session.id, session.directory, "restore")
 }
 
 export async function moveSessionToDirectory(

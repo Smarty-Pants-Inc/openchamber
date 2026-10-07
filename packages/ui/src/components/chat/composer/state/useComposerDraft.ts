@@ -58,6 +58,8 @@ export interface ComposerDraftOptions {
     materializedSessionId?: string | null;
     /** Exact owner-qualified resolution of an implicit cold global draft, never ordinary navigation. */
     consumeCatalogDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => false | 'restore' | 'retain';
+    /** A verified same-session owner move retains live input, never ordinary navigation. */
+    consumeObservedOwnerDraftTransfer?: (previous: ChatDraftIdentity | null, current: ChatDraftIdentity | null) => false | 'retain' | 'conflict';
     /** The draft restored on mount, if any. */
     initialDraft: { text: string; identity: ChatDraftIdentity | null };
     /** Called when the composer switches to a different draft identity. */
@@ -69,13 +71,15 @@ export interface ComposerDraftOptions {
 }
 
 export interface ComposerDraftControls {
-    /** The last snapshot write failed. Live text remains available but is not saved across reload. */
+    /** Live input is page-only after a failed write or a verified destination conflict. */
     ephemeralOnly: boolean;
     /**
      * Write a draft now, bypassing the debounce. Used on submit, where the
      * cleared composer must be stored before the send resolves.
      */
     persistNow: (identity: ChatDraftIdentity | null, draft: string) => void;
+    /** Capture a submission's write authority; a page-only copy never gains a destination slot after navigation. */
+    capturePersistNow: (identity: ChatDraftIdentity | null) => (draft: string, mentions?: Iterable<string>) => void;
 }
 
 export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftControls {
@@ -88,6 +92,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         persistEnabled,
         materializedSessionId,
         consumeCatalogDraftTransfer,
+        consumeObservedOwnerDraftTransfer,
         initialDraft,
         onIdentityChange,
         onDraftRestored,
@@ -96,6 +101,9 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     } = options;
 
     const ephemeralOnly = React.useSyncExternalStore(subscribeChatDraftPersistence, isChatDraftEphemeral, isChatDraftEphemeral);
+    // A persistence-off move conflict keeps the source live, but must never save it over the destination.
+    const conflictIdentityRef = React.useRef<string | null>(null);
+    const [conflictEphemeralOnly, setConflictEphemeralOnly] = React.useState(false);
     const persistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const skipNextPersistRef = React.useRef(false);
     const lastPersistedRef = React.useRef<Map<string, string>>(new Map());
@@ -116,8 +124,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
     // Callbacks reach the effects through a ref so a caller passing inline
     // functions does not re-run the persistence effects on every render.
-    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer });
-    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer };
+    const callbacksRef = React.useRef({ onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer });
+    callbacksRef.current = { onIdentityChange, onDraftRestored, readMessage, onDraftConsumed, consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer };
 
     React.useLayoutEffect(() => { claimChatDraftOwnership(identity); }, [identity]);
 
@@ -128,6 +136,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
     const persistNow = React.useCallback((target: ChatDraftIdentity | null, draft: string) => {
         if (!target) return;
         const key = getChatDraftIdentityKey(target);
+        if (conflictIdentityRef.current === key) return;
 
         // Only keep confirmed mentions the draft still contains: a mention the
         // user deleted must not resurrect as a file reference on restore.
@@ -148,6 +157,25 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         if (stored) lastPersistedRef.current.set(key, signature);
         else lastPersistedRef.current.delete(key);
     }, [confirmedMentionsRef]);
+
+    const capturePersistNow = React.useCallback((target: ChatDraftIdentity | null) => {
+        const key = target ? getChatDraftIdentityKey(target) : null;
+        const blocked = key !== null && conflictIdentityRef.current === key;
+        return (draft: string, mentions?: Iterable<string>) => {
+            if (!target) return;
+            if (blocked) {
+                // A due page-only submission can return to this editor, but cannot acquire B's saved draft.
+                if (currentIdentityRef.current && getChatDraftIdentityKey(currentIdentityRef.current) === key) {
+                    conflictIdentityRef.current = key;
+                    setConflictEphemeralOnly(true);
+                }
+                return;
+            }
+            if (conflictIdentityRef.current === key) return;
+            if (mentions) writeChatDraft(target, draft, mentions);
+            else persistNow(target, draft);
+        };
+    }, [persistNow]);
 
     const clearPending = React.useCallback(() => {
         if (!persistTimerRef.current) return;
@@ -181,6 +209,17 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         const currentKey = identity ? getChatDraftIdentityKey(identity) : null;
         previousIdentityRef.current = identity;
         if (previousKey === currentKey) return;
+        const ownerTransfer = callbacksRef.current.consumeObservedOwnerDraftTransfer?.(previous, identity);
+        if (ownerTransfer === 'retain' || (ownerTransfer === 'conflict' && !persistEnabled)) {
+            clearPending();
+            skipNextPersistRef.current = true;
+            const live = callbacksRef.current.readMessage?.() ?? messageRef.current;
+            messageRef.current = live;
+            conflictIdentityRef.current = ownerTransfer === 'conflict' ? currentKey : null;
+            setConflictEphemeralOnly(ownerTransfer === 'conflict');
+            if (persistEnabled) persistNow(identity, live);
+            return; // The verified owner moved, not the user's input or its provenance.
+        }
         const catalogTransfer = callbacksRef.current.consumeCatalogDraftTransfer?.(previous, identity);
         if (catalogTransfer) {
             clearPending();
@@ -215,6 +254,9 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             if (persistEnabled) persistNow(identity, messageRef.current);
             return;
         }
+        if (persistEnabled) persistNow(previous, messageRef.current);
+        conflictIdentityRef.current = null;
+        setConflictEphemeralOnly(false);
         if (!persistEnabled) {
             messageRef.current = '';
             setMessage('');
@@ -222,7 +264,6 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
             return;
         }
 
-        persistNow(previous, messageRef.current);
         const restored = readChatDraft(identity);
         // The composer's own restore, not typing: the editor's controlled rewrite compares against messageRef, so it
         // must hold the restored text first. Otherwise the rewrite marks a cold draft edited, and the catalog transfer
@@ -279,6 +320,8 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         if (!current || getChatDraftIdentityKey(current) !== deletedKey) return;
 
         clearPending();
+        conflictIdentityRef.current = null;
+        setConflictEphemeralOnly(false);
         skipNextPersistRef.current = true;
         messageRef.current = '';
         confirmedMentionsRef.current = new Set();
@@ -287,7 +330,7 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
 
     // Disabling storage clears the saved draft once, not on every keystroke after a storage failure.
     React.useEffect(() => {
-        if (!persistEnabled) writeChatDraft(identity, '', []);
+        if (!persistEnabled && (!identity || conflictIdentityRef.current !== getChatDraftIdentityKey(identity))) writeChatDraft(identity, '', []);
     }, [identity, persistEnabled]);
 
     // Debounced write while typing.
@@ -334,5 +377,5 @@ export function useComposerDraft(options: ComposerDraftOptions): ComposerDraftCo
         };
     }, [clearPending, messageRef, persistEnabled, persistNow]);
 
-    return { persistNow, ephemeralOnly: persistEnabled && ephemeralOnly };
+    return { persistNow, capturePersistNow, ephemeralOnly: conflictEphemeralOnly || (persistEnabled && ephemeralOnly) };
 }

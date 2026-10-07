@@ -17,7 +17,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { checkQueueAdmission, QueueRequestError, isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage, type MessageQueueTarget } from '@/stores/messageQueueStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
-import { consumeCatalogDraftTransfer, markDraftInputEdited, useSessionUIStore } from '@/sync/session-ui-store';
+import { consumeCatalogDraftTransfer, consumeObservedOwnerDraftTransfer, markDraftInputEdited, useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { prepareLocalAttachments, useInputStore, type SyntheticContextPart } from '@/sync/input-store';
 import {
@@ -41,7 +41,6 @@ import {
     consumeChatDraft,
     getChatDraftIdentityKey,
     readChatDraft,
-    writeChatDraft,
     type ChatDraftIdentity,
     type ChatDraftSnapshot,
 } from '@/lib/chatDraftPersistence';
@@ -358,6 +357,7 @@ interface ChatInputProps {
     piReloading?: boolean;
     /** A Code-made session whose Pi lost Code's connection (smarty-code#957): say so, and how to reconnect. */
     piDisconnected?: boolean;
+    ownerPending?: boolean;
 }
 
 const resolveChatDraftIdentity = (sessionId: string | null): ChatDraftIdentity | null => {
@@ -381,6 +381,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     sessionLoadFailed = false,
     piReloading = false,
     piDisconnected = false,
+    ownerPending = false,
 }) => {
     const { t } = useI18n();
     // Track if we restored a draft on mount (for text selection)
@@ -1011,7 +1012,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     // Draft persistence: identity switching, debounced writes and the
     // flush-on-hide edges live in the hook.
-    const { persistNow: persistDraftImmediately, ephemeralOnly: draftEphemeralOnly } = useComposerDraft({
+    const { capturePersistNow, ephemeralOnly: draftEphemeralOnly } = useComposerDraft({
         message,
         messageRef,
         setMessage,
@@ -1020,6 +1021,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         persistEnabled: persistChatDraft,
         materializedSessionId: nativeModel ? materializedSessionId : null,
         consumeCatalogDraftTransfer,
+        consumeObservedOwnerDraftTransfer,
         initialDraft: {
             text: initialDraftRef.current ?? '',
             identity: initialDraftIdentityRef.current,
@@ -1111,11 +1113,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Observed (a change re-renders this composer): a session the managed listing left out is unavailable over any older sync row.
     const retainedUnavailable = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isGloballyUnavailable(state.entityById.get(currentSessionId!)));
     const ordinaryNow = currentSessionId ? readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined, retainedUnavailable) : undefined;
-    const ordinaryUnavailable = ordinaryNow !== undefined && !ordinaryNow.model;
+    useSessionUIStore(state => state.selectedManagedOwner);
+    const ordinaryUnavailable = ownerPending || (ordinaryNow !== undefined && !ordinaryNow.model);
     const [, recheckOrdinary] = React.useReducer((n: number) => n + 1, 0);
     // The page is not always told when the session returns (an idle session relaunched in place sends no event), so
     // while it is unavailable its view is also re-read every 2 s: the model control and Send come back on their own.
-    const unavailableTarget = ordinaryUnavailable && currentSessionId
+    const unavailableTarget = ordinaryUnavailable && !ownerPending && currentSessionId
         ? { sessionID: currentSessionId, directory: currentSessionDirectoryForSync ?? currentDirectory ?? '' } : null;
     const unavailableKey = unavailableTarget ? `${unavailableTarget.directory}\n${unavailableTarget.sessionID}` : null;
     React.useEffect(() => {
@@ -1465,6 +1468,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             return;
         }
         const submitRuntimeKey = getRuntimeKey();
+        const persistSubmittedDraft = capturePersistNow(chatDraftIdentity);
         const queuedOnly = options?.queuedOnly ?? false;
         const queuedMessageId = options?.queuedMessageId;
         const delivery = options?.delivery === 'steer' && sessionPhase !== 'idle' ? 'steer' : undefined;
@@ -1522,7 +1526,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // the managed listing left out is unavailable over them (openchamber#364).
         const ordinary = readOpenOrdinaryState(currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined,
             isGloballyUnavailable(currentSessionId ? useGlobalSessionsStore.getState().entityById.get(currentSessionId) : undefined));
-        if (ordinary && !ordinary.model) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
+        if (ownerPending || (ordinary && !ordinary.model)) { toast.error(t('chat.ordinary.sendUnavailable')); return; }
         const nativeModelToSend = ordinary?.model ?? nativeIntent?.session.nativeCreation.model ?? nativeModel;
         if (queuedOnly && autoReviewRunning) {
             return;
@@ -1568,7 +1572,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const textless = !inputSnapshot.message.trim();
         const restoreComposerText = () => {
             if (queuedOnly || textless) return;
-            for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
             // New text already there (typed, a loaded draft, an earlier restore) is kept: this text joins it.
             const join = (base: string) => {
                 const joined = !base.trim() || base === inputSnapshot.message ? { text: inputSnapshot.message, at: 0 } : appendOwnedBlock(base, inputSnapshot.message);
@@ -1584,16 +1587,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (textInDraft) return;
                 // The user switched sessions mid-send: restore into that
                 // session's persisted draft, not the visible composer.
-                writeChatDraft(chatDraftIdentity, join(chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : ''), confirmedMentionsRef.current);
+                const saved = readChatDraft(chatDraftIdentity);
+                persistSubmittedDraft(join(saved.text), new Set([...saved.confirmedMentions, ...confirmedMentionsSnapshot]));
                 return;
             }
+            for (const mention of confirmedMentionsSnapshot) confirmedMentionsRef.current.add(mention);
             // openchamber#375 review 4: composed on the composer STATE, not the editor document (a render behind a draft
             // load or an earlier restore in the same tick), so every restore keeps the ones before it and the loaded draft.
             // ponytail: the updater also saves the draft; it is idempotent for a given prev (StrictMode may run it twice).
             setMessage((prev) => {
                 const next = textInDraft && prev.includes(inputSnapshot.message) ? prev : join(prev);
                 messageRef.current = next;
-                writeChatDraft(chatDraftIdentity, next, confirmedMentionsRef.current);
+                persistSubmittedDraft(next, confirmedMentionsRef.current);
                 return next;
             });
         };
@@ -1661,7 +1666,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             const actionName = commandPlan.command.name;
             setMessage('');
             confirmedMentionsRef.current.clear();
-            persistDraftImmediately(chatDraftIdentity, '');
+            persistSubmittedDraft('');
             messageHistory.reset();
             setExpandedInput(false);
             if (isMobile) composerRef.current?.blur();
@@ -1847,7 +1852,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 messageRef.current = '';
                 setMessage('');
                 confirmedMentionsRef.current.clear();
-                persistDraftImmediately(chatDraftIdentity, '');
+                persistSubmittedDraft('');
                 messageHistory.reset();
             }
             if (origin) {
@@ -1925,9 +1930,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 }
                 if (!sameDraftIdentity(currentChatDraftIdentityRef.current, chatDraftIdentity)) {
                     // Off-screen, only a saved draft unchanged since this block was joined or last followed (review r3 1).
-                    const saved = chatDraftIdentity ? readChatDraft(chatDraftIdentity).text : null;
-                    const rest = saved !== null && saved === own.seen ? removeOwn(saved) : null;
-                    if (rest !== null) writeChatDraft(chatDraftIdentity, rest, confirmedMentionsRef.current);
+                    const saved = readChatDraft(chatDraftIdentity);
+                    const rest = saved.text === own.seen ? removeOwn(saved.text) : null;
+                    if (rest !== null) persistSubmittedDraft(rest, [...saved.confirmedMentions].filter(mention => rest.includes(`@${mention}`)));
                     ownedJoinsRef.current.delete(own);
                     return;
                 }
@@ -1938,7 +1943,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     if (!own.gone) followEdit(own, prev);
                     const rest = removeOwn(prev);
                     if (rest === null) { ownedJoinsRef.current.delete(own); return prev; }
-                    messageRef.current = rest; persistDraftImmediately(chatDraftIdentity, rest);
+                    messageRef.current = rest; persistSubmittedDraft(rest);
                     if (first) clearOwnParts();
                     return rest;
                 });

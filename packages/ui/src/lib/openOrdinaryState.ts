@@ -1,5 +1,6 @@
 import type { Session } from '@opencode-ai/sdk/v2';
 import { isHerdrEnded } from '@/lib/herdrSession';
+import { selectedOwnerOrdinaryState } from '@/sync/selected-session-owner';
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { getAllSyncSessions, getSyncSessions } from '@/sync/sync-refs';
@@ -23,6 +24,8 @@ export const isGloballyUnavailable = (session: Session | undefined): boolean => 
  */
 export function readOpenOrdinaryState(sessionId: string | null | undefined, directory: string | undefined, retained: boolean): OrdinaryModelState | undefined {
     if (!sessionId) return undefined;
+    const ownerState = selectedOwnerOrdinaryState(sessionId, directory);
+    if (ownerState) return ownerState;
     if (retained) return { generation: null, sequence: 0, model: null, thinkingLevel: null };
     return readOrdinaryModel(getSyncSessions(directory).find(session => session.id === sessionId))
         ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === sessionId))
