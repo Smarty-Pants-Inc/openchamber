@@ -133,6 +133,6 @@ test('the call controls are 44 px touch targets on a phone', async () => {
   // The touch-pointer rule outranks mobile.css's global 36 px button floor.
   const { readFile } = await import('node:fs/promises');
   const css = await readFile(new URL('../../styles/mobile.css', import.meta.url), 'utf8');
-  expect(css).toMatch(/:root\.mobile-pointer:not\(\.desktop-runtime\) \.oc-touch-target \{\s*min-height: 44px !important;\s*min-width: 44px !important;/);
+  expect(/:root\.mobile-pointer:not\(\.desktop-runtime\) \.oc-touch-target \{\s*min-height: 44px !important;\s*min-width: 44px !important;/.test(css)).toBe(true);
   unmount();
 });
