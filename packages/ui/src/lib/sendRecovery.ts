@@ -105,7 +105,8 @@ export class SendRecovery {
     return false;
   }
 
-  /** Strict composer admission, atomic with beginning the attempt. Legacy begin remains content-scoped. */
+  /** Compatibility policy within this recovery instance only. Browser-lifetime
+   * admission belongs to sync/session-send-state, not this editor cleanup helper. */
   beginSession(target: string, content: string, hooks: Hooks, candidate?: RecoveryCandidate): RecoveryAttempt | null {
     if (this.isSessionPending(target)) { hooks.notify('still-pending'); return null; }
     const attempt = this.begin(target, content, hooks, candidate);

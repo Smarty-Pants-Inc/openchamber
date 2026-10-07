@@ -20,6 +20,10 @@ import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } fro
 import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
 import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
+import { sessionSendState } from './session-send-state'
+import { isAmbiguousSendFailure } from './send-failure-classification'
+import { isClientIdConflict } from '@/lib/sendRecovery'
+import { formatMessage, useI18nStore } from '@/lib/i18n'
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view'
 import { useConfigStore } from "@/stores/useConfigStore"
@@ -72,6 +76,7 @@ import {
   shareSession as shareSessionAction,
   unshareSession as unshareSessionAction,
   optimisticSend,
+  ascendingId,
   refetchSessionMessages,
   revertToMessage as revertToMessageAction,
   unrevertSession as unrevertSessionAction,
@@ -150,7 +155,7 @@ export function expandSlashCommandGoalObjective(content: string, commands: GoalC
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export async function routeMessage(params: {
+type RouteMessageParams = {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -170,14 +175,46 @@ export async function routeMessage(params: {
   /** smarty-code#827: the client message ID to send with (a re-send of an unconfirmed text reuses its first send's). */
   messageID?: string
   onMessageID?: (messageID: string) => void
-}): Promise<'command' | 'prompt' | 'shell'> {
+}
+
+function readRouteOrdinary(params: RouteMessageParams) {
+  const directory = normalizePath(params.directory) ?? undefined
+  return selectedOwnerOrdinaryState(params.sessionId, directory) ?? readOrdinaryModel(getSyncSessions(directory)
+    .find(session => session.id === params.sessionId && (!directory || normalizePath(session.directory) === directory)))
+}
+
+export async function routeMessage(params: RouteMessageParams): Promise<'command' | 'prompt' | 'shell'> {
+  const runtimeKey = params.runtimeKey ?? getRuntimeKey()
+  // Stock sends retain their established concurrency. A held ordinary reservation
+  // remains authoritative even if a replacement provider has not indexed its row yet.
+  if (!readRouteOrdinary(params) && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
+    return dispatchRouteMessage(params, () => {})
+  }
+  const scope = captureRuntimeRequestScope()
+  if (runtimeKey !== scope.runtimeKey) throw new Error('Message was not sent because the runtime changed.')
+  const waiting = () => new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.send.waitingForConfirmation'))
+  const attempt = sessionSendState.begin(runtimeKey, params.sessionId, params.messageID ?? ascendingId('msg'))
+  if (!attempt) throw waiting()
+  const beforeDispatch = () => {
+    if (!isRuntimeRequestScopeCurrent(scope)) throw new Error('Message was not sent because the runtime changed.')
+    if (!attempt.canDispatch()) throw waiting()
+    params.beforeDispatch?.()
+  }
+  try {
+    const result = await dispatchRouteMessage({ ...params, runtimeKey, messageID: attempt.messageID, beforeDispatch }, () => attempt.dispatched())
+    attempt.accepted()
+    return result
+  } catch (error) {
+    const conflict = isClientIdConflict(error instanceof Error ? error.message : String(error ?? ''))
+    attempt.failed(conflict || isAmbiguousSendFailure(error) ? 'unknown' : 'refused')
+    throw error
+  }
+}
+
+async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch: () => void): Promise<'command' | 'prompt' | 'shell'> {
   params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
-  const selectedOrdinary = () => {
-    const directory = normalizePath(requestDirectory) ?? undefined
-    return selectedOwnerOrdinaryState(params.sessionId, directory) ?? readOrdinaryModel(getSyncSessions(directory)
-      .find(session => session.id === params.sessionId && (!directory || normalizePath(session.directory) === directory)))
-  }
+  const selectedOrdinary = () => readRouteOrdinary(params)
   const ordinary = selectedOrdinary()
   if (ordinary) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
@@ -295,7 +332,7 @@ export async function routeMessage(params: {
     onMessageID: params.onMessageID,
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
-      beforeDispatch: params.beforeDispatch,
+      beforeDispatch: () => { params.beforeDispatch?.(); onPromptDispatch() },
       id: params.sessionId,
       providerID: params.providerID,
       modelID: params.modelID,
@@ -2258,7 +2295,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       : undefined
 
     const messageRoute = await routeMessage({
-      runtimeKey: capturedTarget?.runtimeKey,
+      runtimeKey: capturedRuntimeKey,
       beforeDispatch: options?.beforeDispatch,
       sessionId: targetSessionId || "",
       directory: currentSessionDirectory,

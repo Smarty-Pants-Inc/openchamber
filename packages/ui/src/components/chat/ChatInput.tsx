@@ -102,6 +102,7 @@ import { extractGitChangedFiles } from './changedFiles';
 import { useI18n } from '@/lib/i18n';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { isClientIdConflict, SendRecovery } from '@/lib/sendRecovery';
+import { sessionSendState } from '@/sync/session-send-state';
 import { ascendingId } from '@/sync/session-actions';
 import { isAmbiguousSendFailure } from '@/sync/send-failure-classification';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -1415,7 +1416,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // A Send on a new-session draft holds the opening of its new session until its message is admitted or it ends
     // (smarty-dev#856). The press owns its hold: an exit that dispatches nothing ends it here, a dispatched send when
     // it settles. Another press or another draft target never ends it.
-    // smarty-code#827: each send to a Pi session, by its target and content, until it is delivered (lib/sendRecovery).
+    // Component-local recovery owns input restoration only. Send authority lives in session-send-state.
     // smarty-code#827: the same draft by value; coming back to a session makes a new identity object for it.
     const sameDraftIdentity = (a: ChatDraftIdentity | null, b: ChatDraftIdentity | null) =>
         a === b || (!!a && !!b && getChatDraftIdentityKey(a) === getChatDraftIdentityKey(b) && a.draftId === b.draftId);
@@ -1471,10 +1472,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const handleSubmit = async (options: SubmitOptions | undefined, attempt: SubmitAttempt) => {
         const submitRuntimeKey = getRuntimeKey();
-        const capturedSessionScope = currentSessionId && isOrdinarySession(currentSessionId)
-            ? [submitRuntimeKey, currentSessionDirectoryForSync ?? currentDirectory ?? '', currentSessionId].join('\u0000') : null;
+        const capturedSessionScope = currentSessionId && isOrdinarySession(currentSessionId) ? currentSessionId : null;
         // Every explicit Send is fenced, including queue-only sends and unrelated replacement input.
-        if (capturedSessionScope && sendRecovery.current!.isSessionPending(capturedSessionScope)) {
+        if (capturedSessionScope && sessionSendState.isPending(submitRuntimeKey, capturedSessionScope)) {
             toast.info(t('chat.send.waitingForConfirmation'));
             return;
         }
@@ -1927,12 +1927,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ownedCopies: [...capturedCopies, ...captureOwnedCopies(submissionIdentity, null, attachedFiles, syntheticParts ?? [])],
         } : null;
         // Another attempt may have begun during preparation. The captured session never follows selection.
-        if (capturedSessionScope && sendRecovery.current!.isSessionPending(capturedSessionScope)) {
+        if (capturedSessionScope && sessionSendState.isPending(submitRuntimeKey, capturedSessionScope)) {
             restoreConsumedInput();
             toast.info(t('chat.send.waitingForConfirmation'));
             return;
         }
-        const recovery = watchUnconfirmed ? sendRecovery.current!.beginSession(pendingKeys!.target, recoveryCandidate!.content, {
+        const recovery = watchUnconfirmed ? sendRecovery.current!.begin(pendingKeys!.target, recoveryCandidate!.content, {
             // The whole consumed input comes back (text, files, context parts), so an unedited re-send is the same content,
             // but only into this target's own composer (review 3): shown elsewhere, it waits until this target is shown.
             restore: () => {
@@ -2008,11 +2008,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.waitingForConfirmation')); },
         }, recoveryCandidate!) : null;
         if (watchUnconfirmed && !recovery) { restoreConsumedInput(); return; }
-        const sessionPending = () => !!capturedSessionScope && (sendRecovery.current!.isSessionPending(capturedSessionScope, recovery?.messageID)
-            || (!!recovery && !recovery.canDispatch()));
-        if (capturedSessionScope) sendMessageOptions = { ...sendMessageOptions, beforeDispatch: () => {
-            if (sessionPending()) throw new Error(t('chat.send.waitingForConfirmation'));
-        } };
+        // Preparation has not entered routeMessage yet. The store owns atomic
+        // admission and its SDK callback, including queue-only and programmatic Sends.
+        const sessionPending = () => !!capturedSessionScope && sessionSendState.isPending(submitRuntimeKey, capturedSessionScope);
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
 

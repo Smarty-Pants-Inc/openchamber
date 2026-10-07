@@ -15,6 +15,10 @@ import { getSafeStorage } from '@/stores/utils/safeStorage';
 import { createChatDraftIdentity, readChatDraft, writeChatDraft } from '@/lib/chatDraftPersistence';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { markAmbiguousTransportFailure } from '@/lib/relay/transport-error';
+import { FleetViewOnlyBanner } from '@/components/chat/FleetViewOnlyBanner';
+import { isHerdrEnded, showsViewOnly } from '@/lib/herdrSession';
+
+const { ChatInput } = await import('@/components/chat/ChatInput');
 
 const B = '/native-project-b';
 const ordinary = { generation: 'g1', sequence: 1, model: { providerID: 'p', modelID: 'm', name: 'M' }, thinkingLevel: 'high' };
@@ -32,11 +36,11 @@ afterEach(async () => {
 });
 const settle = () => act(async () => { await sleep(20); });
 
-async function mount(persist = false) {
+async function mount(persist = false, body?: Parameters<typeof mountedNativeComposer>[3]) {
   errors.length = 0;
   const info = spyOn(toast, 'info').mockImplementation(message => { errors.push(String(message)); return 'test-info'; });
   restoreInfo = () => info.mockRestore();
-  const c = mounted = await mountedNativeComposer(persist, undefined, undefined, undefined, f => {
+  const c = mounted = await mountedNativeComposer(persist, undefined, undefined, body, f => {
     useProjectsStore.setState({ managedCatalogAdmitted: true, managedCatalogStatus: 'ready',
       managedRows: [{ id: 'a', worktree: A }, { id: 'b', worktree: B }],
       managedProjects: [{ id: 'a', path: A, addedAt: 0, lastOpenedAt: 0 }, { id: 'b', path: B, addedAt: 0, lastOpenedAt: 0 }] });
@@ -239,8 +243,8 @@ for (const persist of [false, true]) for (const timing of ['before', 'after'] as
 
 // Two independent pending IDs cannot be created by the mounted composer under
 // the session fence. Library tests retain coverage for already-existing cohorts.
-async function heldSend(context = false) {
-  const c = await mount(), first = deferred<Response>();
+async function heldSend(context = false, body?: Parameters<typeof mountedNativeComposer>[3]) {
+  const c = await mount(false, body), first = deferred<Response>();
   await act(async () => c.children.getChild(A)!.setState({ session: [row(A)] }));
   sendUnconfirmed.ms = 250;
   c.handlers.prompt = async () => c.prompts().length === 1 ? first.promise : new Response(null, { status: 204 });
@@ -250,6 +254,147 @@ async function heldSend(context = false) {
   await c.submit(); expect(c.prompts()).toHaveLength(1);
   return { c, first, captured };
 }
+
+test('session fence survives composer remount while the original POST remains held', async () => {
+  const { c, first } = await heldSend();
+  let firstKnown = false;
+  void first.promise.then(() => { firstKnown = true; });
+  try {
+    await act(async () => { await sleep(300); });
+    await c.replace('Different deliberate text before remount');
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    expect(firstKnown).toBe(false);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    const previousEditor = c.editor();
+    await act(async () => c.remount());
+    expect(c.editor()).not.toBe(previousEditor);
+    await c.replace('Different deliberate text after remount');
+    await c.submit(); await settle();
+    const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
+    console.info('REMOUNT_HELD_OUTCOME', JSON.stringify({ posts: c.prompts().length, firstKnown,
+      differentID: sent.length > 1 && sent[1].messageID !== sent[0].messageID,
+      directories: c.prompts().map(request => new URL(request.url).searchParams.get('directory')),
+      sessions: c.prompts().map(request => new URL(request.url).pathname) }));
+    expect(firstKnown).toBe(false);
+    expect(c.prompts()).toHaveLength(1);
+    expect(c.text()).toBe('Different deliberate text after remount');
+    expect(c.creates()).toHaveLength(0);
+  } finally {
+    // Settlement is cleanup only, after observing the held-request remount boundary.
+    await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); });
+  }
+});
+
+for (const status of [204, 409]) test(`session fence releases after remount and known outcome ${status}, explicit Send only`, async () => {
+  const { c, first } = await heldSend();
+  try {
+    await act(async () => { await sleep(300); c.remount(); });
+    await c.replace('New deliberate input after remount');
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    await act(async () => { first.resolve(new Response(null, { status })); await sleep(20); });
+    expect(c.prompts()).toHaveLength(1);
+    expect(c.text()).toBe('New deliberate input after remount');
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+    const sent = await Promise.all(c.prompts().map(request => request.clone().json()));
+    expect(sent[1].messageID).not.toBe(sent[0].messageID);
+    expect(sent[1].parts.filter((part: { type: string }) => part.type === 'text').map((part: { text: string }) => part.text)).toEqual(['New deliberate input after remount']);
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+test('session fence survives offscreen owner move followed by composer remount', async () => {
+  const { c, first } = await heldSend(true);
+  try {
+    await act(async () => { await sleep(300); });
+    await act(async () => useSessionUIStore.setState({ currentSessionId: 'unrelated', currentSessionDirectory: B }));
+    await settle();
+    await act(async () => { adoptObservedSessionOwner(row(B), A); c.remount(); });
+    await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: B }));
+    await settle();
+    await c.replace('Unrelated input after offscreen owner move and remount');
+    await act(async () => useInputStore.setState({ pendingSyntheticParts: [] }));
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    expect(useSessionUIStore.getState().currentSessionDirectory).toBe(B);
+    expect(new URL(c.prompts()[0].url).searchParams.get('directory')).toBe(A);
+    expect(c.text()).toBe('Unrelated input after offscreen owner move and remount');
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+test('remounted session fence isolates another session while the original POST is held', async () => {
+  const { c, first } = await heldSend();
+  const other = { ...row(B), id: '21234567-1234-4234-9234-012345678901' };
+  try {
+    await act(async () => { await sleep(300); c.remount(); });
+    await act(async () => {
+      c.children.ensureChild(B, { bootstrap: false }).setState({ session: [other] });
+      useSessionUIStore.setState({ currentSessionId: other.id, currentSessionDirectory: B });
+    });
+    await settle(); await c.replace('Independent session after remount');
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+    expect(new URL(c.prompts()[1].url).pathname).toContain(other.id);
+    await act(async () => useSessionUIStore.setState({ currentSessionId: session.id, currentSessionDirectory: A }));
+    await settle(); await c.replace('Original session is still held');
+    await c.submit(); expect(c.prompts()).toHaveLength(2);
+    expect(c.text()).toBe('Original session is still held');
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+test('remounted session fence isolates the same UUID on another runtime and survives return', async () => {
+  const { c, first } = await heldSend();
+  try {
+    await act(async () => { await sleep(300); });
+    await act(async () => {
+      c.switchRuntime(`${c.runtimeA}-independent`);
+      useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A,
+        selectedManagedOwner: null, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+      c.remount();
+    });
+    await c.replace('Same UUID on an independent runtime');
+    await c.submit(); await settle(); expect(c.prompts()).toHaveLength(2);
+    expect(new URL(c.prompts()[1].url).pathname).toContain(session.id);
+    await act(async () => {
+      c.switchRuntime(c.runtimeA);
+      useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A,
+        selectedManagedOwner: null, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+      c.remount();
+    });
+    await c.replace('Original runtime is still held');
+    await c.submit(); expect(c.prompts()).toHaveLength(2);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    expect(c.text()).toBe('Original runtime is still held');
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
+
+function OwnerComposer() {
+  const id = useSessionUIStore(state => state.currentSessionId);
+  const owner = useGlobalSessionsStore(state => id ? state.entityById.get(id) : undefined);
+  // The existing draftRouteHistory fixture uses this production banner decision
+  // to remove ChatInput without mounting unrelated ChatContainer panels.
+  return showsViewOnly(false, owner) ? <FleetViewOnlyBanner ended={isHerdrEnded(owner)} /> : <ChatInput />;
+}
+
+test('session fence survives view-only banner replacing the composer while POST is held', async () => {
+  const { c, first } = await heldSend(false, () => <OwnerComposer />);
+  try {
+    await act(async () => { await sleep(300); });
+    const previousEditor = c.editor();
+    await act(async () => useGlobalSessionsStore.getState().applySnapshot([row(A, true)], []));
+    expect(c.dom.container.querySelector('.cm-content')).toBeNull();
+    expect(c.dom.container.querySelector('[data-testid="fleet-view-only"]')).not.toBeNull();
+    expect(c.prompts()).toHaveLength(1);
+    await act(async () => useGlobalSessionsStore.getState().applySnapshot([row(A)], []));
+    expect(c.editor()).not.toBe(previousEditor);
+    await c.replace('Unrelated message after view-only return');
+    await c.submit(); expect(c.prompts()).toHaveLength(1);
+    expect(errors).toContain('Waiting for your last message to be confirmed.');
+    expect(c.text()).toBe('Unrelated message after view-only return');
+    expect(c.creates()).toHaveLength(0);
+  } finally { await act(async () => { first.resolve(new Response(null, { status: 409 })); await sleep(20); }); }
+});
 
 for (const retainedContext of [false, true]) test(`session fence blocks unrelated replacement after watchdog, context ${retainedContext}`, async () => {
   const { c, first, captured } = await heldSend(retainedContext);
