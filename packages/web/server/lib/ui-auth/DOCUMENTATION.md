@@ -127,7 +127,9 @@ open streams within about a second, with no restart. The file must be a regular
 0600 file owned by the service user (no symlink) in a directory not writable by
 others; it is re-read when its inode, size, mtime or ctime changes. A missing,
 unsafe or invalid file admits nobody, logged once per problem without list
-contents. Unset keeps the domain-only rule.
+contents. Unset keeps the domain-only rule. A refused Google sign-in redirects to
+`BETTER_AUTH_URL/?error=account_not_allowed` (`onAPIError.errorURL`), and the sign-in
+screen shows a plain "not a member" message; it never renders `error_description`.
 
 The proxy strips forged actor headers and human-auth cookies and injects only the
 resolved server actor for the private Code gateway. Other backend authorization

@@ -70,7 +70,7 @@ afterAll(async () => {
 const { createRoot } = await import('react-dom/client');
 const { I18nProvider } = await import('../../lib/i18n');
 const { DisplayNameChoice } = await import('../chat/composer/ui/DisplayNameChoice');
-const { HumanAccount } = await import('./HumanAccount');
+const { GoogleSignIn, HumanAccount } = await import('./HumanAccount');
 
 const user = { id: 'u1', name: 'Ada Lovelace', email: 'ada@example.org', image: null };
 
@@ -125,3 +125,17 @@ test('avatar menu shows name, email, organization and signs out', () => withSess
   expect(requests.some(url => url.endsWith('/api/auth/sign-out'))).toBe(true);
   await act(async () => root.unmount());
 }));
+
+// smarty-code#1391: a Google account that is not on the members list returns with ?error=account_not_allowed.
+test('a refused Google sign-in shows the plain members message once and cleans the address', async () => {
+  for (const [query, text] of [['?error=account_not_allowed&error_description=%3Cb%3Eforged%3C%2Fb%3E',
+    'This Google account is not a member here. Ask the owner to add you, or use another account.'],
+  ['?error=state_not_found', 'Account action failed. Try again.'], ['', null]] as const) {
+    dom.history.replaceState({}, '', `https://ui.example.test/${query}`);
+    const { container, root } = await mount(<GoogleSignIn />);
+    expect(container.querySelector('[role="alert"]')?.textContent ?? null).toBe(text);
+    expect(container.textContent).not.toContain('forged');
+    expect(dom.location.href).toBe('https://ui.example.test/');
+    await act(async () => root.unmount());
+  }
+});

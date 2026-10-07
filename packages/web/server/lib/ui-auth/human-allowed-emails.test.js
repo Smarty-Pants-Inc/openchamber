@@ -81,7 +81,8 @@ test('Google sign-in admits a listed member and refuses an unlisted same-domain 
     assert.equal(member.session.user.email.toLowerCase(), 'paul@example.test');
     const outsider = await google.login({ sub: 'google-marisela', email: 'marisela@example.test' });
     assert.equal(outsider.session, null);
-    assert.match(outsider.response.headers.get('location'), /account_not_allowed/);
+    // The refusal returns to the app's sign-in screen, which shows a plain members message for this code.
+    assert.match(outsider.response.headers.get('location'), /^http:\/\/localhost:43210\/?\?error=account_not_allowed&/);
     assert.equal(f.database.prepare("SELECT count(*) AS n FROM user WHERE email = 'marisela@example.test'").get().n, 0);
   } finally { f.close(); }
 });

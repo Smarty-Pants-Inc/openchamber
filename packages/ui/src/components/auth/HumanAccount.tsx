@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SettingsStackedField } from '@/components/sections/shared/SettingsSection';
 import { useI18n } from '@/lib/i18n';
-import { humanAuthClient, signInWithGoogle } from '@/lib/human-auth';
+import { clearGoogleSignInError, humanAuthClient, readGoogleSignInError, signInWithGoogle } from '@/lib/human-auth';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 
@@ -22,15 +22,18 @@ const ORGANIZATION = 'Smarty Pants';
 export function GoogleSignIn() {
   const { t } = useI18n();
   const [busy, setBusy] = React.useState(false);
-  const [failed, setFailed] = React.useState(false);
+  const [refusal, setRefusal] = React.useState(readGoogleSignInError);
+  React.useEffect(clearGoogleSignInError, []);
   return <div className="space-y-3">
     <p className="typography-ui-meta text-muted-foreground">{t('chat.displayName.googleHelp')}</p>
     <Button disabled={busy} onClick={async () => {
-      setBusy(true); setFailed(false);
-      try { await signInWithGoogle(); } catch { setFailed(true); }
+      setBusy(true); setRefusal(null);
+      try { await signInWithGoogle(); } catch { setRefusal('failed'); }
       finally { setBusy(false); }
     }}>{t('chat.displayName.googleSignIn')}</Button>
-    {failed && <p role="alert">{t('chat.displayName.accountError')}</p>}
+    {refusal && <p role="alert">
+      {t(refusal === 'notMember' ? 'chat.displayName.notMember' : 'chat.displayName.accountError')}
+    </p>}
   </div>;
 }
 

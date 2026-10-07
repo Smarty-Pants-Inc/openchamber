@@ -30,6 +30,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     database, baseURL, secret,
     trustedOrigins: [baseURL],
     advanced: { disableOriginCheck: false, disableCSRFCheck: false },
+    // smarty-code#1391: a refused sign-in returns to the app's sign-in screen, which explains the error code;
+    // the library's own error page says "Something went wrong" and links to an outside AI helper.
+    onAPIError: { errorURL: baseURL },
     emailAndPassword: { enabled: false },
     socialProviders: { google: {
       clientId: googleClientId, clientSecret: googleClientSecret, prompt: 'select_account', hd: hostedDomain,
