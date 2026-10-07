@@ -256,8 +256,10 @@ async function dispatchRouteMessage(params: RouteMessageParams, dispatched: () =
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
+      messageId: params.messageID,
       beforeDispatch: finalCheck,
     })
+    if (params.messageID) params.onMessageID?.(params.messageID)
     return 'shell'
   }
 
@@ -296,6 +298,9 @@ async function dispatchRouteMessage(params: RouteMessageParams, dispatched: () =
           directory: requestDirectory,
           files: params.files,
           appendSubmissions: params.appendSubmissions,
+          // The admission's client ID (a retry keeps its first send's), as for prompts.
+          messageID: params.messageID,
+          onMessageID: params.onMessageID,
           send: (messageID) => opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
             id: params.sessionId,

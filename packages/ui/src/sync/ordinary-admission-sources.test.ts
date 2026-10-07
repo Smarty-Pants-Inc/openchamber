@@ -316,3 +316,36 @@ test('an ordinary shell request refused before it leaves still releases the rese
     expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
   } finally { globalThis.fetch = fixtureFetch; f.dispose(); }
 });
+
+// openchamber#566 code review P1 (a): an ordinary shell or slash-command request carries the admission's client ID, so
+// its same-ID retry after an ambiguous failure reaches the gateway with the original ID.
+for (const [kind, content, suffix, idField, extra] of [
+  ['shell', 'echo hello', '/shell', 'messageID', { inputMode: 'shell' as const }],
+  ['slash command', '/probe', '/command', 'messageID', {}],
+] as const) {
+  test(`an ordinary ${kind} retry reuses the unresolved request's client ID`, async () => {
+    const f = nativeDraftFixture();
+    // SAFETY: the child store accepts the fixture's minimal command record; only its name is read here.
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, directory: A }], command: [{ name: 'probe' }] as never });
+    useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+    await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    const fixtureFetch = globalThis.fetch;
+    const ids: string[] = [];
+    globalThis.fetch = async (input, init) => {
+      const request = new Request(input, init);
+      if (request.method === 'POST' && new URL(request.url).pathname.endsWith(suffix)) {
+        ids.push(String((await request.clone().json())[idField]));
+        return ids.length === 1 ? new Response(null, { status: 503 }) : Response.json({ info: { id: ids.at(-1) }, parts: [] });
+      }
+      return fixtureFetch(input, init);
+    };
+    const params = { runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content, providerID: 'p', modelID: 'm',
+      messageID: 'msg_original', ...extra };
+    try {
+      expect(await routeMessage(params).then(() => 'sent', () => 'failed')).toBe('failed');
+      expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(true);
+      await routeMessage(params).catch(() => undefined);
+      expect(ids).toEqual(['msg_original', 'msg_original']);
+    } finally { globalThis.fetch = fixtureFetch; f.dispose(); }
+  });
+}

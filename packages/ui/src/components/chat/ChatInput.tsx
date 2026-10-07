@@ -1435,8 +1435,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
         if (!sessionId || !isOrdinarySession(sessionId)) return null;
         const input = useInputStore.getState();
+        // Every outgoing context is part of the message's identity (openchamber#566): a retry with other linked or
+        // inline context is a different message, not the same one under its first client ID.
+        const linked = liveLinkedReferences.current;
+        const drafts = inlineDraftTarget ? useInlineCommentDraftStore.getState().getDrafts(inlineDraftTarget) : [];
+        const context = [
+            linked.issue ? `issue:${linked.issue.url}\u0000${linked.issue.contextText ?? ''}` : '',
+            linked.pr ? `pr:${linked.pr.url}\u0000${linked.pr.instructionsText ?? ''}\u0000${linked.pr.contextText ?? ''}` : '',
+            linked.linear ? `linear:${linked.linear.url}\u0000${linked.linear.contextText ?? ''}` : '',
+            ...drafts.map(draft => `comment:${draft.id}\u0000${draft.text}\u0000${draft.code}`),
+        ].filter(Boolean);
         return { target: [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', sessionId].join('\u0000'),
-            content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id), ...(input.pendingSyntheticParts ?? []).map(part => part.text)]) };
+            content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id),
+                ...(input.pendingSyntheticParts ?? []).map(part => part.text), ...context]) };
     };
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};

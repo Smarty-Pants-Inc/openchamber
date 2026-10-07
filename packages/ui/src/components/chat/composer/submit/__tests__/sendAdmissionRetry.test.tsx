@@ -181,3 +181,35 @@ test('a stale marker on a now-stock session offers the discard, and the confirm 
     expect(sendAdmission.unconfirmed(c.runtimeA, session.id)?.messageID).toBe('msg_stale');
   } finally { info.mockRestore(); warning.mockRestore(); await c.dispose(); }
 }, 30_000);
+
+// openchamber#566 code review P1 (b): the retry identity covers inline-comment (and linked) context. Same text, but a
+// changed inline comment, is a different message: it waits for the outcome instead of reusing the first client ID.
+test('only the inline-comment context changes: the re-send is not treated as the same message', async () => {
+  const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDraftStore');
+  const addInline = (text: string) => useInlineCommentDraftStore.getState().addDraft({ directory: A, sessionKey: session.id }, {
+    source: 'file', fileLabel: 'context.ts', startLine: 1, endLine: 1, code: text, language: 'ts', text });
+  const c = await mountedNativeComposer(false, undefined, undefined, undefined, f => {
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [row] });
+    useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+    useInputStore.setState({ pendingInputText: null, attachedFiles: [], pendingSyntheticParts: [] });
+  });
+  const was = sendUnconfirmed.ms;
+  sendUnconfirmed.ms = 250;
+  let posts = 0;
+  c.handlers.prompt = async () => { posts++; return new Response(null, { status: 503 }); };
+  try {
+    await c.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    await act(async () => { addInline('first comment'); });
+    await c.replace('Same text'); await c.submit();
+    await until(() => posts === 1 && sendAdmission.unconfirmed(c.runtimeA, session.id)?.inFlight === false);
+    await until(() => c.text() === 'Same text');
+    // The given-back comment is replaced by another one; the text is unchanged.
+    await act(async () => {
+      const store = useInlineCommentDraftStore.getState();
+      for (const draft of store.getDrafts({ directory: A, sessionKey: session.id })) store.removeDraft({ directory: A, sessionKey: session.id }, draft.id);
+      addInline('a different comment');
+    });
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(posts).toBe(1);
+  } finally { sendUnconfirmed.ms = was; await c.dispose(); }
+}, 30_000);
