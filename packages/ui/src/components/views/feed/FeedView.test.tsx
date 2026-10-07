@@ -473,3 +473,17 @@ test('past 24 h from its first send, a failed message offers Copy text and a pla
   expect(sent).toHaveLength(1);
   await unmount();
 });
+
+test('a catch-up answer that arrives after a newer stream block still lands before it, in server order (#558 P2a)', async () => {
+  let handlers: Parameters<FeedServices['openStream']>[1] | null = null;
+  let answerCatchUp: (feed: SmartyFeed) => void = () => undefined;
+  const delayed: Partial<FeedServices> = { ...services, openStream: (_id, h) => { handlers = h; return { close: () => undefined }; },
+    loadFeed: async (id, query) => query?.after === undefined ? feedOf(id) : new Promise<SmartyFeed>(resolve => { answerCatchUp = resolve; }) };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={delayed} />);
+  // The stream delivers a newer block (ends at byte 300) while the catch-up for the gap is still out.
+  await act(async () => { handlers!.onBlocks({ blocks: [{ id: 'new', author: 'org', at: '12:05 AM ET', text: 'Newer' }], offset: 300 }); });
+  // The delayed catch-up answer: the block written before it (ends at byte 200).
+  await act(async () => { answerCatchUp({ blocks: [{ id: 'missed', author: 'org', at: '12:00 AM ET', text: 'Missed' }], offset: 200 }); }); await settle();
+  expect(Array.from(host.querySelectorAll('[data-feed-entry] p')).map(p => p.textContent)).toEqual(['Good evening, Paul.', 'Hi', 'Missed', 'Newer']);
+  await unmount();
+});

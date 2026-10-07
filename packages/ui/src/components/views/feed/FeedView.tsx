@@ -86,14 +86,31 @@ function useSmartyFeed(id: string, services: FeedServices) {
     let current = true, stream: SmartyStream | null = null;
     live.current = true;
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    // Reads everything after `from` (the last offset known before the possible gap); blocks are deduped by id, so
-    // overlap with stream events is harmless. A failure retries from the same offset, never from a later one.
-    const catchUp = (from: number, tries = 0) => {
-      services.loadFeed(id, { after: from }).then(next => { if (current) setFeed(state => append(state, next)); }, () => {
-        if (!current) return;
-        const timer = setTimeout(() => { timers.delete(timer); catchUp(from, tries + 1); }, Math.min(CATCH_UP_MAX_MS, 1000 * 2 ** tries));
-        timers.add(timer);
-      });
+    // While a catch-up is out, live stream events wait: the blocks the catch-up returns are older, so they go in first
+    // and the waiting events after them, by the server's byte offset (#558 P2a). Blocks are deduped by id, so an overlap
+    // between the two is harmless.
+    let catchingUp = 0, waiting: SmartyFeed[] = [];
+    const fromStream = (next: SmartyFeed) => {
+      if (catchingUp > 0) waiting.push(next); else setFeed(state => append(state, next));
+    };
+    // Reads everything after `from` (the last offset known before the possible gap). A failure retries from the same
+    // offset, never from a later one, and keeps the live events waiting.
+    const catchUp = (from: number) => {
+      catchingUp += 1;
+      const read = (tries: number) => {
+        services.loadFeed(id, { after: from }).then(next => {
+          if (!current) return;
+          catchingUp -= 1;
+          const held = catchingUp > 0 ? [] : [...waiting].sort((a, b) => a.offset - b.offset);
+          if (catchingUp === 0) waiting = [];
+          setFeed(state => held.reduce(append, append(state, next)));
+        }, () => {
+          if (!current) return;
+          const timer = setTimeout(() => { timers.delete(timer); read(tries + 1); }, Math.min(CATCH_UP_MAX_MS, 1000 * 2 ** tries));
+          timers.add(timer);
+        });
+      };
+      read(0);
     };
     services.loadFeed(id, { limit: FIRST_PAGE }).then(first => {
       if (!current) return;
@@ -101,7 +118,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
       // A server that ignores `limit` sends more: they are held, and "Show earlier" reveals them before asking again.
       setFeed({ state: 'ready', blocks: first.blocks, shown: Math.min(FIRST_PAGE, first.blocks.length), offset: first.offset, start: first.earlier ?? undefined });
       stream = services.openStream(id, {
-        onBlocks: next => { if (current) setFeed(state => append(state, next)); },
+        onBlocks: next => { if (current) fromStream(next); },
         onReconnect: () => { if (current) catchUp(offset.current); },
       });
       // A block appended between the first read and the stream attaching is in neither: read it now.
