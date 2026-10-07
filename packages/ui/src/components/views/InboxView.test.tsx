@@ -231,3 +231,30 @@ test('clicking the tab already shown keeps the list, the shown item and the resp
   await act(async () => root.unmount());
   listResponder = () => json({ person: 'paul', items });
 });
+
+test('a card shows the title, why and "Recommended:" only: never item.source (internal notes) or a priority badge', async () => {
+  listResponder = () => json({ person: 'paul', items });
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  const cards = [...host.querySelectorAll('[data-inbox-item]')];
+  // P0 still sorts first, without a badge.
+  expect(cards.map(card => card.getAttribute('data-inbox-item'))).toEqual(['p0x', 'ask:1']);
+  expect(cards.map(card => card.textContent)).toEqual(['Codex accounts nearly outRecommended: Add accounts.', 'Only a responseBecause.']);
+  expect(host.textContent).not.toContain('net-lead');
+  expect(host.textContent).not.toContain('P0');
+  // The detail view shows no source either.
+  expect(host.querySelector('article')?.textContent).not.toContain('net-lead');
+  await act(async () => root.unmount());
+});
+
+test('the Open count is the number of items the Open list returned, not a separate total', async () => {
+  listResponder = () => json({ person: 'paul', items });
+  const { useInboxStore } = await import('@/lib/smartyInbox');
+  useInboxStore.setState({ openCount: 17 });
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  expect([...host.querySelectorAll('[role="tab"]')][0]?.textContent).toBe('Open 2');
+  await act(async () => root.unmount());
+});

@@ -17,13 +17,14 @@ import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink,
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
-const age = (iso: string) => {
-  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-  return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
-};
 
 export function InboxView({ onClose, compact, ownerName }: { onClose: () => void; compact?: boolean; ownerName?: string }): React.ReactNode {
-  const openCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+  const { t } = useI18n();
+  const storeOpenCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+  // The Open count is the number of items the Open list itself returned (the same response it shows), never a separate
+  // total; until the Open list has answered once, the badge's count stands in.
+  const [openListed, setOpenListed] = React.useState<number | null>(null);
+  const openCount = openListed ?? storeOpenCount;
   const stepActions = useStepActions();
   const [tab, setTab] = React.useState<InboxState>('open');
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
@@ -31,10 +32,14 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved). reload
   // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
-  const request = React.useRef(0), shownTab = React.useRef(tab);
+  const request = React.useRef(0), openRequest = React.useRef(0), shownTab = React.useRef(tab);
   const reload = React.useCallback(() => {
     const mine = ++request.current;
-    return loadInbox(shownTab.current).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
+    const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
+    return loadInbox(listedTab).then(r => {
+      if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
+      if (mine === request.current) { setItems(r.items); setError(null); }
+    },
       e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
@@ -54,10 +59,10 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
         <Button variant="ghost" size="icon" className="ml-auto size-8" aria-label="Close inbox" onClick={onClose}><Icon name="close" className="size-4" /></Button>
       </div>
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
-        {TABS.map(t => (
-          <button key={t.state} type="button" role="tab" aria-selected={tab === t.state} onClick={() => { if (t.state === tab) return; shownTab.current = t.state; setTab(t.state); setSelectedId(null); setItems(null); }}
-            className={cn('rounded-md px-2 py-1 typography-ui-label', tab === t.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
-            {t.label}{t.state === 'open' ? ` ${openCount}` : ''}
+        {TABS.map(entry => (
+          <button key={entry.state} type="button" role="tab" aria-selected={tab === entry.state} onClick={() => { if (entry.state === tab) return; shownTab.current = entry.state; setTab(entry.state); setSelectedId(null); setItems(null); }}
+            className={cn('rounded-md px-2 py-1 typography-ui-label', tab === entry.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
+            {entry.label}{entry.state === 'open' ? ` ${openCount}` : ''}
           </button>
         ))}
       </div>
@@ -68,11 +73,11 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
           <li key={item.id}>
             <button type="button" data-inbox-item={item.id} onClick={() => setSelectedId(item.id)} aria-current={selected?.id === item.id}
               className={cn('block w-full border-b border-border px-4 py-3 text-left hover:bg-interactive-hover', selected?.id === item.id && 'bg-interactive-hover')}>
-              <span className="line-clamp-2 typography-ui-label text-foreground">
-                {item.priority === 'p0' ? <span className="mr-1.5 rounded bg-destructive px-1 typography-micro font-semibold text-white">P0</span> : null}
-                {item.title}
-              </span>
-              <span className="typography-micro text-muted-foreground">{item.source ?? item.createdBy ?? 'agent'} · {age(item.created)}</span>
+              {/* smarty-code#1407: a card is the title, the why and the recommendation. No priority badge (the order
+                  keeps P0 first) and never item.source, which holds the agent's internal notes. */}
+              <span className="line-clamp-2 typography-ui-label text-foreground">{item.title}</span>
+              {item.why ? <span className="mt-0.5 line-clamp-3 typography-micro text-muted-foreground">{item.why}</span> : null}
+              {item.recommendation ? <span className="mt-0.5 line-clamp-2 typography-micro text-foreground">{t('inbox.card.recommended', { text: item.recommendation })}</span> : null}
             </button>
           </li>
         ))}
