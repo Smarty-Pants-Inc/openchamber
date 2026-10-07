@@ -9,18 +9,22 @@ import { memberExecutionRefused } from './node-member-execution.js';
 export const MEMBER_READ_ONLY = 'members have read-only access until isolation, smarty-code#1442';
 
 const READS = new Set(['GET', 'HEAD']);
-// Relative to /api: session and history views, event streams, fs reads (the fs routes keep them inside the granted
-// root) and Git status, diff and log reads (member Git runs isolated; node-member-execution.js).
+// Relative to /api: session and history views and event streams. No fs or Git reads: those routes take a caller-chosen
+// directory as their root (any existing directory, /proc included), so members get them only once a member-authorized
+// root exists (smarty-code#1442).
 const API_READS = [
-  /^\/session(?:\/[^/]+)*$/, /^\/(?:global\/)?event$/, /^\/notifications\/stream$/, /^\/openchamber\/events$/,
+  /^\/session(?:\/[^/]+(?:\/(?:message|children|todo|diff)(?:\/[^/]+)?)?)?$/, /^\/(?:global\/)?event$/,
+  /^\/notifications\/stream$/, /^\/openchamber\/events$/,
   /^\/session-activity$/, /^\/session-folders$/, /^\/sessions\/(?:attention|snapshot|status)$/,
   /^\/sessions\/[^/]+\/(?:attention|status)$/,
-  /^\/fs\/(?:list|read|stat|raw|home)$/,
-  /^\/git\/(?:status|diff|file-diff|log|commit-files|commit-file-diff|range-diff|range-files|branches|check|toplevel|primary-root|worktree-type|worktrees|stashes)$/,
 ];
+// Raw WebSocket upgrades bypass Express. Only the event streams are views; the voice socket, terminal, dictation,
+// dev tunnel and realtime proxy act or connect upstream with the server's credentials.
+const VIEW_UPGRADES = new Set(['/api/event/ws', '/api/global/event/ws']);
 // The attention marks a viewer sets on a session; they change no agent, file or Git state.
 const API_VIEW_MARKS = /^\/sessions\/[^/]+\/(?:view|unview)$/;
-// A preview capability URL carries an encoded file path; the route serves only what its capability names.
+// A preview capability URL carries an encoded file path; the route serves only what its capability names (members
+// cannot mint one: the minting routes are not on the list).
 const PREVIEW = /^\/api\/fs\/preview\/[^/]+\/.+$/;
 
 /** The path lower-cased, as Express routes it (case-insensitive, trailing slash ignored). Null when an upstream router
@@ -42,6 +46,12 @@ export const memberRequestAllowed = (method, path, { bearer = false } = {}) => {
   if (method === 'POST' && api === '/openchamber/agent-tool') return bearer; // the agent; the route checks its token
   if (READS.has(method)) return API_READS.some(pattern => pattern.test(api));
   return method === 'POST' && API_VIEW_MARKS.test(api);
+};
+
+/** Whether a Node-mode WebSocket upgrade may proceed: only the event streams. `url` may carry a query. */
+export const memberUpgradeAllowed = (url) => {
+  const canonical = canonicalPath(String(url ?? '').split('?')[0]);
+  return canonical !== null && VIEW_UPGRADES.has(canonical);
 };
 
 export const memberAllowList = (req, res, next) => {

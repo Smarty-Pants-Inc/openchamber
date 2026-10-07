@@ -59,6 +59,11 @@ const denied = [
   ['POST', '/api/git/worktrees'], ['PUT', '/api/config/settings'],
   // Reads that are not views: owner settings, identities, credentials.
   ['GET', '/api/config/settings'], ['GET', '/api/git/discover-credentials'], ['GET', '/api/git/identities'],
+  // Round 15 half A: fs and Git reads trust a caller-chosen directory (e.g. /proc/<pid>/environ), so members get none
+  // until a member-authorized root exists; the voice socket path is not a view.
+  ['GET', '/api/fs/read?path=/proc/1/environ&directory=/proc/1'], ['GET', '/api/fs/list?path=/proc'],
+  ['GET', '/api/fs/raw?path=/etc/passwd'], ['GET', '/api/git/diff?directory=/r'], ['GET', '/api/git/log?directory=/r'],
+  ['GET', '/api/git/commit-files?directory=/r&hash=HEAD'], ['GET', '/api/session/s1/voice/socket'],
   // Spellings a router might read differently, and paths outside /api that change state.
   ['POST', '/api//session/s1/message'], ['POST', '/api/%73ession/s1/prompt_async'], ['POST', '/api/x/../session/s1/abort'],
   ['POST', '/API/fs/write'], ['GET', '/api/fs/read/../../config/settings'], ['GET', '/api/%66s/read'],
@@ -71,15 +76,14 @@ it('Node member: everything off the read-only allow-list is refused and reaches 
   expect(reached).toEqual([]);
 });
 
-it('Node member: session views, event streams, fs and Git reads still reach their routes, in the member Git scope', async () => {
+it('Node member: session views and event streams still reach their routes', async () => {
   const { reached, send } = await serve('member');
-  for (const path of ['/api/session', '/api/session/s1/message', '/api/event', '/api/global/event', '/api/fs/read?path=a',
-    '/api/git/diff?directory=/r', '/api/git/log?directory=/r', '/api/sessions/status']) {
+  for (const path of ['/api/session', '/api/session/s1', '/api/session/s1/message', '/api/session/s1/message/m1',
+    '/api/session/s1/children', '/api/event', '/api/global/event', '/api/sessions/status']) {
     expect([path, (await send('GET', path)).status]).toEqual([path, 200]);
   }
   expect((await send('POST', '/api/sessions/s1/view')).status).toBe(200); // the attention mark, not the agent
-  expect((await send('GET', '/api/git/status?directory=/r')).body).toEqual({ member: true });
-  expect(reached).toHaveLength(10);
+  expect(reached).toHaveLength(9);
 });
 
 it('Node mode: the agent reaches its tool route with its bearer (the route checks the token)', async () => {
@@ -91,11 +95,33 @@ it('Node mode: the agent reaches its tool route with its bearer (the route check
 it('owner (human, no Node): writes and prompts are unchanged, outside the member scope', async () => {
   const { reached, send } = await serve('human');
   for (const [method, path] of denied.slice(0, 24)) expect([path, (await send(method, path)).status]).toEqual([path, 200]);
+  expect((await send('GET', '/api/fs/read?path=a')).status).toBe(200);
   expect((await send('GET', '/api/git/status?directory=/r')).body).toEqual({ member: false });
-  expect(reached).toHaveLength(25);
+  expect(reached).toHaveLength(26);
 });
 
 it('the session status tells the UI to hide the composer for a Node member only', async () => {
   expect((await (await serve('member')).send('GET', '/auth/session')).body.agentReadOnly).toBe(true);
   expect((await (await serve('human')).send('GET', '/auth/session')).body.agentReadOnly).toBe(false);
+});
+
+/** Raw WebSocket upgrades bypass Express. In Node mode the shared upgrade gate refuses every upgrade except the event
+ *  streams, before host, origin or session checks and before any upstream connection. */
+it('Node mode: only event-stream upgrades pass the shared upgrade gate', async () => {
+  const f = await fixture({ configured: true });
+  closers.push(() => f.close());
+  process.env.SMARTY_CODE_NODE_ID = 'test-node';
+  const controller = createUiAuth({ humanAuth: f.human });
+  const upgrade = path => new Promise((resolve) => {
+    const req = { url: path, headers: { host: 'nowhere.invalid' }, socket: {} };
+    controller.requireUpgradeAuth(req, {}, () => resolve('next'), (_socket, status, message) => resolve(`${status} ${message}`));
+  });
+  for (const path of ['/api/session/s1/voice/socket', '/api/terminal/ws', '/api/dictation/ws', '/api/dev-tunnel',
+    '/api/openchamber/realtime-proxy/ws?url=x', '/api/session//s1/voice/socket']) {
+    expect([path, await upgrade(path)]).toEqual([path, '403 members have read-only access until isolation, smarty-code#1442']);
+  }
+  // Event streams go on to the normal checks (here: the host check refuses the fixture host, not the member gate).
+  for (const path of ['/api/event/ws', '/api/global/event/ws?directory=/r']) {
+    expect(await upgrade(path)).not.toMatch(/read-only access/);
+  }
 });

@@ -5,6 +5,8 @@ import path from 'path';
 import os from 'os';
 import { createUiPasskeys } from './ui-passkeys.js';
 import { applicationAuthority } from '../security/browser-origin.js';
+import { MEMBER_READ_ONLY, memberUpgradeAllowed } from '../security/node-member-agent-access.js';
+import { memberExecutionRefused } from '../security/node-member-execution.js';
 
 const SESSION_COOKIE_NAME = 'oc_ui_session';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -430,6 +432,9 @@ export const createUiAuth = ({
       requireAuth: humanAuth.protect,
       requireSessionAuth: humanAuth.protect,
       requireUpgradeAuth: async (req, socket, next, reject) => {
+        // Node mode (members only): every upgrade handler calls this first, so refuse non-view upgrades here, before
+        // any upstream connection (smarty-code#1442).
+        if (memberExecutionRefused(process.env) && !memberUpgradeAllowed(req.url)) return reject(socket, 403, MEMBER_READ_ONLY);
         if (!await applicationAuthority(req)) return reject(socket, 403, 'Requests require an application host');
         if (req.headers?.origin !== humanAuth.auth.options.baseURL) return reject(socket, 403, 'Invalid origin');
         return humanAuth.protect(req, socket, next, connection => reject(connection, 401, 'Human authentication required'));
