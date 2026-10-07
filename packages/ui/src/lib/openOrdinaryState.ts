@@ -35,8 +35,8 @@ function creationModel(session: Session | undefined): OrdinaryModelState | undef
  * route and its final dispatch checks alike. Undefined means stock: no source says ordinary.
  *
  * In order: the selected owner's verified state; any directory's row for the session (the target directory first, and
- * no row in one directory masks another's); the global listing, only while no directory has a row yet (a live directory
- * row outranks a possibly stale global row); then a loader view accepted as ordinary history, which proves ownership but
+ * no row in one directory masks another's); the global listing, unless the target directory has a row for the session
+ * (that live row outranks a possibly stale global row; a row in another directory does not); then a loader view accepted as ordinary history, which proves ownership but
  * names no model, so a Code-created session's creation model stands in for it. A target row that is reloading or ended
  * is unavailable. The global listing's retained-unavailable or ended mark overrides any directory row. Unavailable
  * (no model) means ordinary but not sendable now: callers refuse rather than fall back to stock.
@@ -50,7 +50,10 @@ export function readOrdinaryOwner(runtimeKey: string, sessionId: string, directo
     // A row whose own directory is not the target says ordinary, but not that the target can send to it now.
     const owns = (session: Session | undefined) => Boolean(session) && (target === undefined || normalizePath(session?.directory) === target);
     const ordinaryRows = rows.filter(row => readOrdinaryModel(row) !== undefined);
-    const sources = rows.length > 0 ? ordinaryRows : global && readOrdinaryModel(global) !== undefined ? [global] : [];
+    // Only a row in the target directory outranks the global listing (openchamber#566 security P1): a stock row for this
+    // session in another directory says nothing about the target, so the global ordinary owner still counts.
+    const globalCounts = target === undefined ? rows.length === 0 : !rows.some(owns);
+    const sources = [...ordinaryRows, ...(globalCounts && global && readOrdinaryModel(global) !== undefined ? [global] : [])];
     const state = sources.length > 0 ? readOrdinaryModel(sources.find(owns)) ?? unavailable : undefined;
     const loader = getImperativeSessionMessageLoader(), view = { sessionID: sessionId, directory: directory ?? '' };
     const loaderOrdinary = Boolean(loader && (loader.isOrdinary(view, runtimeKey) || loader.getSendableOrdinaryView(view, runtimeKey)));

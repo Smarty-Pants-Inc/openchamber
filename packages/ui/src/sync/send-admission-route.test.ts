@@ -150,3 +150,82 @@ test('without Web Locks an ordinary Send is refused and nothing is posted; stock
     expect(pending(f.runtimeA)).toBe(false);
   } finally { if (locks) Object.defineProperty(globalThis, 'navigator', locks); f.dispose(); }
 });
+
+// openchamber#566 security P1 (smarty-code#1443): Review Flow uses the same Send route. While an ordinary Send is
+// unresolved, a Review Flow message to that session is refused; to a stock session it still goes.
+test('a Review Flow send to an ordinary session with an unresolved Send is refused', async () => {
+  const f = nativeDraftFixture(), held = deferred<Response>();
+  await prepare(f);
+  const review = { ...session, id: '01234567-1234-4234-9234-0123456789aa', title: 'review',
+    metadata: { openchamber: { kind: 'review', originalSessionID: session.id } } };
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method === 'GET' && new URL(request.url).pathname.endsWith(`/session/${review.id}`)) return Response.json(review);
+    return fixtureFetch(input, init);
+  };
+  // Review Flow resolves its model from the session's last choice; give it one so only admission can refuse it.
+  const { useConfigStore } = await import('@/stores/useConfigStore');
+  useConfigStore.setState({ currentProviderId: 'p', currentModelId: 'm' });
+  let posts = 0;
+  f.handlers.prompt = async () => ++posts === 1 ? held.promise : new Response(null, { status: 204 });
+  const first = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'First', providerID: 'p', modelID: 'm' });
+  try {
+    expect(pending(f.runtimeA)).toBe(true);
+    const { sendReviewFeedbackToOriginal } = await import('@/lib/reviewFlow');
+    let failure = '';
+    const outcome = await sendReviewFeedbackToOriginal(review.id, directory, 'Review findings', f.runtimeA)
+      .then(() => 'sent', error => { failure = String(error); return 'refused'; });
+    expect(outcome).toBe('refused');
+    expect(failure).toContain('Waiting for your last message to be confirmed');
+    expect(posts).toBe(1);
+  } finally {
+    held.resolve(new Response(null, { status: 204 })); await first;
+    globalThis.fetch = fixtureFetch; f.dispose();
+  }
+});
+
+// openchamber#566 security P1: a stock row for this session in ANOTHER directory does not hide the global ordinary owner
+// of the target directory; with no accepted loader view the Send is still reserved, never sent unreserved as stock.
+test('a stock row in another directory does not suppress the global ordinary owner of the target', async () => {
+  const f = nativeDraftFixture(), held = deferred<Response>();
+  const elsewhere = '/native-project-b';
+  f.children.ensureChild(directory, { bootstrap: false }).setState({ session: [] });
+  f.children.ensureChild(elsewhere, { bootstrap: false }).setState({ session: [{ ...session, directory: elsewhere }] });
+  useGlobalSessionsStore.getState().applySnapshot([{ ...ordinaryRow, directory }], []);
+  let posts = 0;
+  f.handlers.prompt = async () => ++posts === 1 ? held.promise : new Response(null, { status: 204 });
+  const params = { runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'First', providerID: 'p', modelID: 'm' };
+  const first = routeMessage(params).catch(() => undefined);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(pending(f.runtimeA)).toBe(true);
+    const second = await routeMessage({ ...params, content: 'Unrelated' }).then(() => 'sent', () => 'refused');
+    expect(second).toBe('refused');
+    expect(posts).toBeLessThanOrEqual(1);
+  } finally { held.resolve(new Response(null, { status: 204 })); await first; f.dispose(); }
+});
+
+test('a Review Flow send to a stock session still goes while another prompt is in flight', async () => {
+  const f = nativeDraftFixture(), held = deferred<Response>();
+  f.children.ensureChild(directory, { bootstrap: false }).setState({ session: [session] });
+  const review = { ...session, id: '01234567-1234-4234-9234-0123456789ab', title: 'review',
+    metadata: { openchamber: { kind: 'review', originalSessionID: session.id } } };
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method === 'GET' && new URL(request.url).pathname.endsWith(`/session/${review.id}`)) return Response.json(review);
+    return fixtureFetch(input, init);
+  };
+  const { useConfigStore } = await import('@/stores/useConfigStore');
+  useConfigStore.setState({ currentProviderId: 'p', currentModelId: 'm' });
+  let posts = 0;
+  f.handlers.prompt = async () => ++posts === 1 ? held.promise : new Response(null, { status: 204 });
+  const first = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'First', providerID: 'p', modelID: 'm' });
+  try {
+    const { sendReviewFeedbackToOriginal } = await import('@/lib/reviewFlow');
+    expect(await sendReviewFeedbackToOriginal(review.id, directory, 'Review findings', f.runtimeA).then(() => 'sent', () => 'refused')).toBe('sent');
+    expect(posts).toBe(2);
+    expect(pending(f.runtimeA)).toBe(false);
+  } finally { held.resolve(new Response(null, { status: 204 })); await first; globalThis.fetch = fixtureFetch; f.dispose(); }
+});

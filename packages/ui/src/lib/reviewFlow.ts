@@ -14,9 +14,9 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useAutoReviewStore, type AutoReviewRun } from '@/stores/useAutoReviewStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { optimisticSend, patchSessionMetadata, waitForConnectionOrThrow } from '@/sync/session-actions';
+import { patchSessionMetadata, waitForConnectionOrThrow } from '@/sync/session-actions';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useSessionUIStore } from '@/sync/session-ui-store';
+import { routeMessage, useSessionUIStore } from '@/sync/session-ui-store';
 import { getSyncMessages, getSyncParts, getSyncSessionStatus, registerSessionDirectory } from '@/sync/sync-refs';
 import { markPendingUserSendAnimation } from '@/lib/userSendAnimation';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -373,31 +373,22 @@ const sendPlainMessage = async (
   }
   markPendingUserSendAnimation(sessionID);
   let sentMessageID: string | null = null;
-  await optimisticSend({
+  requestChatForceScrollBottom(sessionID);
+  // smarty-code#1443, openchamber#566 security P1: the same Send route as the composer. An ordinary (Pi) session gets one
+  // unresolved Send at a time across tabs and its pinned native model; a stock session keeps its concurrent prompts.
+  await routeMessage({
+    runtimeKey: expectedRuntimeKey ?? getRuntimeKey(),
     sessionId: sessionID,
-    content: text,
     directory,
+    content: text,
     providerID: resolved.providerID,
     modelID: resolved.modelID,
     agent: resolved.agent,
+    variant: resolved.variant,
+    additionalParts,
+    beforeDispatch: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
     onMessageID: (messageID) => {
       sentMessageID = messageID;
-    },
-    beforeOptimisticInsert: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
-    onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
-    send: (messageID) => {
-      assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey);
-      return opencodeClient.sendMessage({
-        id: sessionID,
-        directory,
-        providerID: resolved.providerID,
-        modelID: resolved.modelID,
-        agent: resolved.agent,
-        variant: resolved.variant,
-        text,
-        additionalParts,
-        messageId: messageID,
-      }).then(() => undefined);
     },
   });
   if (!sentMessageID) throw new Error('Failed to prepare review flow message');
