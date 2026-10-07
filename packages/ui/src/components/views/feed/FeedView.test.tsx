@@ -41,6 +41,7 @@ const { useFeedStore, ensureSmartiesLoaded, draftKey, smartyHeaderTitle } = awai
 const { SidebarNav } = await import('@/components/session/sidebar/shell/SidebarNav');
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
+const { SmartiesRequestError } = await import('@/lib/smarties');
 
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -137,6 +138,62 @@ test('3: a failed send stays apart from the draft; Send again retries exactly it
   await act(async () => { button(host, 'Send again')!.click(); }); await settle();
   expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
   expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
+  expect(host.querySelector('form [role="alert"]')).toBeNull();
+  await unmount();
+});
+
+test('3: a refused send (413) keeps the text in the box and shows the gateway’s own words under it', async () => {
+  sendResult = async () => { throw new SmartiesRequestError(413, 'Message is too long. The limit is 120 KB.'); };
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(box); await settle();
+  expect(sent.map(({ text }) => text)).toEqual(['Ship it']);
+  expect(box.value).toBe('Ship it');
+  const alert = host.querySelector('form [role="alert"]');
+  expect(alert?.textContent).toBe('Message is too long. The limit is 120 KB.');
+  expect(alert?.className).toContain('status-error');
+  // A refusal is not a lost answer: nothing waits beside the box to be sent again, and no sending line stays.
+  expect(button(host, 'Send again')).toBeUndefined();
+  expect(useFeedStore.getState().pendingSends[draftKey('paul')] ?? []).toEqual([]);
+  // Editing the text clears the notice; the next send is a new message under a new client ID.
+  sendResult = async () => undefined;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it, shorter'); });
+  await pressEnter(box); await settle();
+  expect(sent[1]).toMatchObject({ text: 'Ship it, shorter' });
+  expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
+  expect(box.value).toBe('');
+  expect(host.querySelector('form [role="alert"]')).toBeNull();
+  await unmount();
+});
+
+test('3: any other refusal with a message (here a 500) also keeps the text and shows that message', async () => {
+  sendResult = async () => { throw new SmartiesRequestError(500, 'The Smarty is restarting. Try again in a minute.'); };
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(box); await settle();
+  expect(box.value).toBe('Ship it');
+  expect(host.querySelector('form [role="alert"]')?.textContent).toBe('The Smarty is restarting. Try again in a minute.');
+  await unmount();
+});
+
+test('3: a message over 120,000 UTF-8 bytes is not sent; the text stays with a plain note', async () => {
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  const tooLong = 'This message is too long to send (over 120 KB). Try splitting it into parts.';
+  // 60,001 two-byte characters: under 120,000 characters, over 120,000 bytes.
+  const pasted = '\u00e9'.repeat(60_001);
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), pasted); });
+  await pressEnter(box); await settle();
+  expect(sent).toEqual([]);
+  expect(box.value).toBe(pasted);
+  expect(host.querySelector('form [role="alert"]')?.textContent).toBe(tooLong);
+  // Exactly at the limit still sends, and the box clears as usual.
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'x'.repeat(120_000)); });
+  await pressEnter(box); await settle();
+  expect(sent.map(({ text }) => text.length)).toEqual([120_000]);
+  expect(box.value).toBe('');
   expect(host.querySelector('form [role="alert"]')).toBeNull();
   await unmount();
 });

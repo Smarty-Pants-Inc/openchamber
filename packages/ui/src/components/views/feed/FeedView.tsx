@@ -11,7 +11,7 @@ import { InboxView } from '@/components/views/InboxView';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useInboxStore } from '@/lib/smartyInbox';
-import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
+import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
@@ -229,8 +229,14 @@ function SmartyPage({ smarty, all, me, compact, services }: {
  * A failed send waits beside it with a plain line and "Send again", which retries exactly that message under its own
  * client ID, so a send the gateway accepted (but whose answer was lost) is never delivered twice, and later typing
  * never merges into it (openchamber#558 P2).
+ * A refusal (the gateway answered with a message, such as a 413 "Message is too long…") was never accepted: its text
+ * goes back into the box, if the person has not started another, with the gateway's words under it. A message over
+ * 120,000 UTF-8 bytes is not sent at all; it stays in the box with a plain note (smarty-code#1407).
  */
 const NO_FAILED: readonly FailedSend[] = [];
+const MAX_MESSAGE_BYTES = 120_000;
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+type Notice = { kind: 'tooLong' } | { kind: 'refused'; text: string };
 /** The gateway dedupes a client ID for 24 h from its first send; past that a resend could deliver it twice. */
 const DEDUPE_MS = 24 * 3_600_000;
 const tooOld = (message: FailedSend) => Date.now() - message.at >= DEDUPE_MS;
@@ -242,29 +248,39 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
   const draft = useFeedStore(state => state.drafts[key] ?? '');
   const failed = useFeedStore(state => state.failedSends[key] ?? NO_FAILED);
   const [sending, setSending] = React.useState(0);
+  const [notice, setNotice] = React.useState<Notice | null>(null);
   const label = t('feed.message.label', { name: smarty.label });
 
-  const deliver = (message: FailedSend) => {
+  const deliver = async (message: FailedSend) => {
     setSending(n => n + 1);
+    setNotice(null);
     useFeedStore.getState().addPendingSend(key, { ...message, known: knownOwnerLines(message.text) });
-    send(smarty.id, message.text, message.clientId).then(() => undefined, () => {
+    try {
+      await send(smarty.id, message.text, message.clientId);
+    } catch (error) {
       const store = useFeedStore.getState();
       store.removePendingSends(key, [message.clientId]);
-      store.addFailedSend(key, message);
-    }).finally(() => setSending(n => n - 1));
+      const refusal = error instanceof SmartiesRequestError ? error.serverMessage : undefined;
+      if (refusal) setNotice({ kind: 'refused', text: refusal });
+      if (refusal && !readDraftAt(key)) store.setDraftAt(key, message.text);
+      else store.addFailedSend(key, message);
+    } finally {
+      setSending(n => n - 1);
+    }
   };
   const submit = () => {
     const text = readDraftAt(key);
     if (!text.trim()) return;
+    if (utf8Bytes(text) > MAX_MESSAGE_BYTES) { setNotice({ kind: 'tooLong' }); return; }
     useFeedStore.getState().setDraftAt(key, '');
-    deliver({ text, clientId: ascendingId('msg'), at: Date.now() });
+    void deliver({ text, clientId: ascendingId('msg'), at: Date.now() });
   };
   // Always the same client ID: the original may have been accepted with its answer lost, and only the ID lets the
   // gateway (which dedupes it for 24 h) drop the repeat.
   const sendAgain = (message: FailedSend) => {
     if (tooOld(message)) return; // Checked again at the click: past the window the next render shows Copy text.
     useFeedStore.getState().removeFailedSend(key, message.clientId);
-    deliver(message);
+    void deliver(message);
   };
   const copy = (message: FailedSend) => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); };
 
@@ -273,7 +289,7 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-1">
         <div className="flex items-end gap-2">
           <Textarea aria-label={label} placeholder={label} rows={2} value={draft}
-            outerClassName="min-w-0 flex-1" onChange={event => useFeedStore.getState().setDraftAt(key, event.target.value)}
+            outerClassName="min-w-0 flex-1" onChange={event => { setNotice(null); useFeedStore.getState().setDraftAt(key, event.target.value); }}
             onKeyDown={event => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
               event.preventDefault();
@@ -281,6 +297,7 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
             }} />
           <Button type="submit" disabled={!draft.trim()} aria-label={t('feed.reply.send')}><Icon name="send-plane-2" className="size-4" />{t('feed.reply.send')}</Button>
         </div>
+        {notice ? <p role="alert" className="typography-micro text-[var(--status-error)]">{notice.kind === 'tooLong' ? t('feed.message.tooLong') : notice.text}</p> : null}
         {failed.map(message => (
           <div key={message.clientId} role="alert" className="flex min-w-0 items-center gap-2 typography-micro text-[var(--status-error)]">
             <span className="shrink-0">{t('feed.message.failed')}</span>
