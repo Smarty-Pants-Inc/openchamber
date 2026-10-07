@@ -88,17 +88,26 @@ jobs:
           node scripts/auth-ui-proof/custody.mjs
           timeout 180s node node_modules/@playwright/test/cli.js test --config scripts/auth-ui-proof/playwright.config.mjs
 
-      - name: Retain UI proof and exact fixture build
+      - name: Retain UI proof and test output
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: oc-auth-ui-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            .auth-ui-proof/
-            .auth-ui-build/
+          name: oc-auth-ui-proof-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .auth-ui-proof/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 3 # smarty-dev#1246
+          retention-days: 3 # smarty-dev#1246: per-run proof/test output
+
+      - name: Retain exact fixture build
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: oc-auth-ui-build-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .auth-ui-build/
+          include-hidden-files: true
+          # ponytail: warn, not error; a failed fixture build already fails the job (as the combined upload did).
+          if-no-files-found: warn
+          retention-days: 7 # smarty-dev#1246: per-commit build/fixture output
 
       - name: Electron Linux packaging unit tests
         working-directory: packages/electron
