@@ -50,7 +50,7 @@ export const sentStartStopperSubject = (runtimeKey: string, directory: string): 
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach(listener => listener());
 /** The requests this page is sending (its locks), by request id. */
-const sending = new Map<string, { release: () => void; request: Promise<unknown> }>();
+const sending = new Map<string, { release: () => void; request: Promise<void> }>();
 
 const parseMarker = (raw: string | null): Marker | undefined => {
   try {
@@ -78,7 +78,7 @@ export function holdSentStart(clientRequestId: string): void {
   const done = new Promise<void>(resolve => { release = resolve; });
   // The request's own promise settles only once the browser has released the lock (not when `done` resolves): kept,
   // so a release can be awaited before the lock is read again (smarty-code#523, openchamber#357 review 1).
-  const request = locks()?.request(lockName(clientRequestId), () => done).catch(() => undefined) ?? Promise.resolve();
+  const request = (locks()?.request(lockName(clientRequestId), () => done) ?? Promise.resolve()).then(() => undefined, () => undefined);
   sending.set(clientRequestId, { release, request });
 }
 
@@ -89,9 +89,12 @@ export function holdSentStart(clientRequestId: string): void {
 export function releaseSentStart(clientRequestId: string | undefined): Promise<void> {
   if (!clientRequestId) return Promise.resolve();
   const held = sending.get(clientRequestId);
-  held?.release();
-  sending.delete(clientRequestId);
-  return held ? held.request.then(() => undefined, () => undefined) : Promise.resolve();
+  if (!held) return Promise.resolve();
+  held.release();
+  // Stop, clear and finally share this request until actual settlement. Old cleanup cannot delete a newer same-ID
+  // entry. Register only on release, so unavailable Web Locks do not retire an otherwise live Send early.
+  void held.request.then(() => { if (sending.get(clientRequestId) === held) sending.delete(clientRequestId); });
+  return held.request;
 }
 
 /** The start for this Send was accepted: its text is sent, not an ordinary draft, until the start resolves. */

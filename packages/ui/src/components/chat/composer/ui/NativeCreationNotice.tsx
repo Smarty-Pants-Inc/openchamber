@@ -37,9 +37,8 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
     <Button type="button" size="sm" onClick={() => { startNativeDraftAgain(); onSend?.(); }}>{t('chat.nativeCreation.startAgain')}</Button>
   </>;
   const creation = native.creation;
-  // A start that blocks this project and does not finish can be stopped (smarty-code#523), never a dead end: at once
-  // past its expiry, else after a grace. Its text, if held here as sent, comes back (cancelled).
-  const [stop, setStop] = React.useState<{ id: string; busy: boolean; error?: unknown } | null>(null);
+  // Stop after expiry or grace (#523). Its captured control settles even while another draft is visible.
+  const [stop, setStop] = React.useState<{ operation: NativeCreationState; draft: typeof draft; scope: typeof scope; busy: boolean; error?: unknown } | null>(null);
   const [, tick] = React.useReducer((value: number) => value + 1, 0);
   const scope = captureRuntimeRequestScope();
   const blocking = startsElsewhere(native.operations.filter(operation => !wasNativeCreationAbandoned(scope.runtimeKey, operation)), scope.runtimeKey, draft.directoryOverride);
@@ -62,17 +61,18 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
   }, [stopAt, ownStopAt]);
   const stopControl = (operation: NativeCreationState | undefined, at = stopAt) => {
     if (!operation || at === undefined || at > Date.now()) return null;
-    const busy = stop?.id === operation.operationId && stop.busy;
-    const failed = stop?.id === operation.operationId && !stop.busy && stop.error !== undefined ? stop.error : undefined;
+    const shown = stop?.operation.operationId === operation.operationId && stop.operation.clientRequestId === operation.clientRequestId
+      && stop.operation.directory === operation.directory && isDraftOriginVisible(stop.draft, stop.scope) ? stop : null;
+    const busy = !!shown?.busy, failed = shown && !shown.busy ? shown.error : undefined;
     return <>
       {failed !== undefined ? <p role="alert" className="whitespace-pre-wrap break-words text-sm text-[var(--status-error)]">{native.describeError(failed)}</p> : null}
       <Button type="button" variant="outline" size="sm" disabled={busy} title={operation.operationId}
         data-operation-id={operation.operationId} onClick={() => {
-        setStop({ id: operation.operationId, busy: true });
+        const pending = { operation, draft, scope, busy: true }; setStop(pending);
         void stopBlockingStart(operation, scope).then(async () => {
+          setStop(current => current === pending ? null : current);
           if (!isDraftOriginVisible(draft, scope)) return;
           const key = scope.runtimeKey, directory = operation.directory;
-          setStop(null);
           // An own start is settled in core; another tab's sent mark still needs read-only reconciliation (#523).
           const mine = !!directory && operation.clientRequestId !== undefined && sentStartRequest(key, directory) === operation.clientRequestId;
           if (mine) await releaseSentStart(operation.clientRequestId); // The browser lock is gone before the read below.
@@ -80,7 +80,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
           if (directory) void resolveSentStart(key, directory, draft.draftId, mine ? undefined : ownNativeRequestId(draft, key));
           native.refresh();
         }, error => {
-          if (isDraftOriginVisible(draft, scope)) setStop({ id: operation.operationId, busy: false, error });
+          setStop(current => current === pending ? { ...pending, busy: false, error } : current);
         });
       }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
     </>;
