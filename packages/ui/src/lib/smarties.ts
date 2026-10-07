@@ -6,7 +6,8 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 
 const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean() });
-const listSchema = z.object({ me: z.string().min(1), smarties: z.array(smartySchema) });
+// `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): no Smarties, not a failure.
+const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) });
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
 // `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
 // of appended blocks (`after`) omits it.
@@ -15,8 +16,11 @@ const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().i
 export type Smarty = z.infer<typeof smartySchema>;
 export type SmartyBlock = z.infer<typeof blockSchema>;
 export type SmartyFeed = z.infer<typeof feedSchema>;
-/** `unavailable`: this server has no Smarties (no gateway route, or the person is not a principal). Never a failure. */
-export type SmartiesResult = { state: 'ready'; me: string; smarties: Smarty[] } | { state: 'unavailable' };
+/**
+ * `unavailable`: this server has no Smarties (no gateway route). `empty`: it has, but none this person may see (they are
+ * not a principal, smarty-code#1456): the view says so and keeps its button to the old view. Neither is a failure.
+ */
+export type SmartiesResult = { state: 'ready'; me: string; smarties: Smarty[] } | { state: 'empty' } | { state: 'unavailable' };
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 export class SmartiesRequestError extends Error {
@@ -34,7 +38,7 @@ export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<Sma
   if (response.status === 404 || response.status === 403) return { state: 'unavailable' };
   if (!response.ok) throw new SmartiesRequestError(response.status);
   const body = listSchema.parse(await response.json());
-  if (body.smarties.length === 0) return { state: 'unavailable' };
+  if (body.smarties.length === 0 || body.me === null) return { state: 'empty' };
   // Own first, whatever order the server sent.
   return { state: 'ready', me: body.me, smarties: [...body.smarties].sort((a, b) => Number(b.own) - Number(a.own)) };
 }

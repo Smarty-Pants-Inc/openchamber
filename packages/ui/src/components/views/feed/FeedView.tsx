@@ -11,6 +11,7 @@ import { InboxView } from '@/components/views/InboxView';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useInboxStore } from '@/lib/smartyInbox';
+import { useUIStore } from '@/stores/useUIStore';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
@@ -39,6 +40,14 @@ export function FeedView({ compact = false, services }: { onClose?: () => void; 
   React.useEffect(() => { void ensureSmartiesLoaded(); }, []);
   if (smarties.state === 'failed') {
     return <div className="flex h-full flex-col bg-background"><FeedNotice alert action={<Button size="sm" variant="outline" onClick={() => void ensureSmartiesLoaded(undefined, true)}>{t('feed.retry')}</Button>}>{t('feed.smartiesFailed')}</FeedNotice></div>;
+  }
+  if (smarties.state === 'empty') {
+    // smarty-code#1456: a signed-in member who is not a principal: nothing to show yet, and the way to the old view.
+    return (
+      <div data-smarties-empty="" className="flex h-full flex-col bg-background">
+        <FeedNotice action={<Button size="sm" variant="outline" onClick={() => { useUIStore.getState().closeMainSurfaces(); useFeedStore.getState().showClassic(); }}>{t('feed.classic.show')}</Button>}>{t('feed.smartiesEmpty')}</FeedNotice>
+      </div>
+    );
   }
   const smarty = smarties.state === 'ready' ? smarties.smarties.find(item => item.id === selectedId) : undefined;
   // Until the list answers there is nothing true to show: an empty page, never a spinner that a blank replaces.
