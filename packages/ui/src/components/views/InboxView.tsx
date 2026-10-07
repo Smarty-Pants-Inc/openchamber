@@ -19,7 +19,8 @@ const age = (iso: string) => {
   return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
 };
 
-export function InboxView({ onClose, compact }: { onClose: () => void; compact?: boolean }): React.ReactNode {
+/** `ownerLabel`: shown inside a person's own Smarty ("Paul's Smarty"); the reply button then reads "Message Paul's Smarty". */
+export function InboxView({ onClose, compact, ownerLabel }: { onClose: () => void; compact?: boolean; ownerLabel?: string }): React.ReactNode {
   const openCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
   const stepActions = useStepActions();
   const [tab, setTab] = React.useState<InboxState>('open');
@@ -80,12 +81,12 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   return (
     <div className="flex h-full min-h-0 bg-background">
       {compact ? null : list}
-      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} /> : null}
+      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} ownerLabel={ownerLabel} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} /> : null}
     </div>
   );
 }
 
-function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions }) {
+function InboxItemDetail({ item, compact, ownerLabel, onBack, onChanged, stepActions }: { item: InboxItem; compact?: boolean; ownerLabel?: string; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions }) {
   const { t } = useI18n();
   const guardedReopen = useInboxStore(s => s.guardedReopen);
   const steps = Boolean(item.source?.startsWith('steps:'));
@@ -166,7 +167,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
       <div className={cn('flex flex-wrap gap-2 px-7 py-3', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
         {state === 'resolved' ? canReopen && <Button size="sm" variant="outline" disabled={locked} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
           {allowed('accept') ? <Button size="sm" disabled={locked} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
-          {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>✎ Respond</Button> : null}
+          {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>{ownerLabel ? t('feed.message.label', { name: ownerLabel }) : '✎ Respond'}</Button> : null}
           {allowed('edit') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('edit')}>Edit</Button> : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={locked}>Snooze ▾</Button></DropdownMenuTrigger>

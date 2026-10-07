@@ -22,6 +22,7 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SidebarHeader } from './sidebar/shell/SidebarHeader';
 import { SidebarNav } from './sidebar/shell/SidebarNav';
 import { SidebarFooter } from './sidebar/shell/SidebarFooter';
+import { useFeedStore } from '@/components/views/feed/feedStore';
 import { SessionProjectCollection } from './sidebar/list/SessionProjectCollection';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -619,6 +620,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     openNewSessionDraft();
   }, [mobileVariant, openNewSessionDraft, setSessionSwitcherOpen]);
 
+  const smartyShown = useFeedStore((state) => state.pageOpen);
   return (
     // One shared tooltip provider for the whole sidebar, matching the opencode
     // sidebar feel: 400ms before the first tooltip opens, instant close on
@@ -637,6 +639,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
       ) : null}
 
+      {/* smarty-code#1407: while a Smarty fills the app, projects and sessions wait behind the nav's bottom button. */}
+      {smartyShown ? <div className="flex-1" /> : <>
       {managed && managedCatalogStatus === 'unavailable' && <p role="status">Project catalog unavailable. Last known projects are retained.</p>}
       {managed && managedCatalogStatus === 'ready' && projects.length === 0 && <p role="status">No live managed projects.</p>}
       <SidebarHeader
@@ -730,6 +734,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           projectViewActions: projectView.actions,
         }}
       />
+      </>}
 
       <SidebarFooter
         onOpenSettings={handleOpenSettings}

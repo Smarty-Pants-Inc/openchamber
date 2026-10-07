@@ -1,32 +1,73 @@
-// smarty-code#1407: the Feed's entries: a row in the desktop sidebar and a button in the phone menu (the sessions
-// sheet's footer). Each opens the one Feed page.
+// smarty-code#1407: the nav's Smarties: a "Smarties" section at the top of the sidebar (one row per Smarty the person
+// may see, theirs first and selected on load), the one bottom button that switches to the old Smarty Code view and
+// back, and on a phone the sessions sheet's button back to the Smarties.
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { openFeedPage, useFeedStore } from './feedStore';
+import { ensureSmartiesLoaded, openFeedPage, useFeedStore } from './feedStore';
 
-export function FeedSidebarRow(): React.ReactNode {
+const rowClass = 'flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+
+export function SmartiesNavSection(): React.ReactNode {
   const { t } = useI18n();
-  const open = useFeedStore(state => state.pageOpen);
+  const smarties = useFeedStore(state => state.smarties);
+  const selectedId = useFeedStore(state => state.selectedId);
+  const pageOpen = useFeedStore(state => state.pageOpen);
+  React.useEffect(() => { void ensureSmartiesLoaded(); }, []);
+  if (smarties.state === 'unavailable' || smarties.state === 'loading') return null;
   return (
-    <button type="button" aria-pressed={open}
-      onClick={() => { useUIStore.getState().closeMainSurfaces(); if (open) useFeedStore.getState().setPageOpen(false); else openFeedPage(); }}
-      className={cn('mt-1 flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-        open ? 'bg-interactive-selection text-interactive-selection-foreground' : 'text-muted-foreground hover:text-foreground')}>
-      <Icon name="chat-ai-3" className="h-4 w-4 flex-shrink-0" />
-      <span className="truncate">{t('feed.nav.label')}</span>
-    </button>
+    <nav aria-label={t('feed.nav.label')} className="mb-1">
+      <h2 className="px-1.5 pb-0.5 pt-1 typography-micro font-semibold text-muted-foreground">{t('feed.nav.label')}</h2>
+      {smarties.state === 'failed' ? (
+        <p role="alert" className="flex items-center gap-2 px-1.5 py-1 typography-micro text-[var(--status-error)]">
+          {t('feed.smartiesFailed')}<Button size="xs" variant="outline" onClick={() => void ensureSmartiesLoaded(undefined, true)}>{t('feed.retry')}</Button>
+        </p>
+      ) : (
+        <ul>
+          {smarties.smarties.map(smarty => {
+            const selected = pageOpen && smarty.id === selectedId;
+            return (
+              <li key={smarty.id}>
+                <button type="button" aria-current={selected ? 'page' : undefined} data-smarty-row={smarty.id}
+                  onClick={() => { useUIStore.getState().closeMainSurfaces(); useFeedStore.getState().selectSmarty(smarty.id); openFeedPage(); }}
+                  className={cn(rowClass, selected ? 'bg-interactive-selection text-interactive-selection-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                  <Icon name="chat-ai-3" className="h-4 w-4 flex-shrink-0" />
+                  <span className="truncate">{smarty.label}</span>
+                </button>
+              </li>);
+          })}
+        </ul>
+      )}
+    </nav>
   );
 }
 
-/** `onOpen` closes the menu the button sits in. */
+/** The one button at the bottom of the nav: the old Smarty Code view (sessions, projects, fleet), and back. */
+export function ClassicViewToggle(): React.ReactNode {
+  const { t } = useI18n();
+  const available = useFeedStore(state => state.smarties.state !== 'unavailable');
+  const classicShown = useFeedStore(state => !state.pageOpen);
+  if (!available) return null;
+  return (
+    <Button type="button" variant="ghost" size="sm" aria-pressed={classicShown} className="w-full justify-start"
+      onClick={() => { useUIStore.getState().closeMainSurfaces(); if (classicShown) openFeedPage(); else useFeedStore.getState().setPageOpen(false); }}>
+      <Icon name={classicShown ? 'chat-ai-3' : 'code-box'} className="size-4" />
+      {classicShown ? t('feed.classic.hide') : t('feed.classic.show')}
+    </Button>
+  );
+}
+
+/** The phone's sessions sheet: back to the Smarties. `onOpen` closes the sheet the button sits in. */
 export function FeedMenuButton({ onOpen }: { onOpen: () => void }): React.ReactNode {
   const { t } = useI18n();
+  const available = useFeedStore(state => state.smarties.state !== 'unavailable');
+  React.useEffect(() => { void ensureSmartiesLoaded(); }, []);
+  if (!available) return null;
   return (
-    <Button type="button" variant="default" size="lg" className="w-10 px-0" aria-label={t('feed.nav.label')} title={t('feed.nav.label')}
+    <Button type="button" variant="default" size="lg" className="w-10 px-0" aria-label={t('feed.classic.hide')} title={t('feed.classic.hide')}
       onClick={() => { openFeedPage(); onOpen(); }} style={{ touchAction: 'manipulation' }}>
       <Icon name="chat-ai-3" className="size-5" />
     </Button>
