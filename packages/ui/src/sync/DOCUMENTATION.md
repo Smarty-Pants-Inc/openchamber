@@ -82,12 +82,15 @@ stock replacement drops stale proof; a reconciled live alias keeps its proof aga
 
 An established live proof whose history loader reaches error gets one delayed replacement check,
 even if SSE remains connected and the catalog does not change. This check uses the same strict
-native CAS and fresh writable-history requirement. A failed replacement becomes unknown, so it
-cannot retry itself. Unknown retries on existing endpoint, credential-generation, connection or
-loader recovery signals, or an explicit check, not immediately on 503. Credential notifications carry no credentials and fire
+native CAS and fresh writable-history requirement. A failed replacement becomes unknown. Unknown
+retries on existing endpoint, credential-generation, connection or loader recovery signals, or an
+explicit check, not immediately on 503. Transport can also come back with none of those signals, so
+while the connection reports ready, an unknown selection spends a fixed budget of delayed rechecks
+(`selectedOwnerRecovery`, 2, 5 and 15 seconds). The budget resets per selection and when the owner is
+live or ended; an owner that stays unreachable then stops, with Send fenced. Credential notifications carry no credentials and fire
 after the existing provider assignment. Recovery uses the loader's existing configure seam to revoke
 old accepted views and replace its credential-bound SDK, then requires a fresh writable accepted view.
-There is no new fleet scan, polling loop or mutation redirect. Tests use real SDK,
+There is no new fleet scan, open-ended polling loop or mutation redirect. Tests use real SDK,
 React, child stores and loader with controlled transport responses; they do not qualify native
 pane moves or the original Pi process.
 ## Ownership map

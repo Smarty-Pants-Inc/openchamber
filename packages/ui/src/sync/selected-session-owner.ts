@@ -110,6 +110,8 @@ export function isOrdinarySendTarget(runtimeKey: string, sessionID: string, dire
   const loader = getImperativeSessionMessageLoader(), target = { sessionID, directory: directory ?? '' };
   return Boolean(loader && (loader.isOrdinary(target, runtimeKey) || loader.getSendableOrdinaryView(target, runtimeKey)));
 }
+/** Delays of the bounded owner rechecks after a failed check, while transport reports ready (openchamber#549 round 8). */
+export const selectedOwnerRecovery = { delaysMs: [2_000, 5_000, 15_000] };
 export function useSelectedSessionOwner(sessionID: string | null | undefined, directory: string | undefined, historyReadOnly: boolean | undefined) {
   const { childStores, messageLoader, runtimeKey } = useSyncRuntime();
   const store = useDirectoryStore(directory ?? '', { bootstrap: false });
@@ -171,5 +173,24 @@ export function useSelectedSessionOwner(sessionID: string | null | undefined, di
     if (owner?.status === 'checking' && (!currentProof || unusableLiveProof && recovery) || owner?.status === 'unknown' && recovery)
       void checkSelectedSessionOwner(sessionID, directory, childStores);
   }, [sessionID, directory, key, historyKey, global, catalog, catalogStatus, recoveryRevision, historyReadOnly, proof, childStores, messageLoader]);
-  return readSelectedSessionOwner(sessionID, directory, childStores, messageLoader);
+  const owner = readSelectedSessionOwner(sessionID, directory, childStores, messageLoader);
+  // A failed check while transport was down leaves unknown, and transport can come back with no reconnect,
+  // connection, catalog or loader signal. While transport reports ready, spend a few delayed rechecks per selection.
+  // The budget is fixed, so a session that stays unreachable does not poll.
+  const retries = React.useRef({ selection: '', spent: 0 });
+  const selection = `${runtimeKey}\u0000${directory ?? ''}\u0000${sessionID ?? ''}`;
+  if (retries.current.selection !== selection) retries.current = { selection, spent: 0 };
+  if (owner?.status === 'live' || owner?.status === 'ended') retries.current.spent = 0;
+  const ownerStatus = owner?.status;
+  React.useEffect(() => {
+    const budget = retries.current, delay = selectedOwnerRecovery.delaysMs[budget.spent];
+    if (ownerStatus !== 'unknown' || !connected || catalogStatus !== 'ready' || delay === undefined) return;
+    const timer = setTimeout(() => {
+      if (retries.current !== budget || hasActiveSelectedOwnerOperation()) return;
+      budget.spent++;
+      recheck();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [ownerStatus, connected, catalogStatus, selection, recoveryRevision]);
+  return owner;
 }

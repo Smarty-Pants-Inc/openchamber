@@ -12,7 +12,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useInputStore } from '@/sync/input-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { readSelectedSessionOwner, useSelectedSessionOwner } from '@/sync/selected-session-owner';
+import { readSelectedSessionOwner, selectedOwnerRecovery, useSelectedSessionOwner } from '@/sync/selected-session-owner';
 import type { useSyncRuntime } from '@/sync/sync-context';
 
 const { ChatInput } = await import('@/components/chat/ChatInput');
@@ -116,17 +116,29 @@ test('quiet transport recovery restores fresh writable history and mounted Send 
   } finally { stop(); }
 }, 15_000);
 
-test('persistent quiet transport failure spends one replacement operation and then stops unknown with Send fenced', async () => {
-  const c = await establish(), owners = c.owners().length, histories = c.histories().length;
-  c.handlers.history = async () => { throw new TypeError('Failed to fetch'); };
-  await act(async () => { await c.loader.refreshOrdinaryView(target); });
-  await settle(() => readSelectedSessionOwner(session.id, B)?.status === 'unknown');
-  expect(c.owners()).toHaveLength(owners + 2); expect(c.histories()).toHaveLength(histories + 6);
-  expect(c.send().disabled).toBe(true);
-  await act(async () => { await sleep(2200); });
-  expect(c.owners()).toHaveLength(owners + 2); expect(c.histories()).toHaveLength(histories + 6);
-  await c.submit(); expect(c.prompts()).toHaveLength(0);
-}, 15_000);
+// openchamber#549 round 8: after the replacement fails, a fixed budget of delayed rechecks runs while transport
+// reports ready. A session that stays unreachable then stops: no polling, and Send stays fenced.
+test('persistent quiet transport failure spends its bounded rechecks and then stops unknown with Send fenced', async () => {
+  const delays = selectedOwnerRecovery.delaysMs;
+  selectedOwnerRecovery.delaysMs = [100, 100, 100];
+  try {
+    const c = await establish(), owners = c.owners().length, histories = c.histories().length;
+    c.handlers.history = async () => { throw new TypeError('Failed to fetch'); };
+    await act(async () => { await c.loader.refreshOrdinaryView(target); });
+    await settle(() => readSelectedSessionOwner(session.id, B)?.status === 'unknown');
+    expect(c.owners()).toHaveLength(owners + 2); expect(c.histories()).toHaveLength(histories + 6);
+    expect(c.send().disabled).toBe(true);
+    let seen = -1;
+    for (let turn = 0; turn < 10 && c.histories().length !== seen; turn++) { seen = c.histories().length; await act(async () => { await sleep(1_500); }); }
+    const spentOwners = c.owners().length, spentHistories = c.histories().length;
+    expect(spentOwners).toBeLessThanOrEqual(owners + 2 + 2 * selectedOwnerRecovery.delaysMs.length);
+    await act(async () => { await sleep(1_500); });
+    expect(c.owners()).toHaveLength(spentOwners); expect(c.histories()).toHaveLength(spentHistories);
+    expect(readSelectedSessionOwner(session.id, B)?.status).toBe('unknown');
+    expect(c.send().disabled).toBe(true);
+    await c.submit(); expect(c.prompts()).toHaveLength(0);
+  } finally { selectedOwnerRecovery.delaysMs = delays; }
+}, 30_000);
 
 test('quiet recovery rejects a held stale native completion without overwriting the new generation or granting Send', async () => {
   const c = await establish(), owners = c.owners().length, histories = c.histories().length;
