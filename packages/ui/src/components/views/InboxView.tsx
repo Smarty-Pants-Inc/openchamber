@@ -1,5 +1,8 @@
 // smarty-code#701: the person's inbox (code-design's mock on #701): Open / Snoozed / Resolved; an item shows why, the
-// recommendation, links and only the actions it allows. Accept resolves at once, with Undo (reopen) for ~5 s.
+// recommendation and only the actions it allows. Accept resolves at once, with Undo (reopen) for ~5 s.
+// smarty-code#1407 item 6 (R-plain-english, smarty-dev#2264): a card shows only the plain title, the why and the
+// recommendation; evidence sits behind one Details link (the item's first safe link). `ownerName` names the message
+// button for the Smarty the inbox belongs to ("Message Paul's Smarty").
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -14,13 +17,14 @@ import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink,
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
-const age = (iso: string) => {
-  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
-  return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
-};
 
-export function InboxView({ onClose, compact }: { onClose: () => void; compact?: boolean }): React.ReactNode {
-  const openCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+export function InboxView({ onClose, compact, ownerName }: { onClose: () => void; compact?: boolean; ownerName?: string }): React.ReactNode {
+  const { t } = useI18n();
+  const storeOpenCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+  // The Open count is the number of items the Open list itself returned (the same response it shows), never a separate
+  // total; until the Open list has answered once, the badge's count stands in.
+  const [openListed, setOpenListed] = React.useState<number | null>(null);
+  const openCount = openListed ?? storeOpenCount;
   const stepActions = useStepActions();
   const [tab, setTab] = React.useState<InboxState>('open');
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
@@ -28,10 +32,14 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved). reload
   // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
-  const request = React.useRef(0), shownTab = React.useRef(tab);
+  const request = React.useRef(0), openRequest = React.useRef(0), shownTab = React.useRef(tab);
   const reload = React.useCallback(() => {
     const mine = ++request.current;
-    return loadInbox(shownTab.current).then(r => { if (mine === request.current) { setItems(r.items); setError(null); } },
+    const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
+    return loadInbox(listedTab).then(r => {
+      if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
+      if (mine === request.current) { setItems(r.items); setError(null); }
+    },
       e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
@@ -51,10 +59,10 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
         <Button variant="ghost" size="icon" className="ml-auto size-8" aria-label="Close inbox" onClick={onClose}><Icon name="close" className="size-4" /></Button>
       </div>
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
-        {TABS.map(t => (
-          <button key={t.state} type="button" role="tab" aria-selected={tab === t.state} onClick={() => { if (t.state === tab) return; shownTab.current = t.state; setTab(t.state); setSelectedId(null); setItems(null); }}
-            className={cn('rounded-md px-2 py-1 typography-ui-label', tab === t.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
-            {t.label}{t.state === 'open' ? ` ${openCount}` : ''}
+        {TABS.map(entry => (
+          <button key={entry.state} type="button" role="tab" aria-selected={tab === entry.state} onClick={() => { if (entry.state === tab) return; shownTab.current = entry.state; setTab(entry.state); setSelectedId(null); setItems(null); }}
+            className={cn('rounded-md px-2 py-1 typography-ui-label', tab === entry.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
+            {entry.label}{entry.state === 'open' ? ` ${openCount}` : ''}
           </button>
         ))}
       </div>
@@ -65,11 +73,11 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
           <li key={item.id}>
             <button type="button" data-inbox-item={item.id} onClick={() => setSelectedId(item.id)} aria-current={selected?.id === item.id}
               className={cn('block w-full border-b border-border px-4 py-3 text-left hover:bg-interactive-hover', selected?.id === item.id && 'bg-interactive-hover')}>
-              <span className="line-clamp-2 typography-ui-label text-foreground">
-                {item.priority === 'p0' ? <span className="mr-1.5 rounded bg-destructive px-1 typography-micro font-semibold text-white">P0</span> : null}
-                {item.title}
-              </span>
-              <span className="typography-micro text-muted-foreground">{item.source ?? item.createdBy ?? 'agent'} · {age(item.created)}</span>
+              {/* smarty-code#1407: a card is the title, the why and the recommendation. No priority badge (the order
+                  keeps P0 first) and never item.source, which holds the agent's internal notes. */}
+              <span className="line-clamp-2 typography-ui-label text-foreground">{item.title}</span>
+              {item.why ? <span className="mt-0.5 line-clamp-3 typography-micro text-muted-foreground">{item.why}</span> : null}
+              {item.recommendation ? <span className="mt-0.5 line-clamp-2 typography-micro text-foreground">{t('inbox.card.recommended', { text: item.recommendation })}</span> : null}
             </button>
           </li>
         ))}
@@ -80,12 +88,12 @@ export function InboxView({ onClose, compact }: { onClose: () => void; compact?:
   return (
     <div className="flex h-full min-h-0 bg-background">
       {compact ? null : list}
-      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} /> : null}
+      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} ownerName={ownerName} /> : null}
     </div>
   );
 }
 
-function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions }) {
+function InboxItemDetail({ item, compact, onBack, onChanged, stepActions, ownerName }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions; ownerName?: string }) {
   const { t } = useI18n();
   const guardedReopen = useInboxStore(s => s.guardedReopen);
   const steps = Boolean(item.source?.startsWith('steps:'));
@@ -132,21 +140,19 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
     } catch (e) { if (isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
   const state = inboxItemState(item);
+  const details = item.links.map(link => safeLink(link.url)).find(Boolean);
   return (
     <article className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={item.title}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
+      <div className={cn('min-h-0 flex-1 overflow-y-auto py-5', compact ? 'px-4' : 'px-7')}>
         {compact ? <Button variant="ghost" size="sm" className="mb-2 -ml-2" onClick={onBack}><Icon name="arrow-left" className="size-4" />Inbox</Button> : null}
-        <h2 className="typography-ui-header font-semibold text-foreground">{item.title}</h2>
-        <p className="mt-1 typography-micro text-muted-foreground">from <b>{item.source ?? item.createdBy ?? 'agent'}</b> · {age(item.created)} · to {item.to}</p>
+        <h2 className="break-words typography-ui-header font-semibold text-foreground">{item.title}</h2>
         {item.why ? <><h3 className="mt-4 typography-micro font-semibold uppercase text-muted-foreground">Why</h3><p className="mt-1 whitespace-pre-wrap typography-ui-label">{item.why}</p></> : null}
         {item.recommendation ? (
           <div className="mt-4 rounded-md border border-[var(--status-success-border,theme(colors.green.300))] bg-[var(--status-success-background,theme(colors.green.50))] p-3">
             <h3 className="typography-micro font-semibold uppercase text-[var(--status-success,theme(colors.green.700))]">Recommendation</h3>
             <p className="mt-1 whitespace-pre-wrap typography-ui-label">{item.recommendation}</p>
           </div>) : null}
-        {item.links.length ? <><h3 className="mt-4 typography-micro font-semibold uppercase text-muted-foreground">Links</h3>
-          <ul className="mt-1">{item.links.map(link => { const href = safeLink(link.url); const label = link.label ?? link.url.replace(/^https:\/\/github\.com\/[^/]+\//, '').replace(/\/(issues|pull)\//, '#');
-            return <li key={link.url} className="typography-ui-label">{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">↗ {label}</a> : label}</li>; })}</ul></> : null}
+        {details ? <p className="mt-4 typography-ui-label"><a href={details} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t('inbox.card.details')}</a></p> : null}
         {item.answer ? <p className="mt-4 typography-micro text-muted-foreground">Answered ({item.answer.action ?? 'respond'}){item.answer.text ? `: ${item.answer.text}` : ''}</p> : null}
         {reply ? (
           <div className="mt-4">
@@ -163,10 +169,10 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions }: { it
         </div> : null}
         {error ? <p role="alert" className="mt-3 typography-ui-label text-destructive">{error}</p> : null}
       </div>
-      <div className={cn('flex flex-wrap gap-2 px-7 py-3', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
+      <div className={cn('flex flex-wrap gap-2 py-3', compact ? 'px-4' : 'px-7', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
         {state === 'resolved' ? canReopen && <Button size="sm" variant="outline" disabled={locked} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
           {allowed('accept') ? <Button size="sm" disabled={locked} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
-          {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>✎ Respond</Button> : null}
+          {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>{ownerName ? t('inbox.card.messageOwner', { name: ownerName }) : '✎ Respond'}</Button> : null}
           {allowed('edit') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('edit')}>Edit</Button> : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild><Button size="sm" variant="outline" disabled={locked}>Snooze ▾</Button></DropdownMenuTrigger>
