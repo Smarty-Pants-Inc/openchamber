@@ -1,7 +1,7 @@
 import { opencodeClient } from '@/lib/opencode/client';
 import { nativeCreatedSession, nativeCreationFailure, NativeCreationError, type NativeCreationReply, type NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { assertManagedDraftTarget, isRetainedNativeCreation, nativeCreationForDraft, publishNativeCreation, type NativeDraftCreation, ownSettledStarts, settledStartKey } from './native-draft-creation';
 import { indexNativeCreatedSession } from './session-actions';
 import { useSessionUIStore } from './session-ui-store';
@@ -28,9 +28,11 @@ function current() {
   return { draft, runtimeKey, record: nativeCreationForDraft(state.nativeDraftCreations, draft, runtimeKey) };
 }
 
-function assertCurrent(record: Pending) {
+function assertCurrent(record: Pending, scope?: RuntimeRequestScope) {
   const target = current();
   if (target.record !== record || target.runtimeKey !== record.runtimeKey) throw new NativeCreationError('stale');
+  // Retired read authority does not revoke Ready. A later explicit Check/Send may capture fresh authority.
+  if (scope && !isRuntimeRequestScopeCurrent(scope)) throw new NativeCreationError('history');
 }
 
 /** A fresh list/read can recover an operation, never launch or answer a native prompt. */
@@ -45,7 +47,7 @@ export async function resumeNativeCreation(operation: NativeCreationState): Prom
   await refreshNativeCreation();
 }
 
-async function acceptState(record: Pending, next: NativeCreationState, deadline?: number) {
+async function acceptState(record: Pending, next: NativeCreationState, scope: RuntimeRequestScope, deadline?: number) {
   const previous = record.operation;
   // A stopped operation is final whatever generation it reports (an abandoned one reports none, #340): accept it.
   if (['denied', 'cancelled', 'expired'].includes(next.phase) && next.operationId === previous.operationId
@@ -74,12 +76,13 @@ async function acceptState(record: Pending, next: NativeCreationState, deadline?
     publishNativeCreation(record, ready);
     try {
       if (!next.native) throw new NativeCreationError('history');
-      const detail = await readReadySession(next.native.id, record.directory, deadline ?? Date.now() + 120_000, () => assertCurrent(ready));
+      const detail = await readReadySession(next.native.id, record.directory, deadline ?? Date.now() + 120_000, () => assertCurrent(ready, scope));
       const ordinary = readOrdinaryModel(detail);
       if (detail.id !== next.native.id || detail.directory !== record.directory
         || !ordinary?.model || ordinary.generation !== next.native.generation) throw new NativeCreationError('stale');
       const readySession = { ...detail, nativeCreation: { model: ordinary.model, inputReady: true } };
       const session = nativeCreatedSession(readySession);
+      assertCurrent(ready, scope);
       indexNativeCreatedSession(session, record.directory, record.runtimeKey);
       ownSettledStarts.add(settledStartKey(record.runtimeKey, next.operationId));
       publishNativeCreation(ready, { runtimeKey: record.runtimeKey, draftId: record.draftId,
@@ -103,16 +106,18 @@ async function acceptState(record: Pending, next: NativeCreationState, deadline?
 async function request(record: Pending, reply?: NativeCreationReply, deadline?: number) {
   assertCurrent(record);
   if (record.busy) return;
+  const scope = captureRuntimeRequestScope();
   if (deadline === undefined && (reply?.action === 'ready' || record.operation.phase === 'ready')) deadline = Date.now() + 120_000;
   const pending: Pending = { ...record, busy: true, error: undefined };
   if (reply) pending.answered = record.operation.revision;
   if (reply?.action === 'ready') { pending.readyReplied = true; markReadyReplied(record.operation, true); }
   publishNativeCreation(record, pending);
   try {
+    assertCurrent(pending, scope);
     const next = reply
       ? await opencodeClient.replyNativeCreation(record.directory, record.operation.operationId, reply)
       : await opencodeClient.readNativeCreation(record.directory, record.operation.operationId);
-    await acceptState(pending, next, deadline);
+    await acceptState(pending, next, scope, deadline);
   } catch (cause) {
     // Keep the original operation after ambiguity. Re-read is allowed; replay is not.
     // A ready answer the server definitely refused (it answered 409 and armed nothing) may be answered again after a

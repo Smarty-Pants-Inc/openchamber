@@ -23,7 +23,10 @@ export async function readReadySession(id: string, directory: string, deadline: 
   for (let attempt = 0; ; attempt++) {
     assertCurrent();
     try {
-      const detail = await beforeDeadline(() => opencodeClient.getSession(id, directory), deadline);
+      const detail = await beforeDeadline(() => {
+        assertCurrent(); // At actual dispatch, including retries, before the SDK can resolve a new runtime scope.
+        return opencodeClient.getSession(id, directory);
+      }, deadline);
       assertCurrent();
       return detail;
     } catch (cause) {
