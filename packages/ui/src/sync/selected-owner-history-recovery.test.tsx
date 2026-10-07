@@ -1,8 +1,8 @@
-import { act } from 'react';
+import React, { act } from 'react';
 import { expect, test } from 'bun:test';
 import { fixture, B, id, row, requests, view } from './selected-owner-review-fixture';
 import { mountProbe } from './selected-owner-react-fixture';
-import { readSelectedSessionOwner, selectedOwnerRecovery } from './selected-session-owner';
+import { readSelectedSessionOwner, selectedOwnerRecovery, useSelectedSessionOwner } from './selected-session-owner';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUIStore } from './session-ui-store';
@@ -161,5 +161,39 @@ test('the silent-transport recovery is bounded while transport stays down', asyn
     expect(spent - owners).toBeLessThanOrEqual(2 * selectedOwnerRecovery.delaysMs.length);
     await pause(); await pause();
     expect(ownerReads()).toHaveLength(spent); // Then it stopped: no polling.
+  } finally { selectedOwnerRecovery.delaysMs = delays; await probe.close(); }
+}, 25_000);
+
+// openchamber#549 round-8 audit R8-P3-ABORTED-RENDER-DROPS-RECOVERY-01: a transition renders another selection and
+// suspends, so React keeps the committed selection. The committed selection's recovery must still run.
+test('an abandoned transition render does not cancel the committed selection\'s recovery', async () => {
+  const delays = selectedOwnerRecovery.delaysMs;
+  selectedOwnerRecovery.delaysMs = [150, 150, 150];
+  const never = new Promise<never>(() => {});
+  let select: (directory: string) => void = () => {};
+  const elsewhere = '/admitted/elsewhere';
+  const Suspends = ({ directory }: { directory: string | undefined }) => { if (directory === elsewhere) throw never; return null; };
+  const Probe = () => {
+    const stored = useSessionUIStore(state => state.currentSessionDirectory) ?? undefined;
+    const [override, setOverride] = React.useState<string | undefined>(undefined);
+    select = next => React.startTransition(() => setOverride(next));
+    const directory = override ?? stored;
+    useSelectedSessionOwner(id, directory, false);
+    return <React.Suspense fallback={null}><Suspends directory={directory} /></React.Suspense>;
+  };
+  fixture.history = async () => page();
+  const probe = await mountProbe(false, Probe);
+  try {
+    await settle(() => readSelectedSessionOwner(id, B)?.status === 'live');
+    fixture.history = async () => { throw new TypeError('Failed to fetch'); };
+    fixture.detail = async () => { throw new TypeError('Failed to fetch'); };
+    await act(async () => { await fixture.loader.refreshOrdinaryView(target); });
+    for (let turn = 0; turn < 600 && readSelectedSessionOwner(id, B)?.status !== 'unknown'; turn++) await tick();
+    expect(readSelectedSessionOwner(id, B)?.status).toBe('unknown');
+    fixture.history = async () => page();
+    fixture.detail = async () => Response.json(row(B));
+    await act(async () => { select(elsewhere); }); // Renders, suspends, never commits.
+    for (let turn = 0; turn < 400 && readSelectedSessionOwner(id, B)?.status !== 'live'; turn++) await tick();
+    expect(readSelectedSessionOwner(id, B)?.status).toBe('live');
   } finally { selectedOwnerRecovery.delaysMs = delays; await probe.close(); }
 }, 25_000);

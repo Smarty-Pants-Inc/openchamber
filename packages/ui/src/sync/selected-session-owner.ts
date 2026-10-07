@@ -176,19 +176,20 @@ export function useSelectedSessionOwner(sessionID: string | null | undefined, di
   const owner = readSelectedSessionOwner(sessionID, directory, childStores, messageLoader);
   // A failed check while transport was down leaves unknown, and transport can come back with no reconnect,
   // connection, catalog or loader signal. While transport reports ready, spend a few delayed rechecks per selection.
-  // The budget is fixed, so a session that stays unreachable does not poll.
+  // The budget is fixed, so a session that stays unreachable does not poll. Budget state changes only in committed
+  // effects: an abandoned render of another selection cannot invalidate the committed selection's timer.
   const retries = React.useRef({ selection: '', spent: 0 });
   const selection = `${runtimeKey}\u0000${directory ?? ''}\u0000${sessionID ?? ''}`;
-  if (retries.current.selection !== selection) retries.current = { selection, spent: 0 };
-  if (owner?.status === 'live' || owner?.status === 'ended') retries.current.spent = 0;
   const ownerStatus = owner?.status;
   React.useEffect(() => {
+    if (retries.current.selection !== selection || ownerStatus === 'live' || ownerStatus === 'ended') {
+      retries.current = { selection, spent: 0 };
+    }
     const budget = retries.current, delay = selectedOwnerRecovery.delaysMs[budget.spent];
     if (ownerStatus !== 'unknown' || !connected || catalogStatus !== 'ready' || delay === undefined) return;
     const timer = setTimeout(() => {
-      if (retries.current !== budget || hasActiveSelectedOwnerOperation()) return;
       budget.spent++;
-      recheck();
+      recheck(); // Reruns this effect; an operation already in flight is shared, not duplicated.
     }, delay);
     return () => clearTimeout(timer);
   }, [ownerStatus, connected, catalogStatus, selection, recoveryRevision]);
