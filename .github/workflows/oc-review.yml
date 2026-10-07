@@ -98,7 +98,7 @@ jobs:
             .auth-ui-build/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 7 # smarty-dev#1246
 
       - name: Electron Linux packaging unit tests
         working-directory: packages/electron
