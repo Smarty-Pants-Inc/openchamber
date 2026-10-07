@@ -89,6 +89,18 @@ export function getAllSyncSessions() {
   return Array.from(getAllSyncSessionMap().values())
 }
 
+/** Every child store's row for one session ID. Unlike the deduplicated index, a row in one directory never masks
+ *  the same ID's row in another directory (smarty-code#1427). */
+export function getSyncSessionRows(sessionID: string): State["session"] {
+  const stores = _childStores
+  if (!stores) return []
+  const rows: State["session"] = []
+  for (const store of stores.children.values()) {
+    for (const session of store.getState().session) if (session?.id === sessionID) rows.push(session)
+  }
+  return rows
+}
+
 /** Read the cached cross-directory session index, rebuilding only when a session slice changes. */
 export function getAllSyncSessionMap(): ReadonlyMap<string, State["session"][number]> {
   const stores = _childStores

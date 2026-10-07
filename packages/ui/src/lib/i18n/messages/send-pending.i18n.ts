@@ -2,6 +2,7 @@
 // comes back to the composer and the person is told; a late delivery says so; a second Send of it waits.
 export const sendPendingI18n = {
   en: {
+    'chat.send.waitingForConfirmation': 'Waiting for your last message to be confirmed.',
     'chat.send.stillPending': 'Still sending. Wait for Code to confirm it before you send it again.',
     'chat.send.unconfirmed': 'Code has not confirmed your message yet, so it is back in the composer. It may still arrive: check the chat before you send it again.',
     'chat.send.deliveredLate': 'Your message was delivered after all.',
@@ -10,6 +11,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'Message delivery is unconfirmed',
   },
   de: {
+    'chat.send.waitingForConfirmation': 'Warte auf die Bestätigung deiner letzten Nachricht.',
     'chat.send.stillPending': 'Wird noch gesendet. Warte, bis Code sie bestätigt, bevor du sie erneut sendest.',
     'chat.send.unconfirmed': 'Code hat deine Nachricht noch nicht bestätigt, daher ist sie wieder im Eingabefeld. Sie kann noch ankommen: Prüfe den Chat, bevor du sie erneut sendest.',
     'chat.send.deliveredLate': 'Deine Nachricht wurde doch zugestellt.',
@@ -17,6 +19,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'Die Zustellung der Nachricht ist unbestätigt',
   },
   es: {
+    'chat.send.waitingForConfirmation': 'Esperando la confirmación de tu último mensaje.',
     'chat.send.stillPending': 'Todavía enviando. Espera a que Code lo confirme antes de enviarlo de nuevo.',
     'chat.send.unconfirmed': 'Code aún no ha confirmado tu mensaje, así que ha vuelto al editor. Puede que aún llegue: revisa el chat antes de enviarlo de nuevo.',
     'chat.send.deliveredLate': 'Tu mensaje se entregó después de todo.',
@@ -24,6 +27,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'La entrega del mensaje no está confirmada',
   },
   fr: {
+    'chat.send.waitingForConfirmation': 'En attente de la confirmation de votre dernier message.',
     'chat.send.stillPending': 'Envoi en cours. Attendez que Code le confirme avant de le renvoyer.',
     'chat.send.unconfirmed': 'Code n’a pas encore confirmé votre message ; il est de retour dans la zone de saisie. Il peut encore arriver : vérifiez la discussion avant de le renvoyer.',
     'chat.send.deliveredLate': 'Votre message a finalement été remis.',
@@ -31,6 +35,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'La remise du message n’est pas confirmée',
   },
   ja: {
+    'chat.send.waitingForConfirmation': '最後のメッセージの確認を待っています。',
     'chat.send.stillPending': '送信中です。再送する前に Code の確認を待ってください。',
     'chat.send.unconfirmed': 'Code がまだメッセージを確認していないため、入力欄に戻しました。まだ届く可能性があります。再送する前にチャットを確認してください。',
     'chat.send.deliveredLate': 'メッセージは結局届きました。',
@@ -38,6 +43,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'メッセージの配信は未確認です',
   },
   ko: {
+    'chat.send.waitingForConfirmation': '마지막 메시지가 확인되기를 기다리고 있습니다.',
     'chat.send.stillPending': '아직 보내는 중입니다. 다시 보내기 전에 Code의 확인을 기다리세요.',
     'chat.send.unconfirmed': 'Code가 아직 메시지를 확인하지 않아 입력란으로 되돌렸습니다. 아직 도착할 수 있으니 다시 보내기 전에 채팅을 확인하세요.',
     'chat.send.deliveredLate': '메시지가 결국 전달되었습니다.',
@@ -45,6 +51,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': '메시지 전달이 확인되지 않았습니다',
   },
   pl: {
+    'chat.send.waitingForConfirmation': 'Oczekiwanie na potwierdzenie Twojej ostatniej wiadomości.',
     'chat.send.stillPending': 'Nadal wysyłanie. Poczekaj, aż Code to potwierdzi, zanim wyślesz ponownie.',
     'chat.send.unconfirmed': 'Code jeszcze nie potwierdził wiadomości, więc wróciła do pola wpisywania. Może jeszcze dotrzeć: sprawdź czat, zanim wyślesz ją ponownie.',
     'chat.send.deliveredLate': 'Wiadomość jednak została dostarczona.',
@@ -52,6 +59,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'Dostarczenie wiadomości nie zostało potwierdzone',
   },
   'pt-BR': {
+    'chat.send.waitingForConfirmation': 'Aguardando a confirmação da sua última mensagem.',
     'chat.send.stillPending': 'Ainda enviando. Aguarde a confirmação do Code antes de enviar de novo.',
     'chat.send.unconfirmed': 'O Code ainda não confirmou sua mensagem, então ela voltou ao editor. Ela ainda pode chegar: confira o chat antes de enviar de novo.',
     'chat.send.deliveredLate': 'Sua mensagem foi entregue, afinal.',
@@ -59,6 +67,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'A entrega da mensagem não está confirmada',
   },
   tr: {
+    'chat.send.waitingForConfirmation': 'Son mesajınızın onaylanması bekleniyor.',
     'chat.send.stillPending': 'Hâlâ gönderiliyor. Yeniden göndermeden önce Code’un onaylamasını bekleyin.',
     'chat.send.unconfirmed': 'Code mesajınızı henüz onaylamadı, bu yüzden mesaj yazma alanına geri döndü. Yine de ulaşabilir: yeniden göndermeden önce sohbeti kontrol edin.',
     'chat.send.deliveredLate': 'Mesajınız sonunda iletildi.',
@@ -66,6 +75,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'Mesajın teslimi doğrulanmadı',
   },
   uk: {
+    'chat.send.waitingForConfirmation': 'Очікуємо підтвердження вашого останнього повідомлення.',
     'chat.send.stillPending': 'Ще надсилається. Дочекайтеся підтвердження від Code, перш ніж надсилати знову.',
     'chat.send.unconfirmed': 'Code ще не підтвердив ваше повідомлення, тож воно повернулося в поле введення. Воно ще може надійти: перевірте чат, перш ніж надсилати знову.',
     'chat.send.deliveredLate': 'Ваше повідомлення все ж доставлено.',
@@ -73,6 +83,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': 'Доставку повідомлення не підтверджено',
   },
   'zh-CN': {
+    'chat.send.waitingForConfirmation': '正在等待确认你的上一条消息。',
     'chat.send.stillPending': '仍在发送。请等待 Code 确认后再重新发送。',
     'chat.send.unconfirmed': 'Code 尚未确认你的消息，因此它已回到输入框。它仍可能送达：重新发送前请先查看聊天。',
     'chat.send.deliveredLate': '你的消息最终已送达。',
@@ -80,6 +91,7 @@ export const sendPendingI18n = {
     'chat.send.unconfirmedTitle': '消息送达尚未确认',
   },
   'zh-TW': {
+    'chat.send.waitingForConfirmation': '正在等待確認你的上一則訊息。',
     'chat.send.stillPending': '仍在傳送。請等待 Code 確認後再重新傳送。',
     'chat.send.unconfirmed': 'Code 尚未確認你的訊息，因此它已回到輸入框。它仍可能送達：重新傳送前請先查看聊天。',
     'chat.send.deliveredLate': '你的訊息最終已送達。',
