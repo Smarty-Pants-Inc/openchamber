@@ -90,9 +90,10 @@ function SmartyPage({ smarty, all, me, compact, onClose, services }: {
   const inbox = <InboxView compact onClose={() => setInboxShown(false)} ownerLabel={smarty.label} />;
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <header className={cn('flex items-center gap-2 border-b border-border', compact ? 'px-3 py-2' : 'px-4 py-3')}>
+      <header className={cn('flex items-center gap-2 border-b border-border', compact ? 'flex-wrap px-3 py-2' : 'px-4 py-3')}>
         {compact && all.length > 1 ? (
-          <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 items-center gap-1">
+          // A phone has no nav column: the Smarties are a row of their own, above the header's buttons.
+          <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 basis-full flex-wrap items-center gap-1">
             {all.map(item => (
               <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
                 <span className="truncate">{item.label}</span>

@@ -44,7 +44,7 @@ export function FeedTranscript({ blocks, smartyName, me, Text = SimpleMarkdownRe
         {blocks.length === 0 ? <li className="chat-message-column typography-ui-label text-muted-foreground">{t('feed.empty')}</li> : null}
         {blocks.map(block => (
           <li key={block.id} data-feed-entry={block.author === 'org' ? 'smarty' : 'person'} className="chat-message-column flex min-w-0 flex-col gap-1">
-            <div className={cn('flex items-baseline gap-2 typography-ui-label', block.author === me && 'justify-end')}>
+            <div className="flex items-baseline gap-2 typography-ui-label">
               <span className="font-semibold text-foreground">{authorName(block.author)}</span>
               <span className="tabular-nums text-muted-foreground">{block.at}</span>
             </div>
