@@ -348,10 +348,13 @@ as ordinary history. A missing directory row is not evidence of a stock session,
 owner is reserved before directory bootstrap. A live directory row outranks the global listing.
 
 An ordinary Send claims its reservation synchronously, before the first await. The route tells the
-SDK `ordinaryOwner`, so the prompt carries an accepted history view or is refused; it is never sent
-bare. The global listing's retained-unavailable or ended mark refuses the Send unless a current verified
-live owner outranks it. The final `beforeDispatch` checks the exact reservation, runtime scope and that
-mark after history, file and attribution preparation, for prompts and slash commands alike. Known
+SDK `ordinaryOwner`. While the imperative message loader is registered (the mounted `SyncProvider`),
+the prompt then carries an accepted history view or is refused. Without a loader, the client sends no
+view and the gateway refuses the prompt for its missing view. The global listing's retained-unavailable
+or ended mark refuses the Send unless a current verified live owner outranks it. The final
+`beforeDispatch` checks the exact reservation, runtime scope and that mark after each path's own
+preparation: history, files and display attribution for prompts (`sendMessage`), files for slash
+commands (`sendCommand`). Known
 acceptance or refusal releases the reservation at once; ambiguous transport failures and client-ID
 conflicts keep it. Release never sends.
 
