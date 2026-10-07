@@ -342,18 +342,22 @@ composer, `routeMessage` and its final dispatch checks all read it. In order: th
 verified state; any directory's row for the session (a row in one directory never masks another's);
 the global listing, only while no directory has a row yet; then a loader view accepted as ordinary
 history, with a Code-created session's creation model as its model. The global listing's
-retained-unavailable or ended mark overrides a directory row. Ordinary without a model refuses; it
-never falls back to stock.
+retained-unavailable or ended mark overrides a directory row, and a target row that is reloading or
+ended is unavailable too. Ordinary without a model refuses; it never falls back to stock.
 
 `send-admission.ts` admits one ordinary Send per runtime and session, across the tabs of this browser
 (smarty-code#1427). `routeMessage` claims the session synchronously, then takes the session's Web Lock
 while its request is unresolved, so a second Send here or in another tab waits. When the request
-leaves, a localStorage marker records its client ID and text. A closed tab, a reload, a lost response,
+leaves, a localStorage marker records its client ID and a hash of the composer's own text (never the
+text). A closed tab, a reload, a lost response,
 a 503 or a client-ID conflict leaves the marker, and every other message to that session waits. The
 same message re-sent with its original client ID is always admitted; the gateway's client-ID
 reservation dedupes it, so its answer settles the outcome without a duplicate. A confirmed message
 with that ID in history settles it too. Known acceptance or refusal clears the marker at once, and
-clearing never sends. Without Web Locks the page-local claim and the marker still apply.
+clearing never sends. Admission fails closed: without Web Locks, or when the browser refuses to
+store the marker, the Send is refused and nothing leaves. The person may also choose "Discard and
+send anyway" on the wait notice; a second confirm names the risk that the earlier message may still
+arrive, and only then is the marker cleared and the new message sent.
 
 The route pins the model `readOrdinaryOwner` names and checks the same source again in the final
 `beforeDispatch` of every request kind (prompt, slash command, shell), after that path's preparation;

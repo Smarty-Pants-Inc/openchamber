@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { sendAdmission } from './send-admission';
+import { sendAdmission, sendContentHash } from './send-admission';
 
 // smarty-code#1427: the shared parts of two tabs are localStorage and the Web Lock manager. Each test gets a fresh,
 // in-memory pair; a second "tab" is a second module instance reading the same storage and locks.
@@ -39,7 +39,7 @@ const otherTab = async () => {
 };
 const begin = async (admission: typeof sendAdmission, r: string, id: string, content = 'hello') => {
   const attempt = admission.begin(r, 'session', id, content);
-  return attempt && await attempt.acquire() ? attempt : null;
+  return attempt && await attempt.acquire() === 'acquired' ? attempt : null;
 };
 
 test('one Send per session: a second message waits; another session is independent', async () => {
@@ -55,7 +55,7 @@ test('one Send per session: a second message waits; another session is independe
 test('Astra P1: an ambiguous outcome fences other messages but admits the same message with its original ID', async () => {
   const r = runtime(), first = await begin(sendAdmission, r, 'msg_1');
   first!.dispatched(); first!.failed('unknown');
-  expect(sendAdmission.unconfirmed(r, 'session')).toMatchObject({ messageID: 'msg_1', content: 'hello', inFlight: false });
+  expect(sendAdmission.unconfirmed(r, 'session')).toMatchObject({ messageID: 'msg_1', contentHash: sendContentHash('hello'), inFlight: false });
   expect(sendAdmission.begin(r, 'session', 'msg_2', 'something else')).toBeNull();
   const retry = await begin(sendAdmission, r, 'msg_1');
   expect(retry).not.toBeNull();
@@ -90,10 +90,10 @@ test('security P2: another tab cannot send a different message while one is in f
   // In flight: the lock is held, so tab B's attempt is refused when it tries to take it.
   const racing = tabB.begin(r, 'session', 'msg_b', 'hello');
   expect(racing).not.toBeNull();
-  expect(await racing!.acquire()).toBe(false);
+  expect(await racing!.acquire()).toBe('busy');
   first!.dispatched(); first!.failed('unknown');
   // Unresolved: tab B sees it, refuses another message, and admits only the same ID.
-  expect(tabB.unconfirmed(r, 'session')).toMatchObject({ messageID: 'msg_1', content: 'hello', inFlight: false });
+  expect(tabB.unconfirmed(r, 'session')).toMatchObject({ messageID: 'msg_1', contentHash: sendContentHash('hello'), inFlight: false });
   expect(tabB.begin(r, 'session', 'msg_b', 'hello')).toBeNull();
   const retry = await begin(tabB, r, 'msg_1');
   expect(retry).not.toBeNull();
@@ -121,11 +121,29 @@ test('runtimes are independent for the same session ID', async () => {
   expect(sendAdmission.unconfirmed(a, 'session')?.messageID).toBe('msg_1');
 });
 
-test('without Web Locks the page-local claim and the marker still fence', async () => {
+// Security pass on a5716127, P1: admission fails closed. Without Web Locks nothing is admitted (two tabs could otherwise
+// both pass); a marker the browser refuses to store stops the request before it leaves.
+test('without Web Locks a Send is refused, and nothing stays claimed', async () => {
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+  const r = runtime(), attempt = sendAdmission.begin(r, 'session', 'msg_1', 'hello');
+  expect(await attempt!.acquire()).toBe('unsupported');
+  expect(sendAdmission.unconfirmed(r, 'session')).toBeUndefined();
+  expect(await (await otherTab()).begin(r, 'session', 'msg_2', 'other')!.acquire()).toBe('unsupported');
+});
+
+test('a marker the browser refuses to store stops the request; the session is free again', async () => {
   const r = runtime(), first = await begin(sendAdmission, r, 'msg_1');
-  expect(first).not.toBeNull();
-  expect(sendAdmission.begin(r, 'session', 'msg_2', 'other')).toBeNull();
+  storage.setItem = () => { throw new DOMException('full', 'QuotaExceededError'); };
+  expect(() => first!.dispatched()).toThrow();
+  first!.failed('unknown'); // Never left: a pre-dispatch failure.
+  expect(sendAdmission.unconfirmed(r, 'session')).toBeUndefined();
+});
+
+test('the marker keeps the client ID and a hash of the text, never the text', async () => {
+  const r = runtime(), first = await begin(sendAdmission, r, 'msg_1', 'a private prompt');
   first!.dispatched(); first!.failed('unknown');
-  expect((await otherTab()).begin(r, 'session', 'msg_2', 'other')).toBeNull();
+  const stored = storage.getItem('oc.send.unconfirmed:' + JSON.stringify([r, 'session'])) ?? '';
+  expect(stored).toContain('msg_1');
+  expect(stored).not.toContain('a private prompt');
+  expect(sendAdmission.unconfirmed(r, 'session')?.contentHash).toBe(sendContentHash('  a private prompt '));
 });

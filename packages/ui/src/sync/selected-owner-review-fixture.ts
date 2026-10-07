@@ -11,6 +11,7 @@ import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { opencodeClient } from '@/lib/opencode/client';
 import { refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
 import { switchRuntimeEndpoint } from '@/lib/runtime-switch';
+import { ensureTestWebLocks } from './test-web-locks';
 
 export const A = '/admitted/source', B = '/admitted/destination', id = 'same-native-session';
 export const view = `ov2_${'d'.repeat(64)}`;
@@ -26,6 +27,7 @@ const initialUI = useSessionUIStore.getState(), initialProjects = useProjectsSto
 function page(readOnly = false) { return Response.json([], { headers: readOnly ? { 'x-smarty-read-only': 'true' } : { 'x-smarty-ordinary-view': view } }); }
 
 beforeEach(async () => {
+  ensureTestWebLocks();
   requests.length = 0;
   detail = async () => Response.json(row(B));
   history = async () => page();

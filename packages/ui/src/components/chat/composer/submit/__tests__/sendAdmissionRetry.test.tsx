@@ -8,6 +8,10 @@ import { useInputStore } from '@/sync/input-store';
 import { sendAdmission } from '@/sync/send-admission';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { toast } from '@/components/ui';
+import type { ExternalToast } from 'sonner';
+import { z } from 'zod';
+const actionSchema = z.object({ label: z.string(), onClick: z.function() });
+import type React from 'react';
 
 // Astra round 5 P1 (openchamber#549, smarty-code#1427): an ambiguous ordinary Send must not fence the session for good.
 // The actual composer: the lost request's text comes back, an unrelated Send waits, the unchanged re-send goes with the
@@ -37,7 +41,7 @@ test('an ambiguous Send: its unchanged re-send keeps the client ID, settles the 
     await until(() => c.text() === 'The lost message'); // Given back by the watchdog.
     // Let the first request's own failure settle (its confirmation read), so the outcome is unknown, not in flight. A
     // re-send while it is still in flight is refused like any other (covered in send-admission.test.ts).
-    await act(async () => { await sleep(500); });
+    await until(() => sendAdmission.unconfirmed(c.runtimeA, session.id)?.inFlight === false);
     // Anything else waits for that outcome.
     const before = info.mock.calls.length;
     await c.replace('An unrelated message'); await c.submit(); await act(async () => { await sleep(50); });
@@ -56,4 +60,85 @@ test('an ambiguous Send: its unchanged re-send keeps the client ID, settles the 
     const third = await c.prompts()[2].clone().json();
     expect(third.messageID).not.toBe(first.messageID);
   } finally { sendUnconfirmed.ms = was; info.mockRestore(); await c.dispose(); }
+}, 30_000);
+
+// Source audit of a5716127, P1: the route sends prepared text (snippets expanded), while a retry shows the composer's own
+// text. The unresolved Send is recognized by the composer's text, so its retry still goes with the original client ID.
+test('a prepared (snippet-expanded) Send is still recognized by its composer text on retry', async () => {
+  const { useSnippetsStore } = await import('@/stores/useSnippetsStore');
+  const realExpand = useSnippetsStore.getState().expandText;
+  useSnippetsStore.setState({ expandText: async (text: string) => `Expanded: ${text}` });
+  const c = await mountedNativeComposer(false, undefined, undefined, undefined, f => {
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [row] });
+    useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+    useInputStore.setState({ pendingInputText: null, attachedFiles: [], pendingSyntheticParts: [] });
+  });
+  const was = sendUnconfirmed.ms;
+  sendUnconfirmed.ms = 250;
+  let posts = 0;
+  c.handlers.prompt = async () => ++posts === 1 ? new Response(null, { status: 503 }) : new Response(null, { status: 204 });
+  try {
+    await c.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    await c.replace('#greet the team'); await c.submit();
+    await until(() => posts === 1 && sendAdmission.unconfirmed(c.runtimeA, session.id) !== undefined);
+    await until(() => c.text() === '#greet the team');
+    await until(() => sendAdmission.unconfirmed(c.runtimeA, session.id)?.inFlight === false);
+    await c.replace('#greet the team'); await c.submit();
+    await until(() => posts === 2);
+    const [first, retry] = await Promise.all(c.prompts().map(request => request.clone().json()));
+    expect(first.parts.map((part: { text?: string }) => part.text)).toContain('Expanded: #greet the team');
+    expect(retry.messageID).toBe(first.messageID);
+    await until(() => sendAdmission.unconfirmed(c.runtimeA, session.id) === undefined);
+  } finally { useSnippetsStore.setState({ expandText: realExpand }); sendUnconfirmed.ms = was; await c.dispose(); }
+}, 30_000);
+
+// smarty-code#1427 (code-lead decision a and b): an unresolved Send leaves no prompt text in localStorage, and the person
+// can choose "Discard and send anyway" after a confirm that names the risk. That clears the fence and sends exactly one
+// new message; dismissing the notices sends nothing.
+test('discard and send anyway: an explicit confirm clears the fence and sends one new message; no prompt text is stored', async () => {
+  const actions: Array<{ label: string; onClick: () => void }> = [];
+  // Records each notice's action button: a label and a click, as sonner renders it.
+  const record = (_message: React.ReactNode, data?: ExternalToast) => {
+    const parsed = actionSchema.safeParse(data?.action);
+    if (parsed.success) actions.push({ label: parsed.data.label, onClick: () => parsed.data.onClick() });
+    return 'test-toast';
+  };
+  const info = spyOn(toast, 'info').mockImplementation(record);
+  const warning = spyOn(toast, 'warning').mockImplementation(record);
+  const c = await mountedNativeComposer(false, undefined, undefined, undefined, f => {
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [row] });
+    useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+    useInputStore.setState({ pendingInputText: null, attachedFiles: [], pendingSyntheticParts: [] });
+  });
+  const was = sendUnconfirmed.ms;
+  sendUnconfirmed.ms = 250;
+  let posts = 0;
+  c.handlers.prompt = async () => ++posts === 1 ? new Response(null, { status: 503 }) : new Response(null, { status: 204 });
+  try {
+    await c.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    await c.replace('A private lost prompt'); await c.submit();
+    // The first request's own failure settles (its confirmation read): its outcome is unknown, no longer in flight.
+    await until(() => posts === 1 && sendAdmission.unconfirmed(c.runtimeA, session.id)?.inFlight === false);
+    // The admission records only (the input-history recall store keeps submitted text by design, as it did before).
+    const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index) ?? '').filter(key => key.startsWith('oc.send.'));
+    expect(keys).toHaveLength(1);
+    const stored = keys.map(key => `${key}=${localStorage.getItem(key)}`).join('\n');
+    expect(stored).toContain(sendAdmission.unconfirmed(c.runtimeA, session.id)!.messageID);
+    expect(stored).not.toContain('A private lost prompt');
+    // A different message waits; its notice offers the risky choice, which asks again before anything goes.
+    await c.replace('A different message'); await c.submit(); await act(async () => { await sleep(50); });
+    expect(posts).toBe(1);
+    expect(actions.map(action => action.label)).toEqual(['Discard and send anyway']);
+    await act(async () => { actions[0].onClick(); await sleep(50); });
+    expect(posts).toBe(1); // The first choice only opens the confirm.
+    expect(actions.map(action => action.label)).toEqual(['Discard and send anyway', 'Send anyway']);
+    await act(async () => { actions[1].onClick(); });
+    await until(() => posts === 2);
+    await act(async () => { await sleep(100); });
+    expect(posts).toBe(2);
+    const [first, second] = await Promise.all(c.prompts().map(request => request.clone().json()));
+    expect(second.messageID).not.toBe(first.messageID);
+    expect(second.parts.map((part: { text?: string }) => part.text)).toContain('A different message');
+    expect(sendAdmission.unconfirmed(c.runtimeA, session.id)).toBeUndefined();
+  } finally { sendUnconfirmed.ms = was; info.mockRestore(); warning.mockRestore(); await c.dispose(); }
 }, 30_000);

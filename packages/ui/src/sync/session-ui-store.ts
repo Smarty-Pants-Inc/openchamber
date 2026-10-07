@@ -176,6 +176,9 @@ type RouteMessageParams = {
   /** smarty-code#827: the client message ID to send with (a re-send of an unconfirmed text reuses its first send's). */
   messageID?: string
   onMessageID?: (messageID: string) => void
+  /** smarty-code#1427: the text a retry of this Send is recognized by (the composer's own text, before snippet and
+   * mention preparation). Defaults to `content`. */
+  admissionText?: string
 }
 
 const sendError = (key: 'chat.send.waitingForConfirmation' | 'chat.send.notSent' | 'common.unavailable') =>
@@ -207,9 +210,12 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
   const model = pinned.model
   const scope = captureRuntimeRequestScope()
   if (runtimeKey !== scope.runtimeKey) throw new Error('Message was not sent because the runtime changed.')
-  const attempt = sendAdmission.begin(runtimeKey, params.sessionId, params.messageID ?? ascendingId('msg'), params.content, directory)
+  const attempt = sendAdmission.begin(runtimeKey, params.sessionId, params.messageID ?? ascendingId('msg'),
+    params.admissionText ?? params.content, directory)
   if (!attempt) throw sendError('chat.send.waitingForConfirmation')
-  if (!await attempt.acquire()) throw sendError('chat.send.waitingForConfirmation')
+  const acquired = await attempt.acquire()
+  // 'unsupported': this browser cannot keep one Send at a time across tabs, so it sends nothing rather than risk two.
+  if (acquired !== 'acquired') throw sendError(acquired === 'busy' ? 'chat.send.waitingForConfirmation' : 'chat.send.notSent')
   const beforeDispatch = () => {
     if (!isRuntimeRequestScopeCurrent(scope)) throw new Error('Message was not sent because the runtime changed.')
     if (!attempt.canDispatch()) throw sendError('chat.send.waitingForConfirmation')
@@ -219,7 +225,9 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
   }
   try {
     const result = await dispatchRouteMessage({ ...params, messageID: attempt.messageID, providerID: model.providerID,
-      modelID: model.modelID, agent: undefined, variant: undefined, beforeDispatch }, () => attempt.dispatched(), true)
+      modelID: model.modelID, agent: undefined, variant: undefined, beforeDispatch }, () => {
+      try { attempt.dispatched() } catch { throw sendError('chat.send.notSent') }
+    }, true)
     attempt.accepted()
     return result
   } catch (error) {
@@ -385,6 +393,8 @@ type SendMessageOptions = {
   /** smarty-code#827: see routeMessage. */
   messageID?: string
   onMessageID?: (messageID: string) => void
+  /** smarty-code#1427: see routeMessage. */
+  admissionText?: string
 }
 
 type AssistantMessageSessionExecution = {
@@ -2319,6 +2329,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       displayName,
       messageID: options?.messageID,
       onMessageID: options?.onMessageID,
+      admissionText: options?.admissionText,
       additionalParts: partsWithPinnedContext?.map((p) => ({
         text: p.text,
         synthetic: p.synthetic,

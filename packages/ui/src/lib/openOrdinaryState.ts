@@ -1,6 +1,6 @@
 import type { Session } from '@opencode-ai/sdk/v2';
 import { z } from 'zod';
-import { isHerdrEnded } from '@/lib/herdrSession';
+import { isHerdrEnded, isOrdinaryReloading } from '@/lib/herdrSession';
 import { selectedOwnerOrdinaryState } from '@/sync/selected-session-owner';
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
@@ -37,7 +37,8 @@ function creationModel(session: Session | undefined): OrdinaryModelState | undef
  * In order: the selected owner's verified state; any directory's row for the session (the target directory first, and
  * no row in one directory masks another's); the global listing, only while no directory has a row yet (a live directory
  * row outranks a possibly stale global row); then a loader view accepted as ordinary history, which proves ownership but
- * names no model, so a Code-created session's creation model stands in for it. The global listing's retained-unavailable or ended mark overrides any directory row. Unavailable
+ * names no model, so a Code-created session's creation model stands in for it. A target row that is reloading or ended
+ * is unavailable. The global listing's retained-unavailable or ended mark overrides any directory row. Unavailable
  * (no model) means ordinary but not sendable now: callers refuse rather than fall back to stock.
  */
 export function readOrdinaryOwner(runtimeKey: string, sessionId: string, directory: string | undefined): OrdinaryModelState | undefined {
@@ -55,6 +56,9 @@ export function readOrdinaryOwner(runtimeKey: string, sessionId: string, directo
     const loaderOrdinary = Boolean(loader && (loader.isOrdinary(view, runtimeKey) || loader.getSendableOrdinaryView(view, runtimeKey)));
     if (!state && !loaderOrdinary) return undefined;
     if (isGloballyUnavailable(global)) return unavailable;
+    // The row this Send goes to says its Pi is reloading or has ended: ordinary, but not sendable now.
+    const own = rows.find(owns);
+    if (own && (isOrdinaryReloading(own) || isHerdrEnded(own))) return unavailable;
     return state ?? creationModel(rows.find(owns) ?? (owns(global) ? global : undefined)) ?? unavailable;
 }
 

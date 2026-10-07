@@ -2,6 +2,7 @@ import './native-test-network';
 import { spyOn } from 'bun:test';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
+import { ensureTestWebLocks } from './test-web-locks';
 import { getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -30,6 +31,7 @@ export const draft: NewSessionDraftState = { draftId: 400, open: true, target: '
   syntheticParts: [{ text: 'draft-only context', synthetic: true }] };
 
 export function nativeDraftFixture() {
+  ensureTestWebLocks();
   const initialUI = useSessionUIStore.getState(), initialInput = useInputStore.getState();
   const initialProjects = useProjectsStore.getState(), initialConfig = useConfigStore.getState();
   const initialDirectory = useDirectoryStore.getState(), initialGlobal = useGlobalSessionsStore.getState();

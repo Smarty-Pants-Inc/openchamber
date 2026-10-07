@@ -190,8 +190,11 @@ and the send path reading the same grammar.
   or another, Send shows "Waiting for your last message to be confirmed."
   Only the same text goes again, with its original client ID, so the gateway
   dedupes it; `SendRecovery` reuses that ID even when its own group is gone
-  (another tab, a remount). The watchdog gives the text back but grants no
-  permission. Other sessions and Stop stay available.
+  (another tab, a remount). The match is on a hash of the composer's own text,
+  before snippet and mention preparation. The watchdog gives the text back but
+  grants no permission. The wait notice offers "Discard and send anyway", which
+  asks again, naming the risk of a double send, before it clears the wait and
+  sends. Other sessions and Stop stay available.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It

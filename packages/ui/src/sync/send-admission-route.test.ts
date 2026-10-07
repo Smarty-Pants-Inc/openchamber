@@ -122,3 +122,31 @@ test('stock prompt concurrency remains unchanged', async () => {
     expect(pending(f.runtimeA)).toBe(false);
   } finally { held.resolve(new Response(null, { status: 204 })); await first; f.dispose(); }
 });
+
+// Security pass on a5716127, P2: the row this Send goes to says its Pi is reloading or has ended, with no global mark.
+for (const [label, mark] of [['reloading', { ordinaryReloading: true }], ['ended', { herdrState: 'ended', herdrPaneLive: false }]] as const) {
+  test(`a ${label} target row refuses before any request leaves`, async () => {
+    const f = nativeDraftFixture();
+    f.children.ensureChild(directory, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, ...mark }] });
+    await f.loader.ensure({ directory, sessionID: session.id }, { reason: 'navigation' });
+    try {
+      expect(await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'Must not send',
+        providerID: 'p', modelID: 'm' }).then(() => 'sent', () => 'refused')).toBe('refused');
+      expect(f.prompts()).toHaveLength(0);
+      expect(pending(f.runtimeA)).toBe(false);
+    } finally { f.dispose(); }
+  });
+}
+
+test('without Web Locks an ordinary Send is refused and nothing is posted; stock still sends', async () => {
+  const f = nativeDraftFixture();
+  await prepare(f);
+  const locks = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { ...globalThis.navigator, locks: undefined } });
+  try {
+    expect(await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'No locks', providerID: 'p',
+      modelID: 'm' }).then(() => 'sent', () => 'refused')).toBe('refused');
+    expect(f.prompts()).toHaveLength(0);
+    expect(pending(f.runtimeA)).toBe(false);
+  } finally { if (locks) Object.defineProperty(globalThis, 'navigator', locks); f.dispose(); }
+});
