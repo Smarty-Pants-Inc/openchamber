@@ -138,6 +138,17 @@ export function useSelectedSessionOwner(sessionID: string | null | undefined, di
     const currentProof = proof && isSelectedOwnerCurrent(proof, childStores);
     const unusableLiveProof = currentProof && proof.status === 'live'
       && !hasWritableHistory(messageLoader, { sessionID, directory }, proof.scope.runtimeKey);
+    // A later failed history read can strand an established owner while SSE stays healthy.
+    // Spend one delayed replacement check, using the existing native CAS and loader retries.
+    // Its failure becomes unknown, so it cannot schedule itself again without a recovery signal.
+    if (unusableLiveProof && messageLoader.getSnapshot({ sessionID, directory }).status === 'error'
+      && !hasActiveSelectedOwnerOperation()) {
+      const timer = setTimeout(() => {
+        if (useSessionUIStore.getState().selectedManagedOwner === proof && isSelectedOwnerCurrent(proof, childStores))
+          void checkSelectedSessionOwner(sessionID, directory, childStores);
+      }, 1_000);
+      return () => clearTimeout(timer);
+    }
     if (owner?.status === 'checking' && (!currentProof || unusableLiveProof && recovery) || owner?.status === 'unknown' && recovery)
       void checkSelectedSessionOwner(sessionID, directory, childStores);
   }, [sessionID, directory, key, historyKey, global, catalog, catalogStatus, recoveryRevision, historyReadOnly, proof, childStores, messageLoader]);

@@ -4,148 +4,268 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "983e35e27bee3b3fb9acbeafb84ee1d9f2c9fb80",
+  "sourceTree": "041b2cd0374e3375d665440e57411196e9209374",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
   "scope": [
-    { "status": "M", "path": "packages/ui/src/components/chat/ChatInput.tsx" },
-    { "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts" },
-    { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx" },
-    { "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx" },
-    { "status": "M", "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts" },
-    { "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx" },
-    { "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx" },
-    { "status": "A", "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx" },
-    { "status": "M", "path": "packages/ui/src/sync/selected-owner-operation.ts" },
-    { "status": "M", "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx" },
-    { "status": "A", "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx" },
-    { "status": "M", "path": "packages/ui/src/sync/selected-session-owner.test.tsx" },
-    { "status": "M", "path": "packages/ui/src/sync/selected-session-owner.ts" },
-    { "status": "M", "path": "packages/ui/src/sync/session-actions.ts" },
-    { "status": "M", "path": "packages/ui/src/sync/session-ui-store.ts" }
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/DOCUMENTATION.md"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-operation.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-session-owner.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-session-owner.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/session-actions.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/session-ui-store.ts"
+    }
   ],
   "files": [
     {
-      "status": "M", "path": "packages/ui/src/components/chat/ChatInput.tsx",
-      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895", "blob": "ac840de0783c05a0bd8eedf695d66d20b1ae251c",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.tsx",
+      "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895",
+      "blob": "ac840de0783c05a0bd8eedf695d66d20b1ae251c",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
       "sha256": "8607f70bbfa988cb95d564210332b5a2a0f54c8b6ba837e72683ad9306aed9a0",
       "note": "Connect verified owner draft transfer and capture submission write authority for recovery and accepted cleanup."
     },
     {
-      "status": "M", "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts",
-      "predecessorBlob": "a016acfef2c108e95982c945dd6005c1d77c4aae", "blob": "252ba27c7ead35322e59d83684f8c506fd200351",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/components/chat/composer/state/useComposerDraft.ts",
+      "predecessorBlob": "a016acfef2c108e95982c945dd6005c1d77c4aae",
+      "blob": "252ba27c7ead35322e59d83684f8c506fd200351",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "6db0f47b705ab38d5e365ccddc1b379578c8feb0a21c4bc58de60707eb2c6011",
       "sha256": "096c5816df984028cca6032338682e947628a1182876d080b7d54e46e6425495",
       "note": "Retain live input through verified moves and prevent page-only conflict submissions from writing the destination draft."
     },
     {
-      "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx",
-      "predecessorBlob": null, "blob": "33b0a27a6d8f267222738b1e5227dc3a674f2b2a",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerDraft.test.tsx",
+      "predecessorBlob": null,
+      "blob": "33b0a27a6d8f267222738b1e5227dc3a674f2b2a",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
       "sha256": "6d9e623637b5c1123daaf7057709c03f3ee91856140db129e2f680794ab58425",
       "note": "Add actual composer move, input, mention, conflict and runtime isolation regressions; no historical predecessor."
     },
     {
-      "status": "A", "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
-      "predecessorBlob": null, "blob": "5bf7323e0570a7218eb1484b410113869a6a6981",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx",
+      "predecessorBlob": null,
+      "blob": "61b0f5cfd806fc8fb175f64b5c0041ac33b63301",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e",
+      "note": "Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx",
+      "predecessorBlob": null,
+      "blob": "5bf7323e0570a7218eb1484b410113869a6a6981",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
       "sha256": "e0217cf79af1d79fe36fbbbce6078b676c8dcdfad6c400748271772353d9d641",
       "note": "Add failed send and late accepted cleanup regressions for protected and ordinary drafts; no historical predecessor."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts",
-      "predecessorBlob": "e36c09042954387cf3948994463f2755fc46fd74", "blob": "374c93c4ec31a25075aa7a6ca03e6a17eb8de130",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/DOCUMENTATION.md",
+      "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf",
+      "blob": "f9a707f24cc7e1242589b283d0f0871ba6a5d214",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
+      "sha256": "1f66bf19b0351e94b6232f19b6e38b4cf4711df84050f8864d3a057d8cfc8e13",
+      "note": "Document bounded quiet history recovery for an established live owner."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts",
+      "predecessorBlob": "e36c09042954387cf3948994463f2755fc46fd74",
+      "blob": "374c93c4ec31a25075aa7a6ca03e6a17eb8de130",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "8e3f78cc062ced51015dd3f310fc9c8bbbd40cc8f822ded2a37d55c2a0fa90c6",
       "sha256": "8c341c7ec6e506b2db5241f88e9c1b816f494de3533942cdec59ba429dca68ab",
       "note": "Keep legacy draft fixture exports compatible with the provider-scoped owner imports and reject unexpected owner adoption."
     },
     {
-      "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx",
-      "predecessorBlob": null, "blob": "3d31027c481c4d3adc8fd9f9e5f23d9a825c3328",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx",
+      "predecessorBlob": null,
+      "blob": "3d31027c481c4d3adc8fd9f9e5f23d9a825c3328",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
       "sha256": "0d29afdcf5336137e8b8f0cdd22a2a9857f0954856c57f2c8bfb45b3cbdf7d09",
       "note": "Add cold persisted ended-owner checking before parent refs are published; no historical predecessor."
     },
     {
-      "status": "A", "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx",
-      "predecessorBlob": null, "blob": "81d0f5c94c8a726ded6cdaa2d5f0e80ca0cfc484",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx",
+      "predecessorBlob": null,
+      "blob": "81d0f5c94c8a726ded6cdaa2d5f0e80ca0cfc484",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
       "sha256": "664dc2eefd6834b9fa79af02d65783233614a806a7d87c3e8fd4294d3cf059b4",
       "note": "Add native provider subscription, cold and StrictMode mount and scoped cleanup regressions; no historical predecessor."
     },
     {
-      "status": "A", "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx",
-      "predecessorBlob": null, "blob": "424a117ee5c6fc1f26de19fb79c7eb92d07eb867",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx",
+      "predecessorBlob": null,
+      "blob": "c509804b547c055827a36451a08ac7db281839ed",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "0308bcd71110cf1ecf09bd4a89c03e1f30ec8f0bec6e02ce10106d2cc6b5debe",
-      "note": "Add live proof history failure, reconnect and read-only recovery controls without hot retries; no historical predecessor."
+      "sha256": "5ec52e8f7347d42a764f6465c1ce3a99fa5b781da1f645ea4859c334bf1947e4",
+      "note": "Cover exhausted transport failures, quiet HTTP recovery, permanent-failure bounds and current native authority."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/selected-owner-operation.ts",
-      "predecessorBlob": "472264eda3936d8e0429c3e74ec05a4185fb3daf", "blob": "14cb04e9ac9ecbb348e64606bb51a593e8956edd",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-operation.ts",
+      "predecessorBlob": "472264eda3936d8e0429c3e74ec05a4185fb3daf",
+      "blob": "14cb04e9ac9ecbb348e64606bb51a593e8956edd",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c",
       "sha256": "b2c566553fac8f53aed34c46a051a993380512b13da799b4d2148de7f5884b9e",
       "note": "Bind owner checks to captured provider child stores and refuse adoption after provider replacement."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx",
-      "predecessorBlob": "680dee585b340afa80d3f6e9c18dee297050d4c8", "blob": "a6b47b8a9c1bac31c6d59b060455ca41deca64dc",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx",
+      "predecessorBlob": "680dee585b340afa80d3f6e9c18dee297050d4c8",
+      "blob": "a6b47b8a9c1bac31c6d59b060455ca41deca64dc",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "33cbd8f68e5f31c6cc9ef10831ee157cc2d9b2392889bf1a1be39ecc036a7ac9",
       "sha256": "4ddc115870358d67722fb4b43c5b02baa00aedf54f2caa9c7a1a84cc22078bd5",
       "note": "Mount owner probes inside the native sync runtime context with fixture-owned child stores and loader."
     },
     {
-      "status": "A", "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx",
-      "predecessorBlob": null, "blob": "976f4bf1d3798f8f43a5cbec4b12b942a7f51767",
-      "predecessorMode": null, "mode": "100644",
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx",
+      "predecessorBlob": null,
+      "blob": "976f4bf1d3798f8f43a5cbec4b12b942a7f51767",
+      "predecessorMode": null,
+      "mode": "100644",
       "predecessorSha256": null,
       "sha256": "00898eb97ec7554d68fde44380b2e556b8cda21a0887f018afdb24b084134738",
       "note": "Add title invalidation and fresh detail success or 503 recovery regressions; no historical predecessor."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/selected-session-owner.test.tsx",
-      "predecessorBlob": "3f7df0b617269dfe293e472dd3a96a3c8353e78c", "blob": "48c1eb50d62a2b0bca6ad1e94c96797fcf5a6515",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-session-owner.test.tsx",
+      "predecessorBlob": "3f7df0b617269dfe293e472dd3a96a3c8353e78c",
+      "blob": "48c1eb50d62a2b0bca6ad1e94c96797fcf5a6515",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "a713218dcdab1ff73a40a7f1ee0bc7845df05b0840b0ca0bbdaffa71b3932383",
       "sha256": "923d72fd89c0f86fdf1e9e444baac70d54011ffccbe46cd068510160cdde58d5",
       "note": "Run the existing mounted owner recovery regression within its native sync runtime provider."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/selected-session-owner.ts",
-      "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f", "blob": "856a5da34e969dc0d848b9036f06f71ceb131ed1",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-session-owner.ts",
+      "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f",
+      "blob": "709c8b02da1a415fd96da3386afae87839f3f3c3",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
-      "sha256": "1a67bf814aa78a036f05b87e4067785dd30713bf52e1ab8f442a8f42591540cf",
-      "note": "Observe provider-owned rows, titles and writable history and recheck unusable live proof only on recovery signals."
+      "sha256": "d959164c33d77e1ea8795bbf54fa6956cccce2b7e6b5132e99e013cfaea9c7be",
+      "note": "Bound a replacement check for unusable established live history without requiring reconnect or catalog change."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/session-actions.ts",
-      "predecessorBlob": "d4b8d10de9af28d33d1c44055c7effda713830f8", "blob": "a722d19661225e1a461a80b333423a033f6c04b2",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/session-actions.ts",
+      "predecessorBlob": "d4b8d10de9af28d33d1c44055c7effda713830f8",
+      "blob": "a722d19661225e1a461a80b333423a033f6c04b2",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b",
       "sha256": "723d026fcecd41fb3600c59eaba481356ad98c3751e62da1e6344f3cd54940a1",
       "note": "Check destination draft conflict before verified owner reconciliation can invalidate history or change attribution."
     },
     {
-      "status": "M", "path": "packages/ui/src/sync/session-ui-store.ts",
-      "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94", "blob": "4ab9448c657bba62da474acf28afb7025b6bd3e4",
-      "predecessorMode": "100644", "mode": "100644",
+      "status": "M",
+      "path": "packages/ui/src/sync/session-ui-store.ts",
+      "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94",
+      "blob": "4ab9448c657bba62da474acf28afb7025b6bd3e4",
+      "predecessorMode": "100644",
+      "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
       "sha256": "085cc4e5f2efe83c67ef6dd1fb287e812e4516e8fec2983877c9ef21fa93e868",
       "note": "Arm and consume only the selected verified same-session draft transfer under runtime and reveal revision fences."
     }
   ],
-  "note": "Parent-native export of the frozen PR549 repair: 15 UI files, 9 modified and 6 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the frozen PR549 #1378 repair: 17 UI files, 10 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }

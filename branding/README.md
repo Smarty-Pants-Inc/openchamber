@@ -151,12 +151,13 @@ runs last, after either historical mapping.
 
 `selected-owner-repair-overlay.json` records the frozen successor of base
 `11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
-and `sourceTree` is native Git subtree `983e35e27bee3b3fb9acbeafb84ee1d9f2c9fb80`.
+and `sourceTree` is native Git subtree `041b2cd0374e3375d665440e57411196e9209374`.
 This is a UI tree, not a commit, full repository tree or qualified release pin.
 Branding, scripts and this README are outside that subtree, so UI and provenance
 can land in one combined patch without a future commit or self-reference.
 
-The exact parent-exported scope contains 15 paths, 9 modified and 6 added.
+The exact parent-exported scope contains 17 paths, 10 modified and 7 added,
+including bounded quiet-history recovery for an established live owner.
 Each row keeps native SHA1 blob IDs, file modes, separate byte SHA256 hashes and
 its repair disposition. Modified rows name their actual base bytes even outside
 the old ledger. Added rows have null predecessor fields and are source inventory,
@@ -165,7 +166,7 @@ never historical stock or branding parity. The old 19-file table and complete
 and raw byte digest is `25d8427a`; the older 48-entry unwind stays unchanged.
 
 The repair test fixes metadata and all rows from independent parent-native
-exports, then hashes all 15 current files. It needs no old or unreachable Git
+exports, then hashes all 17 current files. It needs no old or unreachable Git
 objects. Run it explicitly with
 `node --test scripts/branding-selected-owner-repair.test.mjs`.
 The isolated root runner discovers it, but `test:brand` does not list it.

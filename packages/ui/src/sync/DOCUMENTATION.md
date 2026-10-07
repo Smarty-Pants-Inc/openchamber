@@ -74,8 +74,11 @@ ordered. Only a current verified live owner can outrank canonical record ownersh
 routing. Checking and unknown block Send but do not promote the selection fallback. A same-ID plain
 stock replacement drops stale proof; a reconciled live alias keeps its proof against late losing rows.
 
-Unknown retries on existing endpoint, credential-generation, connection or loader recovery signals,
-or an explicit check, not immediately on 503. Credential notifications carry no credentials and fire
+An established live proof whose history loader reaches error gets one delayed replacement check,
+even if SSE remains connected and the catalog does not change. This check uses the same strict
+native CAS and fresh writable-history requirement. A failed replacement becomes unknown, so it
+cannot retry itself. Unknown retries on existing endpoint, credential-generation, connection or
+loader recovery signals, or an explicit check, not immediately on 503. Credential notifications carry no credentials and fire
 after the existing provider assignment. Recovery uses the loader's existing configure seam to revoke
 old accepted views and replace its credential-bound SDK, then requires a fresh writable accepted view.
 There is no new fleet scan, polling loop or mutation redirect. Tests use real SDK,
