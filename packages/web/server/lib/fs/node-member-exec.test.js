@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
 import fsPromises from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -65,7 +65,8 @@ const cloneOnDisk = async (env, layout) => {
     mkdirSync(path.join(root, 'repo', '.git'), { recursive: true });
     layout?.(root);
     const routes = new Map();
-    const spawn = vi.fn(() => {
+    const spawn = vi.fn((_command, _args, options) => {
+      options.realCwd = realpathSync(options.cwd); // Node mode runs Git in the pinned directory (/proc/self/fd/N).
       const child = new EventEmitter();
       child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
       queueMicrotask(() => child.emit('close', 0, null));
@@ -109,7 +110,7 @@ it('Node member clone into an ordinary directory runs Git in the canonical paren
     expect(res.statusCode).toBe(200);
     const [, args, options] = spawn.mock.calls[0];
     expect(args.slice(-1)).toEqual(['app']);
-    expect(options.cwd).toBe(await fsPromises.realpath(path.join(root, 'work')));
+    expect(options.realCwd).toBe(await fsPromises.realpath(path.join(root, 'work')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

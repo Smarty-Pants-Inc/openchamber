@@ -1,0 +1,81 @@
+import { execFile } from 'node:child_process';
+import { constants } from 'node:fs';
+
+/**
+ * Node mode (smarty-code#1356): member file writes may not reach Git metadata. Two gaps beyond the `.git` path
+ * component check (security/node-member-execution.js):
+ *
+ * - Alternate Git directory: a `gitdir:` file, a bare repository or GIT_DIR puts metadata at a path with no `.git`
+ *   component. `inGitDirectory` asks Git which Git directory governs the target, as Git itself resolves it.
+ * - Check-then-write race: a checkout can turn a checked directory into a link into Git metadata before the write.
+ *   `openDirectory` opens the checked canonical directory and then names it only through its descriptor
+ *   (`/proc/self/fd/N`), so a later swap of any path component cannot redirect the operation.
+ *   ponytail: Node has no openat/renameat; Linux's /proc magic links give the same pinning. Other platforms refuse
+ *   member writes in Node mode (fail closed) instead of writing unpinned.
+ */
+
+const isWithin = (target, root, path) => {
+  const relative = path.relative(root, target);
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+};
+
+/** True when `target` (canonical) lies in the Git directory Git resolves from its nearest existing directory. */
+export const inGitDirectory = async (target, { fsPromises, path, git = 'git' }) => {
+  let directory = target;
+  while (!(await fsPromises.stat(directory).then((entry) => entry.isDirectory(), () => false))) {
+    const parent = path.dirname(directory);
+    if (parent === directory) return false;
+    directory = parent;
+  }
+  // No repository (or no Git) means no Git directory to protect here. A bare repository or one owned by another
+  // account still counts: a user's safe.bareRepository or safe.directory must not hide it from this check.
+  const args = ['-c', 'safe.bareRepository=all', '-c', 'safe.directory=*', 'rev-parse', '--absolute-git-dir'];
+  const gitDir = await new Promise((resolve) => execFile(git, args,
+    { cwd: directory, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout).trim())));
+  if (!gitDir) return false;
+  const real = await fsPromises.realpath(gitDir).catch(() => gitDir);
+  return isWithin(target, real, path);
+};
+
+const MEMBER_WRITE_NEEDS_LINUX = "Changing files isn't available for members on this Node's platform yet.";
+
+const pin = async (opened, expected, fsPromises) => {
+  const handle = await fsPromises.open(opened, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+    .catch((error) => { if (['ELOOP', 'ENOTDIR'].includes(error?.code)) return null; throw error; });
+  if (!handle) return null;
+  const fdPath = `/proc/self/fd/${handle.fd}`;
+  // The descriptor's directory must still be the checked one; a moved or replaced directory is refused.
+  if (await fsPromises.readlink(fdPath).catch(() => null) !== expected) {
+    await handle.close();
+    return null;
+  }
+  return { path: fdPath, at: (name) => `${fdPath}/${name}`, close: () => handle.close() };
+};
+
+/** Opens the canonical `directory` (creating missing levels one at a time when `create`) and returns it pinned by
+ *  descriptor: `path` for a child's cwd, `at(name)` for an entry in it, `close()`. Null when a level changed after
+ *  the check. Throws ENOENT when it is missing and not created. */
+export const openDirectory = async (directory, { fsPromises, path, create = false }) => {
+  if (process.platform !== 'linux') throw Object.assign(new Error(MEMBER_WRITE_NEEDS_LINUX), { code: 'EPLATFORM' });
+  const missing = [];
+  let existing = directory;
+  while (create && !(await fsPromises.lstat(existing).then(() => true, (error) => {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }))) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  let pinned = await pin(existing, existing, fsPromises);
+  for (const name of missing) {
+    if (!pinned) return null;
+    await fsPromises.mkdir(pinned.at(name)).catch((error) => { if (error?.code !== 'EEXIST') throw error; });
+    const next = await pin(pinned.at(name), path.join(existing, name), fsPromises);
+    await pinned.close();
+    pinned = next;
+    existing = path.join(existing, name);
+  }
+  return pinned;
+};

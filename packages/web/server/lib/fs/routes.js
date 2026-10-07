@@ -4,6 +4,7 @@ import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
 import { GIT_METADATA_REFUSED, gitEnvForCaller, isGitMetadataPath, memberExecutionRefused, refuseMemberExecution }
   from '../security/node-member-execution.js';
+import { inGitDirectory, openDirectory } from './member-write-guard.js';
 import { FILE_MIME_MAP, MAX_SERVE_BYTES, mintPreviewCapability, PREVIEW_CSP } from './preview-capability.js';
 import { appendContentSecurityPolicy, responsePolicyCacheControl } from '../http-response-policy.js';
 
@@ -620,8 +621,25 @@ export const registerFsRoutes = (app, dependencies) => {
   } = dependencies;
   if (typeof resolveGitBinaryForSpawn === 'function') gitBinaryForSpawn = resolveGitBinaryForSpawn;
   gitMetadataWritesRefused = memberExecutionRefused(env);
-  const gitMetadataRefused = (res, ...paths) => gitMetadataWritesRefused && paths.some(isGitMetadataPath)
-    && Boolean(res.status(403).json({ error: GIT_METADATA_REFUSED, code: 'NODE_MEMBER_GIT_METADATA_REFUSED' }));
+  const refuseGitMetadata = (res) => Boolean(res.status(403).json({ error: GIT_METADATA_REFUSED, code: 'NODE_MEMBER_GIT_METADATA_REFUSED' }));
+  const gitMetadataRefused = (res, ...paths) => gitMetadataWritesRefused && paths.some(isGitMetadataPath) && refuseGitMetadata(res);
+  /** Node mode, on canonical targets: also the Git directory Git resolves there (a `gitdir:` file, a bare repo). */
+  const gitDirectoryRefused = async (res, ...targets) => {
+    if (!gitMetadataWritesRefused) return false;
+    const git = await gitExecutable(path);
+    for (const target of targets) {
+      if (isGitMetadataPath(target) || await inGitDirectory(target, { fsPromises, path, git })) return refuseGitMetadata(res);
+    }
+    return false;
+  };
+  /** The directory a write goes to. Node mode pins the checked canonical directory by descriptor so a later swap
+   * cannot redirect the write (member-write-guard.js); null when it changed after the check. Owner mode: plain path. */
+  const writeDirectory = async (directory, create = false) => {
+    if (gitMetadataWritesRefused) return openDirectory(directory, { fsPromises, path, create });
+    if (create) await fsPromises.mkdir(directory, { recursive: true });
+    return { path: directory, at: (name) => path.join(directory, name), close: async () => {} };
+  };
+  const pathChanged = (res) => res.status(409).json({ error: 'The path changed during the request; try again' });
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
   const chatsRoot = typeof managedChatsRoot === 'string' && managedChatsRoot.trim()
@@ -862,8 +880,11 @@ export const registerFsRoutes = (app, dependencies) => {
         console.warn('Rejected mkdir that leaves its workspace through a symbolic link');
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
+      if (await gitDirectoryRefused(res, createPath)) return;
 
-      await fsPromises.mkdir(createPath, { recursive: true });
+      const created = await writeDirectory(createPath, true);
+      if (!created) return pathChanged(res);
+      await created.close();
       return res.json({ success: true, path: resolvedPath });
     } catch (error) {
       if (isOsPermissionError(error)) {
@@ -928,7 +949,7 @@ export const registerFsRoutes = (app, dependencies) => {
         if (!canonicalDestination) {
           return res.status(400).json({ error: 'Destination path goes through a broken symbolic link' });
         }
-        if (gitMetadataRefused(res, canonicalDestination)) return;
+        if (await gitDirectoryRefused(res, canonicalDestination)) return;
         resolvedDestination = canonicalDestination;
         parentPath = path.dirname(canonicalDestination);
         directoryName = path.basename(canonicalDestination);
@@ -942,19 +963,22 @@ export const registerFsRoutes = (app, dependencies) => {
         gitArgs.unshift('-c');
       }
 
-      await fsPromises.mkdir(parentPath, { recursive: true });
+      const parent = await writeDirectory(parentPath, true);
+      if (!parent) return pathChanged(res);
       try {
-        await fsPromises.access(resolvedDestination);
+        await fsPromises.access(parent.at(directoryName));
+        await parent.close();
         return res.status(409).json({ error: 'Destination path already exists' });
       } catch (error) {
         if (!error || error.code !== 'ENOENT') {
+          await parent.close();
           throw error;
         }
       }
 
       const output = await new Promise((resolve, reject) => {
         const child = spawn(resolveGitBinaryForSpawn(), gitArgs, {
-          cwd: parentPath,
+          cwd: parent.path,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: gitEnvForCaller({
@@ -978,7 +1002,7 @@ export const registerFsRoutes = (app, dependencies) => {
           const message = combined || `git clone failed with exit code ${code}`;
           reject(new Error(message));
         });
-      });
+      }).finally(() => parent.close());
 
       if (identity?.userName && identity?.userEmail) {
         try {
@@ -1313,6 +1337,7 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
+      if (await gitDirectoryRefused(res, writePath)) return;
       if (await fsPromises.stat(writePath).then((entry) => entry.isDirectory(), () => false)) {
         return res.status(400).json({ error: 'Specified path is a directory' });
       }
@@ -1322,17 +1347,21 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.json({ success: true, path: resolved.resolved });
       }
 
-      await fsPromises.mkdir(path.dirname(writePath), { recursive: true });
+      const directory = await writeDirectory(path.dirname(writePath), true);
+      if (!directory) return pathChanged(res);
 
       // Atomic write: write to temp then rename to avoid concurrent readers
       // seeing an empty file during the O_TRUNC window of direct writeFile.
-      const tmp = `${writePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const name = path.basename(writePath);
+      const tmp = directory.at(`${name}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
       try {
         await fsPromises.writeFile(tmp, content, 'utf8');
-        await fsPromises.rename(tmp, writePath);
+        await fsPromises.rename(tmp, directory.at(name));
       } catch (error) {
         await fsPromises.unlink(tmp).catch(() => {});
         throw error;
+      } finally {
+        await directory.close();
       }
       return res.json({ success: true, path: resolved.resolved });
     } catch (error) {
@@ -1397,6 +1426,7 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!writePath) {
         return res.status(403).json({ error: 'Access denied' });
       }
+      if (await gitDirectoryRefused(res, writePath)) return;
 
       if (existingPath) {
         const stats = await fsPromises.stat(existingPath);
@@ -1409,7 +1439,10 @@ export const registerFsRoutes = (app, dependencies) => {
         }
       }
 
-      const tmp = `${writePath}.upload-${crypto.randomUUID()}`;
+      const directory = await writeDirectory(path.dirname(writePath));
+      if (!directory) return pathChanged(res);
+      const name = path.basename(writePath);
+      const tmp = directory.at(`${name}.upload-${crypto.randomUUID()}`);
       let tempExists = false;
       try {
         const handle = await fsPromises.open(tmp, 'wx');
@@ -1428,12 +1461,12 @@ export const registerFsRoutes = (app, dependencies) => {
         if (streamError) throw streamError;
 
         if (overwrite) {
-          await fsPromises.rename(tmp, writePath);
+          await fsPromises.rename(tmp, directory.at(name));
         } else {
           // A same-directory hard link commits without replacing a target that
           // appeared after the existence check. The temp file is already fully
           // flushed, so readers never observe a partial upload.
-          await fsPromises.link(tmp, writePath);
+          await fsPromises.link(tmp, directory.at(name));
           await fsPromises.unlink(tmp).catch(() => {});
         }
         tempExists = false;
@@ -1442,6 +1475,8 @@ export const registerFsRoutes = (app, dependencies) => {
           await fsPromises.unlink(tmp).catch(() => {});
         }
         throw error;
+      } finally {
+        await directory.close();
       }
 
       return res.json({ success: true, path: resolved.resolved });
@@ -1492,7 +1527,11 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!deletePath) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
-      await fsPromises.rm(deletePath, { recursive: true, force: true });
+      if (await gitDirectoryRefused(res, deletePath)) return;
+      const directory = await writeDirectory(path.dirname(deletePath));
+      if (!directory) return pathChanged(res);
+      await fsPromises.rm(directory.at(path.basename(deletePath)), { recursive: true, force: true })
+        .finally(() => directory.close());
       return res.json({ success: true, path: resolved.resolved });
     } catch (error) {
       const err = error;
@@ -1553,7 +1592,18 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!from || !to) {
         return res.status(403).json({ error: LEAVES_WORKSPACE });
       }
-      await fsPromises.rename(from, to);
+      if (await gitDirectoryRefused(res, from, to)) return;
+      const fromDirectory = await writeDirectory(path.dirname(from));
+      const toDirectory = fromDirectory && await writeDirectory(path.dirname(to)).catch(async (error) => {
+        await fromDirectory.close();
+        throw error;
+      });
+      if (!toDirectory) {
+        await fromDirectory?.close();
+        return pathChanged(res);
+      }
+      await fsPromises.rename(fromDirectory.at(path.basename(from)), toDirectory.at(path.basename(to)))
+        .finally(() => Promise.all([fromDirectory.close(), toDirectory.close()]));
       return res.json({ success: true, path: resolvedNew.resolved });
     } catch (error) {
       const err = error;
