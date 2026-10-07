@@ -151,7 +151,7 @@ runs last, after either historical mapping.
 
 `selected-owner-repair-overlay.json` records the frozen successor of base
 `11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
-and `sourceTree` is native Git subtree `56f3ad1c581ae779110c4caf752896e6fea215b7`.
+and `sourceTree` is native Git subtree `39a15781ce2e7681880948b554591379adbb6163`.
 This is a UI tree, not a commit, full repository tree or qualified release pin.
 Branding, scripts and this README are outside that subtree, so UI and provenance
 can land in one combined patch without a future commit or self-reference.
@@ -167,7 +167,9 @@ available, and all twelve locales explain the wait. The fence lives in
 `sync/session-send-state.ts`, not the composer. The store route takes it before
 any await and the SDK rechecks it before dispatch. Ordinary ownership comes
 from every bootstrap source, including a global-only row before directory
-bootstrap, and an ordinary prompt carries an accepted history view or is refused.
+bootstrap, and an ordinary prompt carries an accepted history view or is refused. Every
+ordinary request kind marks dispatch before its POST, and an unknown selected
+owner spends a bounded recheck budget when transport returns silently.
 This inventory does not qualify native admission of requests already dispatched
 before a collision or replace real original-Pi browser evidence. Each row keeps native SHA1 blob IDs, file modes,
 separate byte SHA256 hashes and its repair disposition. Modified rows name their actual base bytes even outside

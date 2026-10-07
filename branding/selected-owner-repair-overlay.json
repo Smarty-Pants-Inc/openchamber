@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "56f3ad1c581ae779110c4caf752896e6fea215b7",
+  "sourceTree": "39a15781ce2e7681880948b554591379adbb6163",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -197,12 +197,12 @@
       "status": "A",
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx",
       "predecessorBlob": null,
-      "blob": "61b0f5cfd806fc8fb175f64b5c0041ac33b63301",
+      "blob": "60b598830365330d0ee468388296a862bd998a88",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e",
-      "note": "Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection."
+      "sha256": "916683015c059f96c3f788b3135de3a8a73499d8af363822145fab0a347f9f65",
+      "note": "Exercise actual composer Send after quiet transport recovery, and the bounded recheck budget with Send fenced."
     },
     {
       "status": "A",
@@ -241,11 +241,11 @@
       "status": "M",
       "path": "packages/ui/src/lib/opencode/client.ts",
       "predecessorBlob": "31cac0fbd07bbda7e8fc3f6ee453debd0d23502a",
-      "blob": "2b4f8755ff1d3d72df73f4d405280c5bccc39ab2",
+      "blob": "f38c5c705e85f38c41704219d81b8a3be219e478",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "7b4e033afb0b9bade634184cad7e517fedec14f7998550604ac5e4c119706ce8",
-      "sha256": "b40b4488bd8a06ff12bc9c328c9d76435ec4b67a74e3eba741900df2bd15435d",
+      "sha256": "a1038049a47661e0136c039bb0a86027d5488adcbb9fe8ef2a3a1704627bb135",
       "note": "Carry route-admitted ordinary ownership into prompt history loading and give slash commands the final admission check."
     },
     {
@@ -274,11 +274,11 @@
       "status": "M",
       "path": "packages/ui/src/sync/DOCUMENTATION.md",
       "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf",
-      "blob": "836c36f09d69b35c6ad095e0e39507a4feb35a42",
+      "blob": "fe71a01bcd9de857fc9a8fcbd155838f41d870c0",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
-      "sha256": "dc905f70bd9bf707f3f2ea81f5d93076fd4ef2ad79160f95a767896fcefe76de",
+      "sha256": "578c764f9769085ea7ff3738f3aac86e7763ab47cb65f774dbe0a41550ee3e15",
       "note": "Document bounded quiet history recovery, verified owner transfer and browser-lifetime sync-owned Send confirmation."
     },
     {
@@ -296,11 +296,11 @@
       "status": "A",
       "path": "packages/ui/src/sync/ordinary-admission-sources.test.ts",
       "predecessorBlob": null,
-      "blob": "143dc82e6e5da03d618264e7b1d07bc87ba3310e",
+      "blob": "f9d9b28ef3ca0decefdc27aa570bc4aa782bfb42",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "b45f3e07aacba17d15077e2e409dd3bee4598e14a34aa415ff0ef71a817ac46c",
+      "sha256": "730000043e3011dd9361087ec29fffc2a1fd078e421b4b14ef99872be3f8510a",
       "note": "Route regressions for every ordinary admission source, directory capture, command dispatch and stock concurrency."
     },
     {
@@ -329,12 +329,12 @@
       "status": "A",
       "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx",
       "predecessorBlob": null,
-      "blob": "c509804b547c055827a36451a08ac7db281839ed",
+      "blob": "5dd77d5ea4fc116ba13674d703c5262cc7747b41",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "5ec52e8f7347d42a764f6465c1ce3a99fa5b781da1f645ea4859c334bf1947e4",
-      "note": "Cover exhausted transport failures, quiet HTTP recovery, permanent-failure bounds and current native authority."
+      "sha256": "9141eb6a08626788bbc9518723f6ba07c655f7ae063b8f6e72213cfdbcdb434f",
+      "note": "Cover exhausted transport failures, quiet HTTP recovery, bounded silent-transport rechecks and current native authority."
     },
     {
       "status": "M",
@@ -384,12 +384,12 @@
       "status": "M",
       "path": "packages/ui/src/sync/selected-session-owner.ts",
       "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f",
-      "blob": "e3eb976bd9c38a97786274f801a3edc1af77e04b",
+      "blob": "c8754363cd700a26bd657f55b6b4fbf2cfd469f0",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
-      "sha256": "6d1e7f4cf9ee9d95ff9db4f5f23a970d32117ca72d9237dc9f72d6d52dcfd276",
-      "note": "Classify ordinary Send admission from selected-owner state, every directory row, the global listing before bootstrap and accepted loader views."
+      "sha256": "e8d9362d2d161dc6ab48dd13982c55bd0d4b0b926c17d7deae79195916580400",
+      "note": "Classify ordinary Send admission from every bootstrap source and spend a bounded recheck budget when transport returns silently."
     },
     {
       "status": "M",
@@ -428,11 +428,11 @@
       "status": "M",
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94",
-      "blob": "78191a2dfba8e6d4846f5238473f0e43302d7eb9",
+      "blob": "b20e4fd7a9fe92cb71b23e0532d73d09cf33d42a",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
-      "sha256": "d339d82172cb304a2c96b823770b4c8f166003733fad75c18b4da2219a0c261c",
+      "sha256": "e3ca74560d6e7a972de1ebb383261ac648b867952d4a9c30119463138fa19d8f",
       "note": "Own ordinary Send admission and outcome settlement through the sync state module and dynamic SDK dispatch fence."
     },
     {
