@@ -16,8 +16,8 @@ const inventory = [
   ['M', 'packages/ui/src/components/chat/ChatInput.dueRecovery.test.tsx', 'bcf6de087c8740ee0d72e5ef9c8e9ca4fabadb30', 'b77aa594115b9c2ab0541948ad248d23da7ead84',
     'c92fa717c84ad04f1643eafa6533a5a8197509cf7cf5f51fa05d3e466eeebc8b', '19a055d136895ff005816e16db478360d2e00519227aa4da88bf6959f88930a1',
     'Align due-recovery cases with one Send at a time per session.'],
-  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', 'c02c505b1d104620007c1b83f859c9756f441625',
-    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', 'e818247d5ab42d4ce9166a22f5f3eeaa90cf8bb91bce2968d4d2c5cfb0721ad9',
+  ['M', 'packages/ui/src/components/chat/ChatInput.tsx', '45915224a1e1faddf0ebf9941cf1424244125895', '6b2c33bbf5e37746cf8bd68a0bd56fac0aeb6b62',
+    'a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51', 'c1724a8901872c9b4443e7ee22e53c190c99dcdee8b3662d344d78bf75880189',
     'Read Send admission from the sync layer and resend an unresolved message only with its original client ID.'],
   ['M', 'packages/ui/src/components/chat/composer/DOCUMENTATION.md', '90fc706a4d564a5a1303ab5ca5572516e85bd405', '6104700cc65db27ea1d7d9d4b7231385e4ccc108',
     '03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d', 'a0e663c038bd6124e02cc49614d8df34b44f86037123e1787674da6d8b6e07c5',
@@ -37,18 +37,21 @@ const inventory = [
   ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/ordinaryBootstrapAdmission.test.tsx', null, '877bce71412eda941494da16ad55fc8767c830eb',
     null, 'f885d961520c48398bc678754f1c8192317b6b04115cdd1e3dbc6cb3f563af7e',
     'Mounted regression: a global-only ordinary owner reserves before directory bootstrap and across remount.'],
-  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx', null, 'f4741840227b99f9f03059f2496419ac13aff586',
-    null, '38e599cd04223cd57cceb32ffd292e2338376740362efddb1f5424a60dc95d67',
+  ['A', 'packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx', null, 'f825f5acf9010cef215d88db09c1c80edf842bc7',
+    null, 'c6494c53744e6ec87d3aaf4d0b9664d76341848bfe22940d6f532cee345b8601',
     'Mounted regression: an ambiguous Send admits its same-ID retry, which settles the outcome and frees the session.'],
   ['M', 'packages/ui/src/lib/i18n/messages/send-pending.i18n.ts', 'b4c0e24cbfc6be4f610b6eb8463aa28716637ec2', '8e8c0be80e395e92177ea8a130d63b9eff52f277',
     'd04be9f1bbc45074632468f67295764c891bc3a3977489942382b30a11d3287e', 'b5f782b87ef3a08187f872773327e3d0864b9abf32408b6d53c43b9b28d5e1c3',
     'Translate the wait reason for an unresolved Send in all twelve locales.'],
-  ['M', 'packages/ui/src/lib/openOrdinaryState.ts', 'eb3fc8ea696da0e362027f47df8def908943ab9f', 'ce52042fc94dad8ab41cc14bbe62b3e1cc37a8e0',
-    '668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa', 'a85aabc006b5c2ea803fc2c21abaeabff2c08a42304671eb17648f18ebe52ba2',
+  ['M', 'packages/ui/src/lib/openOrdinaryState.ts', 'eb3fc8ea696da0e362027f47df8def908943ab9f', '5af0adbe99535bb7e26e6af984f0382a9099dfdd',
+    '668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa', 'e2da9a10e49b1110938d68bddfd94408ced5a9f0d8153e81a5d2889ea67c315f',
     'One ordinary classification and model source for the composer, the Send route and its final dispatch checks.'],
   ['M', 'packages/ui/src/lib/opencode/client.ts', '31cac0fbd07bbda7e8fc3f6ee453debd0d23502a', 'f38c5c705e85f38c41704219d81b8a3be219e478',
     '7b4e033afb0b9bade634184cad7e517fedec14f7998550604ac5e4c119706ce8', 'a1038049a47661e0136c039bb0a86027d5488adcbb9fe8ef2a3a1704627bb135',
     'Carry route-admitted ordinary ownership into history loading and give commands and shell the final admission check.'],
+  ['M', 'packages/ui/src/lib/reviewFlow.ts', '26915e5708c736009843629be2c906398de67807', 'daa3801b2c47058ec380b9521ae0522b5e8777b2',
+    '24c93eeebe33e8ca310845b3aa251f4d06ccf4803f41743197d6f6debe6ffd4b', '905e2ecbcaf6777df56211eae8e9805b53df6961e166041a0468d3f6d879ea13',
+    'Send Review Flow messages through the Send route: ordinary admission, unresolved-Send fence and pinned model.'],
   ['M', 'packages/ui/src/lib/sendRecovery.ts', '49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e', '2d1c4fc7f73550ac226c3a2c9bbc06c83a6f0bae',
     '52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42', '29a9e5449d39916e3e1539ab11862922936bcab8f948cb546d540c3bb14a4b54',
     'Let a retry of a send left unresolved elsewhere keep its original client ID.'],
@@ -70,8 +73,8 @@ const inventory = [
   ['M', 'packages/ui/src/sync/native-draft-recovery.test.ts', 'a219bc427d2a5cda78b0efef2181edf064b224e0', '2ffd237630c50019afd3bb7a55ff28c2e739dd34',
     'e2b1e45f9545f5d1ce5ca32bbfc5f2ac50afc92cc6da7d809f071b65996b2e2d', '01d766508848b102fa44669fde509ce30b7a8680c3d13b57f7df37e03427539a',
     'Account for the ordinary session Send lock held alongside the native request lock.'],
-  ['A', 'packages/ui/src/sync/ordinary-admission-sources.test.ts', null, '2fa82c70331ef839a9e8183a79a1c4c9ddd28284',
-    null, '13e1c1c3d6da563ab8c6ea0c16084d81904b06ae663fba7505307de2e5232d02',
+  ['A', 'packages/ui/src/sync/ordinary-admission-sources.test.ts', null, 'e80f1c38b236491e0183b4f4cb063d353fba86a0',
+    null, 'c9ce100cf99be3b8b8dc93d350e2b61655d4c8a14700c218051dcd06d3bf47fd',
     'Route regressions for every ordinary classification source, directory capture, command and shell dispatch, and availability.'],
   ['M', 'packages/ui/src/sync/ordinary-send.test.mjs', 'f8e3246c97178d41ca9cc69bb0f6a30b3d1a9467', '2a913f9f19394f928e26595bbd5a06274cd97f34',
     '9bf9c594d9eadfa5f2e42c62c70c26424cdbe69ab0c5c41f67666de75e9c0da1', '20ad8bfdd8570806959662738a750c5dc5962f1d062a2d8885a2af95ca2da92f',
@@ -115,8 +118,8 @@ const inventory = [
   ['M', 'packages/ui/src/sync/selected-session-owner.ts', 'ce7cbb896495c684366f2142d63683500ce9d88f', 'c848fb1fc633f79e5d3b7c8a73bca792a76da64f',
     '221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0', 'edc7afcd54340b664c98c50ebc99d3871be098f978ad4c0e1653a66d76e4127b',
     'Recover an unknown owner on transport readiness or a bounded recheck budget, mutated only in committed effects.'],
-  ['A', 'packages/ui/src/sync/send-admission-route.test.ts', null, '61c841eec2d8b1b2449c0fc4510a5ec248a82c28',
-    null, '66e1c750feae4e83c9df86efdcd69381d7e9dee5892d55f21473ffd06350c79c',
+  ['A', 'packages/ui/src/sync/send-admission-route.test.ts', null, 'b057585e3a848198f28c7063141ffda9b3bf4001',
+    null, '6df70cc358a8bd7b1008971b1a69c0d6575c5209a116ca874444a6fdea9ee897',
     'Route regressions: atomic admission, same-ID retry release, native model pin and revalidation, loader-only refusal, stock concurrency.'],
   ['A', 'packages/ui/src/sync/send-admission.test.ts', null, 'dff84ddfae6474b0d11d56d65837df5f22405809',
     null, '85d249e777028708bd244432264dfd643fc18adbf7e2885db3a0d9fb100d19e7',
@@ -127,8 +130,8 @@ const inventory = [
   ['M', 'packages/ui/src/sync/session-actions.ts', 'd4b8d10de9af28d33d1c44055c7effda713830f8', 'a722d19661225e1a461a80b333423a033f6c04b2',
     '8c21cfa4d50b1e4552af2baeba5660fe8ac651d1619062fd3b6a25a740dcdc5b', '723d026fcecd41fb3600c59eaba481356ad98c3751e62da1e6344f3cd54940a1',
     'Check destination draft conflict before verified owner reconciliation can invalidate history or change attribution.'],
-  ['M', 'packages/ui/src/sync/session-ui-store.ts', '3d7cee981131ddb9010b022d9e69609b8e9e4d94', 'ceabda832fe9eec59bfd4c840ccb3220f1d515ee',
-    '01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093', '0d8273a3c2620e2bf265af21bc959572d14a43a92c2f5664b9edd69e1b6e45ff',
+  ['M', 'packages/ui/src/sync/session-ui-store.ts', '3d7cee981131ddb9010b022d9e69609b8e9e4d94', 'a58541447c709e0c7be583cf5d6565fad74111bd',
+    '01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093', '096305479729d7f3968dade07b0306124f6fe3d41fc962046d32948a8f55b379',
     'Route ordinary Sends through cross-tab admission with the pinned native model rechecked before every request.'],
   ['M', 'packages/ui/src/sync/sync-refs.ts', 'ccc236f22d0f8943a4e26997868346cc208fcc2d', '06e4001ce1eff89350d9e82f61f3be4cb6d6ea59',
     '2b5ed4f8ed58d8b3ce80104ddd4806da03e83dbe41d6d5cfefd843701cfb50c6', '14fa547ed238bd0dfd8d2b0616d8a9457a06c0b6b171caaa0cc5fefd1d528918',
@@ -143,14 +146,14 @@ const inventory = [
 const expected = {
   schemaVersion: 1, pullRequest: 549, issue: 'smarty-code#1378',
   baseHead: '11796181f2f7341730e3a467b347bdd0470b0642', sourceTreePath: 'packages/ui',
-  sourceTree: '1979391552a679d6f11735185785436d50a87c9e', objectFormat: 'sha1',
+  sourceTree: '2ac508d7e1c53e637465029a708c986f38c330f5', objectFormat: 'sha1',
   predecessorLedgerSha256: '976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b',
   predecessorLedgerBytesSha256: '25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1',
   scope: inventory.map(([status, path]) => ({ status, path })),
   files: inventory.map(([status, path, predecessorBlob, blob, predecessorSha256, sha256, note]) => ({
     status, path, predecessorBlob, blob, predecessorMode: status === 'A' ? null : '100644', mode: '100644', predecessorSha256, sha256, note,
   })),
-  note: 'Parent-native export of the #1378 repair and the smarty-code#1427 Send admission lane: 43 UI files, 25 modified and 18 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
+  note: 'Parent-native export of the #1378 repair and the smarty-code#1427 Send admission lane: 44 UI files, 26 modified and 18 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates.',
 };
 function assertInventory(candidate, readSource = read, ledgerBytes = read('branding/behavior-overlay.json')) {
   assert.deepEqual(candidate, expected);
@@ -173,8 +176,8 @@ function assertInventory(candidate, readSource = read, ledgerBytes = read('brand
 test('repair pins exact native subtree metadata, all 39 rows and independent current byte hashes', () => {
   const before = JSON.stringify(repair);
   assertInventory(repair);
-  assert.equal(expected.files.length, 43);
-  assert.equal(expected.files.filter(entry => entry.status === 'M').length, 25);
+  assert.equal(expected.files.length, 44);
+  assert.equal(expected.files.filter(entry => entry.status === 'M').length, 26);
   assert.equal(expected.files.filter(entry => entry.status === 'A').length, 18);
   assert.equal(JSON.stringify(repair), before);
 });

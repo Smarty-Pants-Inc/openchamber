@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "1979391552a679d6f11735185785436d50a87c9e",
+  "sourceTree": "2ac508d7e1c53e637465029a708c986f38c330f5",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -60,6 +60,10 @@
     {
       "status": "M",
       "path": "packages/ui/src/lib/opencode/client.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/reviewFlow.ts"
     },
     {
       "status": "M",
@@ -209,11 +213,11 @@
       "status": "M",
       "path": "packages/ui/src/components/chat/ChatInput.tsx",
       "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895",
-      "blob": "c02c505b1d104620007c1b83f859c9756f441625",
+      "blob": "6b2c33bbf5e37746cf8bd68a0bd56fac0aeb6b62",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "e818247d5ab42d4ce9166a22f5f3eeaa90cf8bb91bce2968d4d2c5cfb0721ad9",
+      "sha256": "c1724a8901872c9b4443e7ee22e53c190c99dcdee8b3662d344d78bf75880189",
       "note": "Read Send admission from the sync layer and resend an unresolved message only with its original client ID."
     },
     {
@@ -286,11 +290,11 @@
       "status": "A",
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx",
       "predecessorBlob": null,
-      "blob": "f4741840227b99f9f03059f2496419ac13aff586",
+      "blob": "f825f5acf9010cef215d88db09c1c80edf842bc7",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "38e599cd04223cd57cceb32ffd292e2338376740362efddb1f5424a60dc95d67",
+      "sha256": "c6494c53744e6ec87d3aaf4d0b9664d76341848bfe22940d6f532cee345b8601",
       "note": "Mounted regression: an ambiguous Send admits its same-ID retry, which settles the outcome and frees the session."
     },
     {
@@ -308,11 +312,11 @@
       "status": "M",
       "path": "packages/ui/src/lib/openOrdinaryState.ts",
       "predecessorBlob": "eb3fc8ea696da0e362027f47df8def908943ab9f",
-      "blob": "ce52042fc94dad8ab41cc14bbe62b3e1cc37a8e0",
+      "blob": "5af0adbe99535bb7e26e6af984f0382a9099dfdd",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa",
-      "sha256": "a85aabc006b5c2ea803fc2c21abaeabff2c08a42304671eb17648f18ebe52ba2",
+      "sha256": "e2da9a10e49b1110938d68bddfd94408ced5a9f0d8153e81a5d2889ea67c315f",
       "note": "One ordinary classification and model source for the composer, the Send route and its final dispatch checks."
     },
     {
@@ -325,6 +329,17 @@
       "predecessorSha256": "7b4e033afb0b9bade634184cad7e517fedec14f7998550604ac5e4c119706ce8",
       "sha256": "a1038049a47661e0136c039bb0a86027d5488adcbb9fe8ef2a3a1704627bb135",
       "note": "Carry route-admitted ordinary ownership into history loading and give commands and shell the final admission check."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/reviewFlow.ts",
+      "predecessorBlob": "26915e5708c736009843629be2c906398de67807",
+      "blob": "daa3801b2c47058ec380b9521ae0522b5e8777b2",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "24c93eeebe33e8ca310845b3aa251f4d06ccf4803f41743197d6f6debe6ffd4b",
+      "sha256": "905e2ecbcaf6777df56211eae8e9805b53df6961e166041a0468d3f6d879ea13",
+      "note": "Send Review Flow messages through the Send route: ordinary admission, unresolved-Send fence and pinned model."
     },
     {
       "status": "M",
@@ -407,11 +422,11 @@
       "status": "A",
       "path": "packages/ui/src/sync/ordinary-admission-sources.test.ts",
       "predecessorBlob": null,
-      "blob": "2fa82c70331ef839a9e8183a79a1c4c9ddd28284",
+      "blob": "e80f1c38b236491e0183b4f4cb063d353fba86a0",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "13e1c1c3d6da563ab8c6ea0c16084d81904b06ae663fba7505307de2e5232d02",
+      "sha256": "c9ce100cf99be3b8b8dc93d350e2b61655d4c8a14700c218051dcd06d3bf47fd",
       "note": "Route regressions for every ordinary classification source, directory capture, command and shell dispatch, and availability."
     },
     {
@@ -572,11 +587,11 @@
       "status": "A",
       "path": "packages/ui/src/sync/send-admission-route.test.ts",
       "predecessorBlob": null,
-      "blob": "61c841eec2d8b1b2449c0fc4510a5ec248a82c28",
+      "blob": "b057585e3a848198f28c7063141ffda9b3bf4001",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "66e1c750feae4e83c9df86efdcd69381d7e9dee5892d55f21473ffd06350c79c",
+      "sha256": "6df70cc358a8bd7b1008971b1a69c0d6575c5209a116ca874444a6fdea9ee897",
       "note": "Route regressions: atomic admission, same-ID retry release, native model pin and revalidation, loader-only refusal, stock concurrency."
     },
     {
@@ -616,11 +631,11 @@
       "status": "M",
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94",
-      "blob": "ceabda832fe9eec59bfd4c840ccb3220f1d515ee",
+      "blob": "a58541447c709e0c7be583cf5d6565fad74111bd",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
-      "sha256": "0d8273a3c2620e2bf265af21bc959572d14a43a92c2f5664b9edd69e1b6e45ff",
+      "sha256": "096305479729d7f3968dade07b0306124f6fe3d41fc962046d32948a8f55b379",
       "note": "Route ordinary Sends through cross-tab admission with the pinned native model rechecked before every request."
     },
     {
@@ -657,5 +672,5 @@
       "note": "The event pipeline transport-readiness signal: reconnect or transport switch, no data."
     }
   ],
-  "note": "Parent-native export of the #1378 repair and the smarty-code#1427 Send admission lane: 43 UI files, 25 modified and 18 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the #1378 repair and the smarty-code#1427 Send admission lane: 44 UI files, 26 modified and 18 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }
