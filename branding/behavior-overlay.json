@@ -761,10 +761,13 @@
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
       "behaviorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
-      "combinedSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+      "combinedSha256": "7b75556c81c9506f16e805f8c8351e34b34d2c8fc771b2d9473e13e0ebba5f1b",
       "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6"
+      "sessionStatusReadSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+      "preAvailUi539CombinedSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
+      "availUi539Sha256": "7b75556c81c9506f16e805f8c8351e34b34d2c8fc771b2d9473e13e0ebba5f1b",
+      "availUi539Note": "smarty-code#539 (openchamber#559, audit F-01): the fleet unknown-status grace is spent only on a successful shared status sample; a failed read spends no grace and clears nothing. One condition and one comment line; no branding text changed."
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
@@ -834,5 +837,6 @@
     "sourceHead": "f1a339a16dd4199c38cb033a607491a55cb1c6c7",
     "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
   },
-  "smarties1407Source": "689ca2f8d21367829cf9b937ae64f6aa30d04cda"
+  "smarties1407Source": "689ca2f8d21367829cf9b937ae64f6aa30d04cda",
+  "availUi539Source": "6c669649e0bd8e95f805c9820e7f87197066e6ac"
 }
