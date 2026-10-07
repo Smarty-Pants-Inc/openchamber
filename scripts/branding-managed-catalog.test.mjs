@@ -37,8 +37,24 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // The Smarties layer (smarty-code#1407: the inbox-card locale import and the Smarty-named top bar) is the newest
-  // layer, above PR486: unwind it first.
+  // openchamber#542 native ownership fields are the newest layer, above the Smarties layer (smarty-code#1407): unwind them first.
+  assert.equal(historical.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
+  delete historical.nativeListSource;
+  const nativeList = historical.files.filter(entry => 'nativeListSha256' in entry);
+  assert.deepEqual(nativeList.map(entry => entry.path), ['packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of nativeList) {
+    assert.equal(entry.nativeListSha256, 'ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78');
+    assert.equal(entry.nativeListSha256, entry.combinedSha256);
+    assert.equal(entry.preNativeListCombinedSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+    assert.equal(entry.preNativeListCombinedSha256, entry.proxyConnectionSha256);
+    assert.ok(entry.nativeListNote);
+    entry.combinedSha256 = entry.preNativeListCombinedSha256;
+    delete entry.preNativeListCombinedSha256;
+    delete entry.nativeListSha256;
+    delete entry.nativeListNote;
+  }
+  // The Smarties layer (smarty-code#1407: the inbox-card locale import and the Smarty-named top bar) sits
+  // above PR486: unwind it next.
   assert.equal(historical.smarties1407Source, '689ca2f8d21367829cf9b937ae64f6aa30d04cda');
   delete historical.smarties1407Source;
   for (const entry of historical.files.filter(file => file.smarties1407Sha256)) {
@@ -49,7 +65,7 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     delete entry.smarties1407Sha256;
     delete entry.smarties1407Note;
   }
-  // Unwind PR486 first: it is the newest layer, above inbox Steps; the result is the exact smarty-code ledger.
+  // Then PR486: the layer above inbox Steps; all three successors must be removed before checking the complete predecessor ledger.
   historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
   for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
     assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);
