@@ -357,15 +357,16 @@ view and the gateway refuses the prompt for its missing view. The global listing
 or ended mark refuses the Send unless a current verified live owner outranks it. The final
 `beforeDispatch` checks the exact reservation, runtime scope and that mark after each path's own
 preparation: history, files and display attribution for prompts (`sendMessage`), files for slash
-commands (`sendCommand`). Known
-acceptance or refusal releases the reservation at once; ambiguous transport failures and client-ID
-conflicts keep it. Release never sends.
+commands (`sendCommand`), none for shell commands (`shellSession`). Passing that check marks the
+reservation dispatched for every request kind. Known acceptance or refusal releases the reservation
+at once; an ambiguous transport failure after dispatch, or a client-ID conflict, keeps it. A failure
+before dispatch releases it. Release never sends.
 
 Stock sessions keep their concurrent prompts and take no reservation. A stock-classified Send refuses
 before its POST, with "This message was not sent", if the session turns ordinary or gains a reservation
 during preparation. The composer only reads `sessionSendState.isPending`; its local `SendRecovery`
-restores and cleans up input and grants no permission. The ordinary shell route relies on the
-gateway's capability gate.
+restores and cleans up input and grants no permission. Whether the gateway accepts an ordinary shell
+command stays with its capability gate.
 
 ### Stream recovery
 
