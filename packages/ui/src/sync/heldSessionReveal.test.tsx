@@ -31,8 +31,12 @@ const server = createServer((request, response) => {
     request.setEncoding('utf8');
     request.on('data', (chunk: string) => { body += chunk; });
     request.on('end', () => { writes.push(patchSchema.parse(JSON.parse(body))); response.end('{}'); });
-  } else response.end(JSON.stringify({ owner: { issuer: 'private-test', subject: owner },
-    projects: { p: true }, groups: { 'p:worktree:held': true } }));
+  } else {
+    // A loaded runner answers the preference GET after several event-loop turns (openchamber#542 CI).
+    const body = JSON.stringify({ owner: { issuer: 'private-test', subject: owner },
+      projects: { p: true }, groups: { 'p:worktree:held': true } });
+    setTimeout(() => response.end(body), 25);
+  }
 });
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 const baseUrl = `http://127.0.0.1:${z.object({ port: z.number() }).parse(server.address()).port}`;
