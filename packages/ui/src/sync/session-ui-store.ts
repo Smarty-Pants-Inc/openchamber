@@ -188,9 +188,18 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
   // Stock sends retain their established concurrency. Ordinary ownership comes from every authoritative
   // observation, including a global row or accepted loader view before directory bootstrap (smarty-code#1427).
   // A held ordinary reservation remains authoritative even if a replacement provider has not indexed its row yet.
-  if (!isOrdinarySendTarget(runtimeKey, params.sessionId, normalizePath(params.directory) ?? undefined)
-    && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
-    return dispatchRouteMessage(params, () => {})
+  // Classify against the directory the SDK will send to: an omitted directory falls back to the client's.
+  const sendDirectory = () => normalizePath(params.directory) ?? normalizePath(opencodeClient.getDirectory()) ?? undefined
+  const ordinaryOwner = () => isOrdinarySendTarget(runtimeKey, params.sessionId, sendDirectory())
+  if (!ordinaryOwner() && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
+    // A stock send stays stock only while nothing says otherwise. If an ordinary observation or another Send's
+    // reservation arrives during preparation, refuse before any POST rather than send without admission.
+    return dispatchRouteMessage({ ...params, beforeDispatch: () => {
+      if (ordinaryOwner() || sessionSendState.isPending(runtimeKey, params.sessionId)) {
+        throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.send.notSent'))
+      }
+      params.beforeDispatch?.()
+    } }, () => {}, false)
   }
   const scope = captureRuntimeRequestScope()
   if (runtimeKey !== scope.runtimeKey) throw new Error('Message was not sent because the runtime changed.')
@@ -203,7 +212,7 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
     params.beforeDispatch?.()
   }
   try {
-    const result = await dispatchRouteMessage({ ...params, runtimeKey, messageID: attempt.messageID, beforeDispatch }, () => attempt.dispatched())
+    const result = await dispatchRouteMessage({ ...params, runtimeKey, messageID: attempt.messageID, beforeDispatch }, () => attempt.dispatched(), true)
     attempt.accepted()
     return result
   } catch (error) {
@@ -213,7 +222,7 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
   }
 }
 
-async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch: () => void): Promise<'command' | 'prompt' | 'shell'> {
+async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch: () => void, ordinaryOwner: boolean): Promise<'command' | 'prompt' | 'shell'> {
   params.beforeDispatch?.()
   const requestDirectory = params.directory ?? undefined
   const selectedOrdinary = () => readRouteOrdinary(params)
@@ -335,6 +344,7 @@ async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
       beforeDispatch: () => { params.beforeDispatch?.(); onPromptDispatch() },
+      ordinaryOwner,
       id: params.sessionId,
       providerID: params.providerID,
       modelID: params.modelID,

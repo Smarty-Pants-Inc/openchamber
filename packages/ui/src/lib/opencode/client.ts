@@ -1070,6 +1070,9 @@ class OpencodeService {
     displayName?: string;
     /** Recheck a prepared draft after SDK-side attachment/attribution preparation, before dispatch. */
     beforeDispatch?: () => void;
+    /** The caller's admission already established an ordinary owner, possibly from the global listing before any
+     * sync row exists (smarty-code#1427). The prompt then carries an accepted view or is refused, never sent bare. */
+    ordinaryOwner?: boolean;
     prefaceText?: string;
     prefaceTextSynthetic?: boolean;
     agent?: string;
@@ -1107,7 +1110,7 @@ class OpencodeService {
     // No view of this branch at all (never loaded, or reset): the send would be refused 409 (#126 R3.6 item 4).
     // Wait for the (coalesced) refresh first, at most 5 s.
     // A session whose history this page never loaded is loaded first when its record says it is ordinary (F11).
-    const recordIsOrdinary = () => readOrdinaryModel(getAllSyncSessionMap().get(params.id)) !== undefined;
+    const recordIsOrdinary = () => params.ordinaryOwner === true || readOrdinaryModel(getAllSyncSessionMap().get(params.id)) !== undefined;
     if (!ordinaryView && viewLoader && (viewLoader.isOrdinary(viewTarget, viewRuntimeKey) || recordIsOrdinary())) {
       const load = viewLoader.isOrdinary(viewTarget, viewRuntimeKey)
         ? viewLoader.refreshOrdinaryView(viewTarget)
