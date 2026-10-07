@@ -187,3 +187,36 @@ test('cleaning an old marker never erases a live one written meanwhile by anothe
   expect(sendAdmission.unconfirmed(r, 'session')?.messageID).toBe('msg_live');
   expect(sendAdmission.begin(r, 'session', 'msg_other', 'other')).toBeNull();
 });
+
+// Delta review 5 on d4587df4, P2: discard removes the marker only under the session lock, as compare-and-delete. While
+// another tab holds the session (retrying the same message), discard is refused and the live marker stays.
+test('discard never erases a marker another tab is writing or retrying', async () => {
+  const r = runtime(), tabB = await otherTab();
+  const first = await begin(sendAdmission, r, 'msg_1', 'hello');
+  first!.dispatched(); first!.failed('unknown');
+  const retry = await begin(tabB, r, 'msg_1', 'hello'); // Tab B retries the same message: it holds the lock.
+  expect(await sendAdmission.discard(r, 'session', 'msg_1')).toBe(false);
+  retry!.dispatched();
+  expect(sendAdmission.unconfirmed(r, 'session')?.messageID).toBe('msg_1');
+  retry!.failed('unknown');
+  await new Promise(resolve => setTimeout(resolve, 0)); // The browser releases tab B's lock.
+  // With the lock free, an explicit discard clears it; a different message is then admitted.
+  expect(await sendAdmission.discard(r, 'session', 'msg_1')).toBe(true);
+  expect(sendAdmission.unconfirmed(r, 'session')).toBeUndefined();
+  expect(await begin(sendAdmission, r, 'msg_2', 'next')).not.toBeNull();
+});
+
+test('discard of one message does not erase a marker that now names another', async () => {
+  const r = runtime(), key = 'oc.send.unconfirmed:' + JSON.stringify([r, 'session']);
+  storage.setItem(key, JSON.stringify({ messageID: 'msg_other', contentHash: sendContentHash('other') }));
+  expect(await sendAdmission.discard(r, 'session', 'msg_1')).toBe(false);
+  expect(sendAdmission.unconfirmed(r, 'session')?.messageID).toBe('msg_other');
+});
+
+test('without Web Locks discard is refused and the marker stays', async () => {
+  const r = runtime(), first = await begin(sendAdmission, r, 'msg_1', 'hello');
+  first!.dispatched(); first!.failed('unknown');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+  expect(await sendAdmission.discard(r, 'session', 'msg_1')).toBe(false);
+  expect(sendAdmission.unconfirmed(r, 'session')?.messageID).toBe('msg_1');
+});

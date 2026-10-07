@@ -1476,7 +1476,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 if (!stillHere()) return;
                 toast.warning(t('chat.send.discard.title'), { description: t('chat.send.discard.risk'), duration: Infinity,
                     action: { label: t('chat.send.discard.confirm'), onClick: () => {
-                        if (stillHere() && sendAdmission.discard(runtimeKey, sessionId, waitingID)) void handleSubmitRef.current(options);
+                        if (!stillHere()) return;
+                        void sendAdmission.discard(runtimeKey, sessionId, waitingID).then(cleared => {
+                            if (cleared && stillHere()) void handleSubmitRef.current(options);
+                        });
                     } } });
             } } });
             return;

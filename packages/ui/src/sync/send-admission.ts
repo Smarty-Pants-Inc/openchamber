@@ -56,17 +56,35 @@ function readMarker(runtimeKey: string, sessionId: string): Marker | undefined {
   const parse = (text: string) => { try { return markerSchema.safeParse(JSON.parse(text)); } catch { return markerSchema.safeParse(null); } };
   const parsed = parse(raw);
   if (parsed.success) return parsed.data;
-  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text, but
-  // only while holding the session's lock, and only if it is still that same value. Every marker write happens under
-  // that lock, so a live marker another tab writes meanwhile is never erased.
+  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text.
   const stale = raw;
-  void locks()?.request(lockName(runtimeKey, sessionId), { ifAvailable: true }, lock => {
-    if (!lock) return;
-    try { if (localStorage.getItem(markerKey(runtimeKey, sessionId)) === stale) localStorage.removeItem(markerKey(runtimeKey, sessionId)); }
-    catch { /* Removal refused: the value stays unreadable as a marker and fences nothing. */ }
-  }).catch(() => undefined);
+  void removeMarkerUnderLock(runtimeKey, sessionId, current => current === stale);
   return undefined;
 }
+
+/**
+ * Removes the marker only while holding the session's lock, and only if `matches` still accepts the value stored then.
+ * Every marker write and removal happens under that lock (a Send holds it from acquire to settle), so this is a
+ * compare-and-delete: a live marker written by another tab is never erased. False when the lock is busy or missing, or
+ * the browser refused the removal; the marker then stays.
+ */
+async function removeMarkerUnderLock(runtimeKey: string, sessionId: string, matches: (raw: string) => boolean): Promise<boolean> {
+  const manager = locks();
+  if (!manager) return false;
+  try {
+    return await manager.request(lockName(runtimeKey, sessionId), { ifAvailable: true }, lock => {
+      if (!lock) return false;
+      const raw = localStorage.getItem(markerKey(runtimeKey, sessionId));
+      if (raw === null) return true;
+      if (!matches(raw)) return false;
+      localStorage.removeItem(markerKey(runtimeKey, sessionId));
+      return true;
+    });
+  } catch { return false; }
+}
+const markerNamed = (messageID: string) => (raw: string) => {
+  try { return markerSchema.safeParse(JSON.parse(raw)).data?.messageID === messageID; } catch { return false; }
+};
 /** False when the browser refused the write: the caller must not rely on the marker. */
 function writeMarker(runtimeKey: string, sessionId: string, marker: Marker | null): boolean {
   try {
@@ -99,7 +117,13 @@ function reconcile(runtimeKey: string, sessionId: string, directory: string | un
   if (claim?.phase === 'unknown' && (delivered(sessionId, directory, claim.messageID)
     || (!marker && storageReadable()))) claims.delete(id);
   if (marker && !(claims.get(id) && claims.get(id)?.messageID === marker.messageID && claims.get(id)?.phase !== 'unknown')
-    && delivered(sessionId, directory, marker.messageID)) writeMarker(runtimeKey, sessionId, null);
+    && delivered(sessionId, directory, marker.messageID)) void removeMarkerUnderLock(runtimeKey, sessionId, markerNamed(marker.messageID));
+}
+
+/** The stored marker, unless history already shows its message delivered (its removal may still be pending). */
+function liveMarker(runtimeKey: string, sessionId: string, directory: string | undefined): Marker | undefined {
+  const marker = readMarker(runtimeKey, sessionId);
+  return marker && !delivered(sessionId, directory, marker.messageID) ? marker : undefined;
 }
 
 export const sendAdmission = {
@@ -112,19 +136,20 @@ export const sendAdmission = {
     reconcile(runtimeKey, sessionId, directory);
     const claim = claims.get(key(runtimeKey, sessionId));
     if (claim) return { messageID: claim.messageID, contentHash: claim.contentHash, inFlight: claim.phase !== 'unknown' };
-    const marker = readMarker(runtimeKey, sessionId);
+    const marker = liveMarker(runtimeKey, sessionId, directory);
     return marker && { ...marker, inFlight: false };
   },
 
   /**
    * The person chose to send without waiting ("Discard and send anyway", after a confirm that names the risk): forget the
-   * unresolved Send `messageID`, here and in other tabs. Refused while that request is still in flight in this tab.
+   * unresolved Send `messageID`, here and in other tabs. Refused while that request is still in flight in this tab, while
+   * another tab holds the session (it may be retrying), and without Web Locks. The marker is removed under the lock.
    */
-  discard(runtimeKey: string, sessionId: string, messageID: string): boolean {
+  async discard(runtimeKey: string, sessionId: string, messageID: string): Promise<boolean> {
     const id = key(runtimeKey, sessionId), claim = claims.get(id);
     if (claim && (claim.messageID !== messageID || claim.phase !== 'unknown')) return false;
-    if (claim) claims.delete(id);
-    if (readMarker(runtimeKey, sessionId)?.messageID === messageID) return writeMarker(runtimeKey, sessionId, null);
+    if (!await removeMarkerUnderLock(runtimeKey, sessionId, markerNamed(messageID))) return false;
+    if (claims.get(id) === claim && claim) claims.delete(id);
     return true;
   },
 
@@ -134,7 +159,7 @@ export const sendAdmission = {
    */
   begin(runtimeKey: string, sessionId: string, messageID: string, content: string, directory?: string): SendAttempt | null {
     reconcile(runtimeKey, sessionId, directory);
-    const id = key(runtimeKey, sessionId), held = claims.get(id), marker = readMarker(runtimeKey, sessionId);
+    const id = key(runtimeKey, sessionId), held = claims.get(id), marker = liveMarker(runtimeKey, sessionId, directory);
     const contentHash = sendContentHash(content);
     if (held && !(held.phase === 'unknown' && held.messageID === messageID && held.contentHash === contentHash)) return null;
     if (marker && (marker.messageID !== messageID || marker.contentHash !== contentHash)) return null;
