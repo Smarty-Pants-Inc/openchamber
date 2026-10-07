@@ -56,8 +56,15 @@ function readMarker(runtimeKey: string, sessionId: string): Marker | undefined {
   const parse = (text: string) => { try { return markerSchema.safeParse(JSON.parse(text)); } catch { return markerSchema.safeParse(null); } };
   const parsed = parse(raw);
   if (parsed.success) return parsed.data;
-  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text.
-  writeMarker(runtimeKey, sessionId, null);
+  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text, but
+  // only while holding the session's lock, and only if it is still that same value. Every marker write happens under
+  // that lock, so a live marker another tab writes meanwhile is never erased.
+  const stale = raw;
+  void locks()?.request(lockName(runtimeKey, sessionId), { ifAvailable: true }, lock => {
+    if (!lock) return;
+    try { if (localStorage.getItem(markerKey(runtimeKey, sessionId)) === stale) localStorage.removeItem(markerKey(runtimeKey, sessionId)); }
+    catch { /* Removal refused: the value stays unreadable as a marker and fences nothing. */ }
+  }).catch(() => undefined);
   return undefined;
 }
 /** False when the browser refused the write: the caller must not rely on the marker. */
@@ -136,13 +143,14 @@ export const sendAdmission = {
     const claim: Claim = { messageID, contentHash, phase: 'preparing', unlock: () => {} };
     claims.set(id, claim);
     const owns = () => claims.get(id) === claim;
+    // Marker writes happen before the lock is released, so no other tab writes or cleans the marker in between.
     const settle = (keepMarker: boolean) => {
-      claim.unlock();
-      if (!owns()) return;
-      if (keepMarker) { claim.phase = 'unknown'; writeMarker(runtimeKey, sessionId, { messageID, contentHash }); return; }
+      if (!owns()) { claim.unlock(); return; }
+      if (keepMarker) { claim.phase = 'unknown'; writeMarker(runtimeKey, sessionId, { messageID, contentHash }); claim.unlock(); return; }
       claims.delete(id);
       const current = readMarker(runtimeKey, sessionId);
       if (current?.messageID === messageID) writeMarker(runtimeKey, sessionId, null);
+      claim.unlock();
     };
     return {
       messageID,

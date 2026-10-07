@@ -159,9 +159,31 @@ test('a retry must carry the same content: the same ID with other content is ref
 });
 
 // Re-audit of 2f0c8e95, P2: a value this build does not write (an earlier format kept the prompt text) is removed.
-test('an unparseable or text-bearing marker is removed when read', () => {
+test('an unparseable or text-bearing marker is removed when read', async () => {
   const r = runtime(), key = 'oc.send.unconfirmed:' + JSON.stringify([r, 'session']);
   storage.setItem(key, JSON.stringify({ messageID: 'msg_old', content: 'an old private prompt' }));
   expect(sendAdmission.unconfirmed(r, 'session')).toBeUndefined();
+  await new Promise(resolve => setTimeout(resolve, 0));
   expect(storage.getItem(key)).toBeNull();
+});
+
+// Security delta pass on 9b8fb9b7, P2: the cleanup runs under the session lock and only removes the value it read, so a
+// live marker another tab writes right after this tab's read survives.
+test('cleaning an old marker never erases a live one written meanwhile by another tab', async () => {
+  const r = runtime(), key = 'oc.send.unconfirmed:' + JSON.stringify([r, 'session']);
+  const live = JSON.stringify({ messageID: 'msg_live', contentHash: sendContentHash('live') });
+  storage.setItem(key, JSON.stringify({ messageID: 'msg_old', content: 'an old private prompt' }));
+  const read = storage.getItem.bind(storage);
+  let raced = false;
+  // Another tab writes its live marker right after this tab reads the old value.
+  storage.getItem = (name: string) => {
+    const value = read(name);
+    if (name === key && !raced) { raced = true; storage.setItem(key, live); }
+    return value;
+  };
+  sendAdmission.unconfirmed(r, 'session'); // Reads the old value (scheduling its cleanup); the live one lands right after.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(read(key)).toBe(live);
+  expect(sendAdmission.unconfirmed(r, 'session')?.messageID).toBe('msg_live');
+  expect(sendAdmission.begin(r, 'session', 'msg_other', 'other')).toBeNull();
 });
