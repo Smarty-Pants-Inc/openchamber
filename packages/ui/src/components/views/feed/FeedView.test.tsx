@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
-import type { SmartiesResult, SmartyFeed } from '@/lib/smarties';
+import type { FeedQuery, SmartiesResult, SmartyFeed } from '@/lib/smarties';
 import type { FeedServices } from './FeedView';
 
 // smarty-code#1407: the Smarties against fakes of the gateway's /api/smarties contract: the own Smarty is selected on
@@ -37,7 +37,7 @@ await plugin({ name: 'feed-view-vite-transforms', setup(build) {
 } });
 const { FeedView } = await import('./FeedView');
 const { SmartiesNavSection, ClassicViewToggle } = await import('./FeedNav');
-const { useFeedStore, ensureSmartiesLoaded } = await import('./feedStore');
+const { useFeedStore, ensureSmartiesLoaded, draftKey } = await import('./feedStore');
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
 
@@ -78,7 +78,7 @@ const button = (host: Element, text: string) => Array.from(host.querySelectorAll
 
 beforeEach(async () => {
   localStorage.clear();
-  useFeedStore.setState({ view: 'smarty', selectedId: null, pageOpen: true, smarties: { state: 'loading' }, drafts: {} });
+  useFeedStore.setState({ view: 'smarty', selectedId: null, pageOpen: true, smarties: { state: 'loading' }, drafts: {}, failedSends: {} });
   await ensureSmartiesLoaded(async () => paul, true);
   useInboxStore.setState({ available: true, openCount: 1 });
   feedGate = Promise.resolve(); sendResult = async () => undefined; sent.length = 0;
@@ -115,7 +115,7 @@ test('3: the own Smarty shows the conversation, the inbox inside it, and a "Mess
   expect(button(host, 'Message Paul’s Smarty')).toBeDefined();
   const box = host.querySelector('textarea')!;
   expect(box.getAttribute('placeholder')).toBe('Message Paul’s Smarty');
-  await act(async () => { useFeedStore.getState().setDraft('paul', 'Ship it'); });
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
   await pressEnter(box); await settle();
   expect(sent.map(({ id, text }) => ({ id, text }))).toEqual([{ id: 'paul', text: 'Ship it' }]);
   expect(box.value).toBe('');
@@ -126,7 +126,7 @@ test('3: a failed send gives the text back with a plain line, and sending it aga
   sendResult = async () => { throw new Error('502'); };
   const { host, unmount } = await mount(view());
   const box = host.querySelector('textarea')!;
-  await act(async () => { useFeedStore.getState().setDraft('paul', 'Ship it'); });
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
   await pressEnter(box); await settle();
   expect(box.value).toBe('Ship it');
   expect(host.querySelector('form [role="alert"]')?.textContent).toBe('Your message was not sent. Try again.');
@@ -194,12 +194,18 @@ test('7: live blocks append without duplicates, and a dropped stream catches up 
   let handlers: Parameters<FeedServices['openStream']>[1] | null = null;
   const reads: (number | undefined)[] = [];
   const live: Partial<FeedServices> = { ...services, openStream: (_id, h) => { handlers = h; return { close: () => undefined }; },
-    loadFeed: async (id, after) => { reads.push(after); return after === undefined ? feedOf(id) : { blocks: [{ id: 'b4', author: 'org', at: '12:01 AM ET', text: 'Caught up.' }], offset: 200 }; } };
+    loadFeed: async (id, query) => {
+      reads.push(query?.after);
+      if (query?.after === undefined) return feedOf(id);
+      // Nothing was appended before the stream attached; the reconnect catch-up finds one block.
+      return query.after === 120 ? { blocks: [], offset: 120 } : { blocks: [{ id: 'b4', author: 'org', at: '12:01 AM ET', text: 'Caught up.' }], offset: 200 };
+    } };
   const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={live} />);
   await act(async () => { handlers!.onBlocks({ blocks: [paulFeed.blocks[1], { id: 'b3', author: 'org', at: '12:00 AM ET', text: 'New one.' }], offset: 160 }); });
   expect(host.querySelectorAll('[data-feed-entry]')).toHaveLength(3);
   await act(async () => { handlers!.onReconnect(); }); await settle();
-  expect(reads).toEqual([undefined, 160]);
+  // The first read, the catch-up right after the stream attaches (from 120), and the reconnect catch-up (from 160).
+  expect(reads).toEqual([undefined, 120, 160]);
   expect(host.textContent).toContain('Caught up.');
   await unmount();
 });
@@ -210,4 +216,84 @@ test('a failed list read is a failure with Try again, never "no Smarties"', asyn
   expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not load the Smarties.');
   expect(useFeedStore.getState().pageOpen).toBe(true);
   await unmount();
+});
+
+test('a failed send keeps its client ID with the draft: closing and reopening the view still reuses it', async () => {
+  sendResult = async () => { throw new Error('lost'); };
+  const first = await mount(view());
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(first.host.querySelector('textarea')!); await settle();
+  await first.unmount();
+  sendResult = async () => undefined;
+  const second = await mount(view());
+  expect(second.host.querySelector('textarea')!.value).toBe('Ship it');
+  await pressEnter(second.host.querySelector('textarea')!); await settle();
+  expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
+  await second.unmount();
+});
+
+test('a failed catch-up read retries from the same offset until it succeeds', async () => {
+  const reads: (number | undefined)[] = [];
+  let fail = true;
+  const flaky: Partial<FeedServices> = { ...services, loadFeed: async (id, query) => {
+    const after = query?.after;
+    reads.push(after);
+    if (after === undefined) return feedOf(id);
+    if (fail) { fail = false; throw new Error('503'); }
+    return { blocks: [{ id: 'gap', author: 'org', at: '12:02 AM ET', text: 'Written while away.' }], offset: 300 };
+  } };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={flaky} />);
+  await act(async () => { await new Promise(r => setTimeout(r, 1100)); });
+  expect(reads).toEqual([undefined, 120, 120]);
+  expect(host.textContent).toContain('Written while away.');
+  await unmount();
+});
+
+const block = (n: number) => ({ id: `n${n}`, author: 'org', at: '1:00 AM ET', text: `Block ${n}` });
+const range = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => block(from + i));
+
+test('first paint is the newest 50 blocks; "Show earlier" reveals held blocks, then pages back 100 with before=', async () => {
+  const queries: (FeedQuery | undefined)[] = [];
+  // The server ignored `limit` and sent 60 blocks (40..99), starting at byte 4000.
+  const paged: Partial<FeedServices> = { ...services, loadFeed: async (_id, query) => {
+    queries.push(query);
+    if (query?.before !== undefined) return { blocks: range(0, 40), offset: 4000, start: 0 };
+    if (query?.after !== undefined) return { blocks: [], offset: 9000 };
+    return { blocks: range(40, 100), offset: 9000, start: 4000 };
+  } };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={paged} />);
+  expect(queries[0]).toEqual({ limit: 50 });
+  const shown = () => Array.from(host.querySelectorAll('[data-feed-entry] p')).map(p => p.textContent);
+  expect(shown()).toHaveLength(50);
+  expect(shown()[0]).toBe('Block 50');
+  expect(shown().at(-1)).toBe('Block 99');
+  await act(async () => { button(host, 'Show earlier')!.click(); }); await settle();
+  expect(shown()).toHaveLength(60);
+  expect(queries.some(q => q?.before !== undefined)).toBe(false);
+  await act(async () => { button(host, 'Show earlier')!.click(); }); await settle();
+  expect(queries.at(-1)).toEqual({ before: 4000, limit: 100 });
+  expect(shown()).toHaveLength(100);
+  expect(shown()[0]).toBe('Block 0');
+  // The top of the feed: no more earlier control.
+  expect(button(host, 'Show earlier')).toBeUndefined();
+  await unmount();
+});
+
+test('opening the Smarty view reads only /api/smarties feeds: never /api/session or any Pi session history', async () => {
+  const urls: string[] = [];
+  const realFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    urls.push(url);
+    const body = url.includes('/api/smarties/paul/feed') ? paulFeed : url.includes('/api/inbox') ? { person: 'paul', items: [inboxItem] } : {};
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  } });
+  try {
+    // The app's own services (the gateway client), only the Markdown renderer replaced.
+    const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={{ Text: services.Text }} />);
+    expect(host.textContent).toContain('Good evening, Paul.');
+    expect(urls.some(url => url.includes('/api/smarties/paul/feed'))).toBe(true);
+    expect(urls.filter(url => /\/api\/session|\/session\b|\/message\b/.test(url))).toEqual([]);
+    await unmount();
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
 });

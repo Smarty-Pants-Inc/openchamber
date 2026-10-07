@@ -25,11 +25,13 @@ test('404, 403 and an empty list are unavailable; a 500 or a malformed body thro
 
 test('the feed reads the last blocks, or those after an offset; a send posts text and clientId', async () => {
   const feed = { blocks: [{ id: 'b1', author: 'org', at: '11:55 PM ET', text: 'Hi' }], offset: 10 };
-  expect(await loadSmartyFeed('paul', undefined, fake(() => json(JSON.stringify(feed))))).toEqual(feed);
+  expect(await loadSmartyFeed('paul', {}, fake(() => json(JSON.stringify(feed))))).toEqual(feed);
   expect(calls.at(-1)?.url).toBe('/api/smarties/paul/feed');
-  await loadSmartyFeed('paul', 10, fake(() => json(JSON.stringify(feed))));
+  await loadSmartyFeed('paul', { after: 10 }, fake(() => json(JSON.stringify(feed))));
   expect(calls.at(-1)?.url).toBe('/api/smarties/paul/feed?after=10');
-  expect(loadSmartyFeed('kate', undefined, fake(() => json(JSON.stringify({}), 403)))).rejects.toBeInstanceOf(SmartiesRequestError);
+  await loadSmartyFeed('paul', { before: 500, limit: 100 }, fake(() => json(JSON.stringify({ ...feed, start: 0 }))));
+  expect(calls.at(-1)?.url).toBe('/api/smarties/paul/feed?before=500&limit=100');
+  expect(loadSmartyFeed('kate', {}, fake(() => json(JSON.stringify({}), 403)))).rejects.toBeInstanceOf(SmartiesRequestError);
   await sendSmartyMessage('paul', 'Ship it', 'msg_1', fake(() => json(JSON.stringify({ accepted: true }), 202)));
   expect(calls.at(-1)).toMatchObject({ url: '/api/smarties/paul/messages', init: { method: 'POST', body: JSON.stringify({ text: 'Ship it', clientId: 'msg_1' }) } });
   expect(sendSmartyMessage('kate', 'x', 'msg_2', fake(() => json(JSON.stringify({}), 502)))).rejects.toBeInstanceOf(SmartiesRequestError);

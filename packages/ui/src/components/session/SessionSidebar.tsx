@@ -22,7 +22,7 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SidebarHeader } from './sidebar/shell/SidebarHeader';
 import { SidebarNav } from './sidebar/shell/SidebarNav';
 import { SidebarFooter } from './sidebar/shell/SidebarFooter';
-import { useFeedStore } from '@/components/views/feed/feedStore';
+import { ensureSmartiesLoaded, useFeedStore } from '@/components/views/feed/feedStore';
 import { SessionProjectCollection } from './sidebar/list/SessionProjectCollection';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -620,7 +620,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     openNewSessionDraft();
   }, [mobileVariant, openNewSessionDraft, setSessionSwitcherOpen]);
 
-  const smartyShown = useFeedStore((state) => state.pageOpen);
+  // smarty-code#1407: VS Code has no Smarties (no Smarty view, no nav toggle), so it always keeps the tree.
+  const smartyShown = useFeedStore((state) => state.pageOpen) && !isVSCode;
+  // Whatever else is mounted, the sidebar starts the Smarties check, so the tree never waits on a check nobody made.
+  React.useEffect(() => { if (!isVSCode) void ensureSmartiesLoaded(); }, [isVSCode]);
   return (
     // One shared tooltip provider for the whole sidebar, matching the opencode
     // sidebar feel: 400ms before the first tooltip opens, instant close on

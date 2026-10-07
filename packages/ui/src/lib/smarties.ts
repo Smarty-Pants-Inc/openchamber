@@ -8,7 +8,9 @@ import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean() });
 const listSchema = z.object({ me: z.string().min(1), smarties: z.array(smartySchema) });
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
-const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative() });
+// `start`: the byte offset where the first returned block begins (0 at the top of the feed), for paging back with
+// `before`. A server without paging omits it, and the view then offers no older page.
+const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative(), start: z.number().int().nonnegative().optional() });
 
 export type Smarty = z.infer<typeof smartySchema>;
 export type SmartyBlock = z.infer<typeof blockSchema>;
@@ -35,10 +37,13 @@ export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<Sma
   return { state: 'ready', me: body.me, smarties: [...body.smarties].sort((a, b) => Number(b.own) - Number(a.own)) };
 }
 
-/** The last blocks (no `after`), or the blocks appended after a byte offset. */
-export async function loadSmartyFeed(id: string, after?: number, fetcher: Fetcher = runtimeFetch): Promise<SmartyFeed> {
-  const query = after === undefined ? '' : `?after=${after}`;
-  const response = await fetcher(`${smartyPath(id)}/feed${query}`, read);
+/** The newest blocks (no `after`/`before`), the blocks appended after a byte offset, or a page that ends before one. */
+export type FeedQuery = { after?: number; before?: number; limit?: number };
+export async function loadSmartyFeed(id: string, query: FeedQuery = {}, fetcher: Fetcher = runtimeFetch): Promise<SmartyFeed> {
+  const params = new URLSearchParams();
+  for (const name of ['after', 'before', 'limit'] as const) { const value = query[name]; if (value !== undefined) params.set(name, String(value)); }
+  const search = params.size ? `?${params}` : '';
+  const response = await fetcher(`${smartyPath(id)}/feed${search}`, read);
   if (!response.ok) throw new SmartiesRequestError(response.status);
   return feedSchema.parse(await response.json());
 }
