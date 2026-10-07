@@ -22,7 +22,8 @@ const launchEnvs = async (root, nodeId) => {
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('GIT_CONFIG_') || key === 'SMARTY_CODE_NODE_ID') delete process.env[key];
   }
-  Object.assign(process.env, { HOME: root, OPENCODE_BINARY: fakeOpenCode }, nodeId ? { SMARTY_CODE_NODE_ID: nodeId } : {});
+  // Hermetic: no host system or global filter drivers (they would add overrides; node-member-git-filters.test.js).
+  Object.assign(process.env, { HOME: root, GIT_CONFIG_NOSYSTEM: '1', OPENCODE_BINARY: fakeOpenCode }, nodeId ? { SMARTY_CODE_NODE_ID: nodeId } : {});
 
   const envState = { cachedLoginShellEnvSnapshot: shellSnapshot };
   const envRuntime = createOpenCodeEnvRuntime({ state: envState, normalizeDirectoryPath: value => value,
