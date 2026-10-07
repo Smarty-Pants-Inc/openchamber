@@ -41,6 +41,7 @@ test('PR486 status-read provenance binds exactly six source records and retains 
     const entry = overlays.get(file);
     assert.equal(entry.sessionStatusReadSha256, hash, file);
     // The #539 layer (avail UI) sits above PR486 on sync-context.tsx; PR486's record is its predecessor.
+    if (file !== 'packages/ui/src/sync/sync-context.tsx') assert.equal('preAvailUi539CombinedSha256' in entry, false, file);
     assert.equal(entry.preAvailUi539CombinedSha256 ?? entry.combinedSha256, hash, file);
     assert.equal(sha256(read(file)), entry.combinedSha256, file);
     if (entry.sessionStatusReadAdded) {
@@ -697,6 +698,8 @@ test('the shared worktree root binds its exact fix commit as a new overlay entry
 test('the avail-UI layer binds its exact fix commit over the PR486 sync context only (smarty-code#539)', () => {
   assert.equal(overlay.availUi539Source, '6c669649e0bd8e95f805c9820e7f87197066e6ac');
   assert.deepEqual(overlay.files.filter(file => file.availUi539Sha256).map(file => file.path),
+    ['packages/ui/src/sync/sync-context.tsx']);
+  assert.deepEqual(overlay.files.filter(file => 'preAvailUi539CombinedSha256' in file).map(file => file.path),
     ['packages/ui/src/sync/sync-context.tsx']);
   const entry = overlays.get('packages/ui/src/sync/sync-context.tsx');
   assert.equal(entry.availUi539Sha256, entry.combinedSha256);
