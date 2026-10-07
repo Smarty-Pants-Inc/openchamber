@@ -12,8 +12,8 @@
     {
       "path": "packages/web/server/lib/git/service.js",
       "predecessorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
-      "sha256": "1420db8d7225840141cc5f361febd92b98e7dd76df27631bce7e00aca2bf9d44",
-      "note": "Node mode: member-initiated Git gets an isolated env and --no-ext-diff/--no-textconv, and a member's worktree start command is refused; no presentation change."
+      "sha256": "cd5a1c949dc003da4de456aa65546a3a3252a65f568761a845a1ee0b2b08b56b",
+      "note": "Node mode: member-initiated Git (runGitCommand and simple-git, whose env is now applied) gets an isolated env that also clears the repository's own drivers, plus --no-ext-diff/--no-textconv; a member's worktree start command is refused; no presentation change."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",

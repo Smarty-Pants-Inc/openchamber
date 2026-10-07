@@ -345,7 +345,7 @@ const resolveSshAuthSock = async () => {
   return null;
 };
 
-const buildGitEnv = async () => {
+const buildGitEnv = async (directory = null) => {
   const env = { ...process.env };
   if (!env.SSH_AUTH_SOCK || !env.SSH_AUTH_SOCK.trim()) {
     const resolved = await resolveSshAuthSock();
@@ -354,11 +354,16 @@ const buildGitEnv = async () => {
     }
   }
   // Node mode: member-initiated Git gets no system or global config and no executable env (smarty-code#1356).
-  return gitEnvForCaller(env);
+  return gitEnvForCaller(env, directory);
 };
 
+const MEMBER_ENV_SIMPLE_GIT_OPT_INS = Object.fromEntries(['allowUnsafeEditor', 'allowUnsafePager',
+  'allowUnsafeConfigPaths', 'allowUnsafeConfigEnvCount', 'allowUnsafeHooksPath', 'allowUnsafeFsMonitor',
+  'allowUnsafeCredentialHelper', 'allowUnsafeAskPass', 'allowUnsafeFilter', 'allowUnsafeDiffTextConv',
+  'allowUnsafeDiffExternal', 'allowUnsafeMergeDriver'].map(key => [key, true]));
+
 const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
-  const env = await buildGitEnv();
+  const env = await buildGitEnv(directory);
   const spawnOptions = { windowsHide: true };
   const binary = getGitBinary();
   const hasCustomBinary = typeof binary === 'string' && binary.trim() && binary !== 'git' && binary !== 'git.exe';
@@ -377,13 +382,18 @@ const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
   if (typeof baseDir !== 'string' || !baseDir.trim()) {
     throw new Error('Git directory is required');
   }
+  // simple-git ignores an `env` option: the member env is applied with git.env() below. simple-git refuses env and
+  // config naming helper categories unless opted in, even when (as here) they switch helpers off; a member instance
+  // opts into exactly those categories (smarty-code#1356). ponytail: the opt-ins also lift simple-git's own checks on
+  // matching `-c` arguments for member calls; member input reaches Git only as refs and paths after server flags.
+  const member = memberInitiated();
   const git = createSimpleGit({
     baseDir,
-    env,
     spawnOptions,
     binary,
-    unsafe,
+    unsafe: member ? { ...unsafe, ...MEMBER_ENV_SIMPLE_GIT_OPT_INS } : unsafe,
   });
+  if (member) git.env(env);
   // Node mode: every diff, log and show this service runs goes through raw or show; member calls get the flags.
   if (memberExecutionRefused(process.env)) {
     const raw = git.raw.bind(git), show = git.show.bind(git);
@@ -940,7 +950,7 @@ const runGitCommand = async (cwd, args) => {
   try {
     const { stdout, stderr } = await execFileAsync(getGitBinary(), withoutDiffHelpersForMembers(args), {
       cwd,
-      env: await buildGitEnv(),
+      env: await buildGitEnv(cwd),
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
     });

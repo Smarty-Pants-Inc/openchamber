@@ -41,10 +41,10 @@ export const memberInitiated = (env = process.env) => memberExecutionRefused(env
 /** The driver commands a member's `.gitattributes` can select: filter (git-lfs and the like), diff textconv and
  *  external diff, and merge drivers. Read outside a repository; Git missing or no match means none. */
 const ATTRIBUTE_DRIVER_KEYS = '^(filter\\..*\\.(clean|smudge|process)|diff\\..*\\.(textconv|command)|merge\\..*\\.driver)$';
-const readGitConfig = (env, args) => {
+const readGitConfig = (env, args, cwd = tmpdir()) => {
   try {
     return execFileSync('git', ['config', '-z', ...args],
-      { cwd: tmpdir(), env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       .split('\0').filter(Boolean);
   } catch {
     return [];
@@ -63,10 +63,10 @@ const isolatedKey = key => EXECUTABLE_GIT_ENV.includes(key) || /^GIT_CONFIG_(COU
  *  editors, pager, credential and gpg helpers, filters, uploadpack hooks). The only GIT_CONFIG_* entries are hooks and
  *  fsmonitor off, credential helpers and askpass cleared, no implicit bare repository (a member-made directory can be
  *  one, with its own config), every attribute driver the owner's config defines set empty
- *  (defence in depth), and the owner's identity (data). Returns a new object; `env` is not changed. The owner's
- *  config is read at each call, so a later owner change applies. A repository's own .git/config still applies
- *  (members cannot write .git; smarty-code#1442). */
-export const isolatedMemberGitEnv = (env) => {
+ *  (defence in depth), and the owner's identity (data). With `directory`, every driver the repository's own config
+ *  defines (its includes too) is set empty as well, so a member's Git read runs none. Returns a new object; `env` is
+ *  not changed. Config is read at each call, so a later change applies. */
+export const isolatedMemberGitEnv = (env, directory = null) => {
   const identity = ['user.name', 'user.email'].flatMap(key => readGitConfig(env, ['--get', key]).slice(0, 1)
     .map(value => [key, value.replace(/\n$/, '')]));
   const drivers = [...new Set(readGitConfig(env, ['--name-only', '--get-regexp', ATTRIBUTE_DRIVER_KEYS]))];
@@ -78,11 +78,21 @@ export const isolatedMemberGitEnv = (env) => {
     isolated[`GIT_CONFIG_KEY_${index}`] = key; isolated[`GIT_CONFIG_VALUE_${index}`] = value;
   });
   isolated.GIT_CONFIG_COUNT = String(overrides.length);
+  if (!directory) return isolated;
+  // Read under the isolation above (no system or global config, no implicit bare repository): only the repository's
+  // own config and what it includes. Command-line config wins over both.
+  const local = readGitConfig(isolated, ['--name-only', '--get-regexp', ATTRIBUTE_DRIVER_KEYS], directory)
+    .filter(key => !drivers.includes(key));
+  [...new Set(local)].forEach((key, index) => {
+    isolated[`GIT_CONFIG_KEY_${overrides.length + index}`] = key; isolated[`GIT_CONFIG_VALUE_${overrides.length + index}`] = '';
+  });
+  isolated.GIT_CONFIG_COUNT = String(overrides.length + new Set(local).size);
   return isolated;
 };
 
-/** The env a server Git child gets: isolated for member-initiated work in Node mode, otherwise `env` unchanged. */
-export const gitEnvForCaller = env => (memberInitiated() ? isolatedMemberGitEnv(env) : env);
+/** The env a server Git child gets: isolated for member-initiated work in Node mode, otherwise `env` unchanged.
+ *  `directory`: the repository the child runs in, whose own drivers are cleared too. */
+export const gitEnvForCaller = (env, directory = null) => (memberInitiated() ? isolatedMemberGitEnv(env, directory) : env);
 
 /** Member-initiated diff, log and show (also `stash show`) never run an external diff or textconv helper, even one a
  *  repository's own config names. Other calls and arguments are returned unchanged. */
