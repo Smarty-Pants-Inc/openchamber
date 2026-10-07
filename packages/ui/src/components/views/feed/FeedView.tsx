@@ -205,12 +205,14 @@ function FeedMessageBox({ smarty, send }: { smarty: Smarty; send: FeedServices['
     const store = useFeedStore.getState(), text = readDraftAt(key);
     if (!text.trim() || sending) return;
     const previous = store.failedSends[key];
-    const clientId = previous && previous.text === text && Date.now() - previous.at < RETRY_ID_MS ? previous.clientId : ascendingId('msg');
+    // `at` is when this client ID was first sent (the gateway's dedupe clock starts then), kept across failed retries.
+    const reuse = previous && previous.text === text && Date.now() - previous.at < RETRY_ID_MS ? previous : null;
+    const clientId = reuse?.clientId ?? ascendingId('msg'), sentAt = reuse?.at ?? Date.now();
     store.setDraftAt(key, ''); store.setFailedSend(key, null); setSending(true);
     send(smarty.id, text, clientId).then(() => undefined, () => {
       const typed = readDraftAt(key);
       useFeedStore.getState().setDraftAt(key, typed.trim() ? `${text}\n\n${typed}` : text);
-      useFeedStore.getState().setFailedSend(key, { text, clientId, at: previous?.clientId === clientId ? previous.at : Date.now() });
+      useFeedStore.getState().setFailedSend(key, { text, clientId, at: sentAt });
     }).finally(() => setSending(false));
   };
 

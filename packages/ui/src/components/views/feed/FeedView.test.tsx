@@ -297,3 +297,26 @@ test('opening the Smarty view reads only /api/smarties feeds: never /api/session
     await unmount();
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
 });
+
+test('a retry after the dedupe window, counted from the first send (not the failure), gets a new client ID', async () => {
+  let release: () => void = () => undefined;
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    // Sent at t=0; the failure arrives at t=2 min.
+    sendResult = () => new Promise((_, reject) => { release = () => reject(new Error('lost')); });
+    const { host, unmount } = await mount(view());
+    await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+    await pressEnter(host.querySelector('textarea')!);
+    now += 2 * 60_000;
+    await act(async () => { release(); }); await settle();
+    // Retried at t=10 min: past the gateway's window from the first send.
+    now += 8 * 60_000;
+    sendResult = async () => undefined;
+    await pressEnter(host.querySelector('textarea')!); await settle();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
+    await unmount();
+  } finally { Date.now = realNow; }
+});
