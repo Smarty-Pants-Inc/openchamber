@@ -198,6 +198,35 @@ test('3: a message over 120,000 UTF-8 bytes is not sent; the text stays with a p
   await unmount();
 });
 
+test('3: Send again holds the same 120,000-byte limit; an over-limit failed entry is kept, not sent (#567 review)', async () => {
+  const { host, unmount } = await mount(view());
+  const pasted = '\u00e9'.repeat(60_001);
+  await act(async () => { useFeedStore.getState().addFailedSend(draftKey('paul'), { text: pasted, clientId: 'msg-old', at: Date.now() }); });
+  await settle();
+  await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+  expect(sent).toEqual([]);
+  expect(host.querySelector('form [role="alert"]')?.textContent).toContain('This message is too long to send (over 120 KB).');
+  expect((useFeedStore.getState().failedSends[draftKey('paul')] ?? []).map(({ clientId }) => clientId)).toEqual(['msg-old']);
+  await unmount();
+});
+
+test('3: a refused send that waits beside the box (new text was typed) retries under a NEW client ID (#567 review)', async () => {
+  let refuse!: (error: Error) => void;
+  sendResult = () => new Promise<void>((_, reject) => { refuse = reject; });
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(box);
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Something new'); });
+  await act(async () => { refuse(new SmartiesRequestError(500, 'The Smarty is restarting.')); }); await settle();
+  expect(box.value).toBe('Something new');
+  sendResult = async () => undefined;
+  await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+  expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
+  expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
+  await unmount();
+});
+
 test('3: an accepted send whose answer was lost, then more typing: the retry is the original alone, the new draft untouched (P2)', async () => {
   sendResult = async () => { throw new Error('response lost'); };
   const { host, unmount } = await mount(view());

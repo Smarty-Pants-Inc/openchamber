@@ -263,7 +263,8 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
       const refusal = error instanceof SmartiesRequestError ? error.serverMessage : undefined;
       if (refusal) setNotice({ kind: 'refused', text: refusal });
       if (refusal && !readDraftAt(key)) store.setDraftAt(key, message.text);
-      else store.addFailedSend(key, message);
+      // A refused send was never accepted, so its retry is a new message: a fresh client ID (#567 review).
+      else store.addFailedSend(key, refusal ? { ...message, clientId: ascendingId('msg') } : message);
     } finally {
       setSending(n => n - 1);
     }
@@ -279,6 +280,8 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
   // gateway (which dedupes it for 24 h) drop the repeat.
   const sendAgain = (message: FailedSend) => {
     if (tooOld(message)) return; // Checked again at the click: past the window the next render shows Copy text.
+    // The size limit holds on every send path, retries included; the entry stays so its text isn't lost (#567 review).
+    if (utf8Bytes(message.text) > MAX_MESSAGE_BYTES) { setNotice({ kind: 'tooLong' }); return; }
     useFeedStore.getState().removeFailedSend(key, message.clientId);
     void deliver(message);
   };
