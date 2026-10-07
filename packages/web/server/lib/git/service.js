@@ -2645,6 +2645,17 @@ const refResolvesToCommit = async (git, ref) => git
  * not exist locally. Say that plainly instead of letting git's "ambiguous
  * argument" surface as an opaque failure.
  */
+/** A revision from a request (hash, from, to, base, head) is a Git operand, never an option: Git would read a leading
+ *  `-` as one (`--output=<file>` writes a file). Refused before any Git child sees it (openchamber#564 round 15). */
+const revisionOperand = (value) => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || text.startsWith('-') || /[\0-\x1f\x7f]/.test(text)) {
+    throw Object.assign(new Error('Invalid revision'), { statusCode: 400 });
+  }
+  return text;
+};
+const optionalRevisionOperand = value => (value === undefined || value === null || value === '' ? undefined : revisionOperand(value));
+
 async function assertRangeRefsResolve(git, refs) {
   for (const ref of refs) {
     if (!(await refResolvesToCommit(git, ref))) {
@@ -2654,6 +2665,8 @@ async function assertRangeRefsResolve(git, refs) {
 }
 
 export async function getRangeDiff(directory, { base, head, path: filePath, contextLines = 3 } = {}) {
+  base = revisionOperand(base);
+  head = revisionOperand(head);
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
   const baseRef = typeof base === 'string' ? base.trim() : '';
   const headRef = typeof head === 'string' ? head.trim() : '';
@@ -2779,6 +2792,8 @@ export async function getBranchBase(directory, branch) {
 }
 
 export async function getRangeFiles(directory, { base, head } = {}) {
+  base = revisionOperand(base);
+  head = revisionOperand(head);
   const { git } = await createRepositoryGitContext(directory);
   const baseRef = typeof base === 'string' ? base.trim() : '';
   const headRef = typeof head === 'string' ? head.trim() : '';
@@ -4629,6 +4644,7 @@ export async function resolveBaseRefForLog(from, checkRef) {
 }
 
 export async function getLog(directory, options = {}) {
+  options = { ...options, from: optionalRevisionOperand(options.from), to: optionalRevisionOperand(options.to) };
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
 
   try {
@@ -4958,6 +4974,7 @@ export async function canonicalizeWorktreeState(directory) {
 }
 
 export async function getCommitFiles(directory, commitHash) {
+  commitHash = revisionOperand(commitHash);
   const { git } = await createRepositoryGitContext(directory);
 
   try {
@@ -5370,6 +5387,7 @@ export async function getCommitFileDiff(directory, hash, filePath, isBinary) {
   if (!directory || !hash || !filePath) {
     throw new Error('directory, hash, and path are required for getCommitFileDiff');
   }
+  hash = revisionOperand(hash);
 
   if (isBinary) {
     return { original: '', modified: '', isBinary: true };
