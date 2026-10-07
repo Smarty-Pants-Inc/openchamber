@@ -7,7 +7,7 @@ import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
-import { MEMBER_EXECUTION_REFUSED, memberExecutionRefused } from '../security/node-member-execution.js';
+import { MEMBER_EXECUTION_REFUSED, memberExecutionRefused, withoutDiffHelpersInNodeMode } from '../security/node-member-execution.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -375,13 +375,20 @@ const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
   if (typeof baseDir !== 'string' || !baseDir.trim()) {
     throw new Error('Git directory is required');
   }
-  return createSimpleGit({
+  const git = createSimpleGit({
     baseDir,
     env,
     spawnOptions,
     binary,
     unsafe,
   });
+  // Node mode: every diff, log and show this service runs goes through raw or show (smarty-code#1356).
+  if (memberExecutionRefused(process.env)) {
+    const raw = git.raw.bind(git), show = git.show.bind(git);
+    git.raw = (args, ...rest) => raw(withoutDiffHelpersInNodeMode(args), ...rest);
+    git.show = (args, ...rest) => show(Array.isArray(args) ? withoutDiffHelpersInNodeMode(['show', ...args]).slice(1) : args, ...rest);
+  }
+  return git;
 };
 
 // Global config reads do not need a repository; use the home directory as a
@@ -929,7 +936,7 @@ const isMissingDirectoryError = (error) => {
 
 const runGitCommand = async (cwd, args) => {
   try {
-    const { stdout, stderr } = await execFileAsync(getGitBinary(), args, {
+    const { stdout, stderr } = await execFileAsync(getGitBinary(), withoutDiffHelpersInNodeMode(args), {
       cwd,
       env: await buildGitEnv(),
       windowsHide: true,
