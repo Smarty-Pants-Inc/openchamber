@@ -54,3 +54,16 @@ test('a refused send carries the gateway’s plain message: JSON error or messag
   expect(await refusal(new Response('<html><body>Bad gateway</body></html>', { status: 502, headers: { 'content-type': 'text/html' } }))).toMatchObject({ status: 502, serverMessage: undefined });
   expect(await refusal(json(JSON.stringify({}), 500))).toMatchObject({ serverMessage: undefined });
 });
+
+test('a huge or never-ending refusal body is read only up to 4 KB, then cancelled (#567 security)', async () => {
+  let pulled = 0, cancelled = false;
+  const endless = new ReadableStream<Uint8Array>({
+    pull(controller) { pulled += 1; controller.enqueue(new TextEncoder().encode('x'.repeat(1024))); },
+    cancel() { cancelled = true; },
+  });
+  const error = await sendSmartyMessage('paul', 'x', 'msg_4', fake(() => new Response(endless, { status: 413, headers: { 'content-type': 'text/plain' } }))).catch(e => e);
+  expect(error).toBeInstanceOf(SmartiesRequestError);
+  expect(error).toMatchObject({ status: 413, serverMessage: undefined }); // over 500 characters: no message shown
+  expect(cancelled).toBe(true);
+  expect(pulled).toBeLessThan(10);
+});

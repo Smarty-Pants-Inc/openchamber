@@ -28,9 +28,27 @@ const parseJson = (text: string) => { try { return JSON.parse(text); } catch { r
 // The gateway answers {name, data: {message}} (packages/gateway/src/errors.ts errorResponse); a top-level error/message is accepted too.
 const refusalSchema = z.object({ error: z.string().optional(), message: z.string().optional(), data: z.object({ message: z.string().optional() }).optional() });
 /** A refusal's message: a JSON `error` or `message`, or a short plain-text body. Never an HTML error page. */
+/** At most `limit` bytes of a body, then the rest is cancelled: a huge or endless error body can't hold the page (#567 security). */
+async function boundedText(response: Response, limit: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (size < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); size += value.byteLength;
+    }
+  } catch { return ''; } finally { void reader.cancel().catch(() => undefined); }
+  const all = new Uint8Array(Math.min(size, limit));
+  let at = 0;
+  for (const chunk of chunks) { const part = chunk.subarray(0, all.length - at); all.set(part, at); at += part.length; if (at >= all.length) break; }
+  return new TextDecoder().decode(all);
+}
 async function refusalMessage(response: Response): Promise<string | undefined> {
   const type = response.headers.get('content-type') ?? '';
-  const body = await response.text().catch(() => '');
+  const body = await boundedText(response, 4096);
   const parsed = type.includes('json') ? refusalSchema.safeParse(parseJson(body)) : undefined;
   const text = (parsed ? (parsed.success ? parsed.data.data?.message ?? parsed.data.error ?? parsed.data.message : undefined) : type.startsWith('text/plain') ? body : undefined)?.trim();
   return text && text.length <= 500 ? text : undefined;
