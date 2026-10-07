@@ -2155,13 +2155,20 @@ export function materializeConfirmedSendRecords(
 
     // The sent record is replaced below, so no merge sees it: keep it saved if it is shown as saved (unsaved.ts).
     const shown = currentMessages?.find((candidate) => candidate.id === messageID)
+    const confirmedRecords = records.map((record) => ({
+      info: shown && record.info.id === messageID ? keepSavedState(shown, stripMessageDiffSnapshots(record.info)) : stripMessageDiffSnapshots(record.info),
+      parts: record.parts ?? [],
+    }))
+    const confirmed = confirmedRecords.find((record) => record.info.id === messageID)
+    if (shown && confirmed && currentMessages) {
+      // keepSavedState already compared this replacement to the actual shown metadata. Seed that record so materialization
+      // neither loses its mutation revision nor treats an equivalent confirmation as a new metadata mutation (#675).
+      message[sessionId] = currentMessages.map((candidate) => candidate.id === messageID ? confirmed.info : candidate)
+    }
     const materialized = materializeSessionSnapshots(
       { ...state, message, part },
       sessionId,
-      records.map((record) => ({
-        info: stripMessageDiffSnapshots(shown && record.info.id === messageID ? keepSavedState(shown, record.info) : record.info),
-        parts: record.parts ?? [],
-      })),
+      confirmedRecords,
       { skipPartTypes: MESSAGE_REFETCH_SKIP_PARTS },
     )
     return { message: materialized.message, part: materialized.part }
