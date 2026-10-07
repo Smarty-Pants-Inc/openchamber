@@ -487,3 +487,24 @@ test('a catch-up answer that arrives after a newer stream block still lands befo
   expect(Array.from(host.querySelectorAll('[data-feed-entry] p')).map(p => p.textContent)).toEqual(['Good evening, Paul.', 'Hi', 'Missed', 'Newer']);
   await unmount();
 });
+
+test('the own Smarty mounts exactly one inbox list: N cards for N items, at desktop and at phone width (#560)', async () => {
+  const many = Array.from({ length: 18 }, (_, i) => ({ ...inboxItem, id: `item-${i}`, title: `Item ${i}` }));
+  const realFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async () => new Response(JSON.stringify({ person: 'paul', items: many }), { status: 200, headers: { 'content-type': 'application/json' } }) });
+  const cards = () => [...document.querySelectorAll('[data-inbox-item]')].map(card => card.getAttribute('data-inbox-item'));
+  try {
+    const desktop = await mount(view());
+    expect(cards()).toHaveLength(18);
+    expect(new Set(cards()).size).toBe(18);
+    await desktop.unmount();
+    // A phone: no column; the sheet is the one list, and only while it is open.
+    const phone = await mount(view(true));
+    expect(cards()).toHaveLength(0);
+    await act(async () => { button(phone.host, 'Inbox (1)')!.click(); }); await settle();
+    expect(cards()).toHaveLength(18);
+    expect(new Set(cards()).size).toBe(18);
+    expect(document.querySelectorAll('[aria-label$="inbox items"]')).toHaveLength(1);
+    await phone.unmount();
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
