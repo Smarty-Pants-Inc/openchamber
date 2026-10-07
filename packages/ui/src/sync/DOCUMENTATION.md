@@ -417,9 +417,11 @@ a timeout nor Stop automatically creates a session or replays a prompt.
 
 For interactive starts, a successful Ready operation remains authoritative when
 the session-detail GET fails. Detail reads and backoff share the settle window's
-120-second deadline. Exhaustion reports a load failure, not an uncertain create.
-Check again only reads the same operation and session; a later explicit Send can
-retry that read, without another create or Ready reply. Neither path grants input
+120-second deadline and one captured runtime request scope. Retiring transport or
+auth authority stops automatic retries and indexing, even if the runtime key is
+unchanged. Exhaustion reports a load failure, not an uncertain create. Check again
+only reads the same operation and session; a later explicit Send can retry that
+read with fresh scope, without another create or Ready reply. Neither path grants input
 admission before the existing history loader accepts the owner's view.
 
 `native-draft-send.ts` requires the exact owner's accepted ready loader view
