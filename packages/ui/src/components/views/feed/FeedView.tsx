@@ -14,8 +14,8 @@ import { useInboxStore } from '@/lib/smartyInbox';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
-import { FeedNotice, FeedTranscript, isOwnerLine, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, readDraftAt, useFeedStore, type FailedSend, type PendingSend } from './feedStore';
+import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
+import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, type FailedSend, type PendingSend } from './feedStore';
 import { dismissInitialLoading } from './initialLoading';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */

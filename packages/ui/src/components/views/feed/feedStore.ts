@@ -47,6 +47,8 @@ export type FailedSend = { text: string; clientId: string; at: number };
 export type PendingSend = FailedSend & { known: readonly string[] };
 
 const isPageOpen = (view: View, smarties: SmartiesState) => view === 'smarty' && smarties.state !== 'unavailable';
+/** The owner's own feed line: "you", as the backfill and the gateway write it, or the owner's id. */
+export const isOwnerLine = (block: { author: string }, owner: string) => block.author === 'you' || block.author === owner;
 export const draftKey = (smartyId: string) => `${getRuntimeKey()}\u0000${smartyId}`;
 
 export const useFeedStore = create<FeedStore>(set => {

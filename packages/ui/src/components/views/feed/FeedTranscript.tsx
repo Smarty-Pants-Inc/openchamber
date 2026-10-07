@@ -7,6 +7,7 @@ import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { SmartyBlock } from '@/lib/smarties';
+import { isOwnerLine } from './feedStore';
 
 export function FeedNotice({ children, alert, action }: { children: React.ReactNode; alert?: boolean; action?: React.ReactNode }): React.ReactNode {
   return (
@@ -23,8 +24,6 @@ const PINNED_SLACK = 48;
 /** The backfill's divider block ("Earlier conversation with your Smarty"), drawn as a divider, not a message. */
 const DIVIDER = /^[\s\-—–*_#=]*earlier conversation with your smarty[\s\-—–*_#=.:]*$/i;
 const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
-/** The owner's own line: "you", as the backfill writes it, or the owner's id. */
-export const isOwnerLine = (block: Pick<SmartyBlock, 'author'>, owner: string) => block.author === 'you' || block.author === owner;
 
 /**
  * `smartyName` names the Smarty's own blocks (author "org"). The owner's own lines (author "you", as the backfill
