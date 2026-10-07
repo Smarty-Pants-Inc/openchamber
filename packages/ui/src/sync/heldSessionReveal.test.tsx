@@ -11,7 +11,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useHumanAuth } from '@/lib/human-auth';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { configureRuntimeUrlResolver } from '@/lib/runtime-url';
-import { setPersonalSidebarView } from '@/lib/sidebar-view';
+import { readPersonalSidebarOwner, setPersonalSidebarView } from '@/lib/sidebar-view';
+import { captureRuntimeRequestScope } from '@/lib/runtime-switch';
 import { findSessionRevealTarget, useSessionReveal, useRevealSessionPagination } from '@/components/session/sidebar/list/sessionReveal';
 import type { SessionGroup, SessionNode } from '@/components/session/sidebar/types';
 
@@ -63,7 +64,12 @@ function Probe() {
 const settle = () => act(async () => { await sleep(0); await sleep(0); });
 async function mounted(run: () => Promise<void>) {
   const root = createRoot(document.createElement('div'));
-  try { await act(async () => root.render(<Probe />)); await settle(); await run(); }
+  try {
+    await act(async () => root.render(<Probe />));
+    // Reveal waits for the preference GET; join it instead of hoping it lands within settle().
+    await act(async () => { await readPersonalSidebarOwner(captureRuntimeRequestScope()); });
+    await settle(); await run();
+  }
   finally { await act(async () => root.unmount()); }
 }
 const open = () => act(async () => useSessionUIStore.getState().setCurrentSession('selected', heldProject.path));
