@@ -260,11 +260,14 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
     } catch (error) {
       const store = useFeedStore.getState();
       store.removePendingSends(key, [message.clientId]);
-      const refusal = error instanceof SmartiesRequestError ? error.serverMessage : undefined;
-      if (refusal) setNotice({ kind: 'refused', text: refusal });
-      if (refusal && !readDraftAt(key)) store.setDraftAt(key, message.text);
-      // A refused send was never accepted, so its retry is a new message: a fresh client ID (#567 review).
-      else store.addFailedSend(key, refusal ? { ...message, clientId: ascendingId('msg') } : message);
+      const said = error instanceof SmartiesRequestError ? error.serverMessage : undefined;
+      // Only a 4xx is a definite refusal (the gateway checked and did not accept). A 5xx, even with a message, may have
+      // been accepted, so it keeps its client ID and waits for Send again, letting the gateway dedupe (#567 review r3).
+      const refused = said !== undefined && error instanceof SmartiesRequestError && error.status < 500;
+      if (said) setNotice({ kind: 'refused', text: said });
+      if (refused && !readDraftAt(key)) store.setDraftAt(key, message.text);
+      // A refused send was never accepted: its retry is a NEW message, with a fresh client ID and a fresh 24 h window.
+      else store.addFailedSend(key, refused ? { ...message, clientId: ascendingId('msg'), at: Date.now() } : message);
     } finally {
       setSending(n => n - 1);
     }

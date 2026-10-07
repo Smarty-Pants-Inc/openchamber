@@ -167,14 +167,19 @@ test('3: a refused send (413) keeps the text in the box and shows the gateway’
   await unmount();
 });
 
-test('3: any other refusal with a message (here a 500) also keeps the text and shows that message', async () => {
+test('3: a 5xx with a message shows that message but is not a refusal: it waits for Send again under the SAME client ID (#567 r3)', async () => {
   sendResult = async () => { throw new SmartiesRequestError(500, 'The Smarty is restarting. Try again in a minute.'); };
   const { host, unmount } = await mount(view());
   const box = host.querySelector('textarea')!;
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
   await pressEnter(box); await settle();
-  expect(box.value).toBe('Ship it');
-  expect(host.querySelector('form [role="alert"]')?.textContent).toBe('The Smarty is restarting. Try again in a minute.');
+  // The server may have accepted it: the box is not refilled, the message waits beside it, the server's words show.
+  expect(box.value).toBe('');
+  expect(host.querySelector('form [role="alert"]')?.textContent).toContain('The Smarty is restarting. Try again in a minute.');
+  sendResult = async () => undefined;
+  await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+  expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
+  expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
   await unmount();
 });
 
@@ -218,8 +223,11 @@ test('3: a refused send that waits beside the box (new text was typed) retries u
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
   await pressEnter(box);
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Something new'); });
-  await act(async () => { refuse(new SmartiesRequestError(500, 'The Smarty is restarting.')); }); await settle();
+  const before = Date.now();
+  await act(async () => { refuse(new SmartiesRequestError(413, 'This message is too long to send.')); }); await settle();
   expect(box.value).toBe('Something new');
+  // A fresh 24 h window too: the retry is a new message, so its age starts now (#567 r3).
+  expect((useFeedStore.getState().failedSends[draftKey('paul')] ?? [])[0]!.at).toBeGreaterThanOrEqual(before);
   sendResult = async () => undefined;
   await act(async () => { button(host, 'Send again')!.click(); }); await settle();
   expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
