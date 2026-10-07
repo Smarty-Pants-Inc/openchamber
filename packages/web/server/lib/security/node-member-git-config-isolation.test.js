@@ -84,6 +84,23 @@ for (const [who, runs] of modes) {
   });
 }
 
+/** A member can make a directory that is a bare repository (HEAD, objects, refs, config) with any config, which Git
+ *  would discover implicitly from inside it. safe.bareRepository=explicit stops that for member Git only. */
+for (const [who, opens] of modes) {
+  it(`${who}: Git ${opens ? 'opens' : 'refuses'} a member-made bare repository found implicitly`, () => {
+    const { root, env, ran } = fixture(who);
+    const bare = join(root, 'member-dir');
+    execFileSync('git', ['init', '-q', '--bare', bare], { env: { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' } });
+    const helper = join(root, 'bare-gpg.sh');
+    writeFileSync(helper, `#!/bin/sh\ntouch '${join(root, 'bare-gpg-ran')}'\nexit 1\n`); chmodSync(helper, 0o755);
+    execFileSync('git', ['config', '-f', join(bare, 'config'), 'gpg.program', helper]);
+    let opened = true;
+    try { execFileSync('git', ['rev-parse', '--git-dir'], { cwd: bare, env, stdio: 'pipe' }); } catch { opened = false; }
+    expect(opened).toBe(opens);
+    expect(ran('bare-gpg')).toBe(false);
+  });
+}
+
 it('Node member: commits keep the owner identity (data only), and inherited GIT_CONFIG_* and GIT_CONFIG_PARAMETERS are dropped', () => {
   const { git, env } = fixture('Node member');
   expect(git('commit', '-q', '-am', 'member')).not.toBeNull();

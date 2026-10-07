@@ -61,7 +61,8 @@ const isolatedKey = key => EXECUTABLE_GIT_ENV.includes(key) || /^GIT_CONFIG_(COU
 
 /** The env for member-initiated Git: no system or global config and no executable env (external diff, ssh, askpass,
  *  editors, pager, credential and gpg helpers, filters, uploadpack hooks). The only GIT_CONFIG_* entries are hooks and
- *  fsmonitor off, credential helpers and askpass cleared, every attribute driver the owner's config defines set empty
+ *  fsmonitor off, credential helpers and askpass cleared, no implicit bare repository (a member-made directory can be
+ *  one, with its own config), every attribute driver the owner's config defines set empty
  *  (defence in depth), and the owner's identity (data). Returns a new object; `env` is not changed. The owner's
  *  config is read at each call, so a later owner change applies. A repository's own .git/config still applies
  *  (members cannot write .git; smarty-code#1442). */
@@ -70,7 +71,7 @@ export const isolatedMemberGitEnv = (env) => {
     .map(value => [key, value.replace(/\n$/, '')]));
   const drivers = [...new Set(readGitConfig(env, ['--name-only', '--get-regexp', ATTRIBUTE_DRIVER_KEYS]))];
   const overrides = [['core.hooksPath', '/dev/null'], ['core.fsmonitor', 'false'], ['credential.helper', ''],
-    ['core.askPass', ''], ...drivers.map(key => [key, '']), ...identity];
+    ['core.askPass', ''], ['safe.bareRepository', 'explicit'], ...drivers.map(key => [key, '']), ...identity];
   const isolated = Object.fromEntries(Object.entries(env).filter(([key]) => !isolatedKey(key)));
   Object.assign(isolated, NO_OP_GIT_ENV, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
   overrides.forEach(([key, value], index) => {
