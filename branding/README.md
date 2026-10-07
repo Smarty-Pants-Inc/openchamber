@@ -151,7 +151,7 @@ runs last, after either historical mapping.
 
 `selected-owner-repair-overlay.json` records the frozen successor of base
 `11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
-and `sourceTree` is native Git subtree `2ac508d7e1c53e637465029a708c986f38c330f5`.
+and `sourceTree` is native Git subtree `d341408415f04f59267c3dd34a8dd26860dbbda0`.
 This is a UI tree, not a commit, full repository tree or qualified release pin.
 Branding, scripts and this README are outside that subtree, so UI and provenance
 can land in one combined patch without a future commit or self-reference.

@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "2ac508d7e1c53e637465029a708c986f38c330f5",
+  "sourceTree": "d341408415f04f59267c3dd34a8dd26860dbbda0",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -213,11 +213,11 @@
       "status": "M",
       "path": "packages/ui/src/components/chat/ChatInput.tsx",
       "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895",
-      "blob": "6b2c33bbf5e37746cf8bd68a0bd56fac0aeb6b62",
+      "blob": "6f5a7ac650367fe36cedabaa54f39f833aa1c517",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "c1724a8901872c9b4443e7ee22e53c190c99dcdee8b3662d344d78bf75880189",
+      "sha256": "3f80c29101e75e741631049f560ec99947b0ce4309c6f1f8dafced6ca31013ca",
       "note": "Read Send admission from the sync layer and resend an unresolved message only with its original client ID."
     },
     {
@@ -290,11 +290,11 @@
       "status": "A",
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx",
       "predecessorBlob": null,
-      "blob": "f825f5acf9010cef215d88db09c1c80edf842bc7",
+      "blob": "b07ad987390cb5823dc60c2353180f7cf57eaa16",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "c6494c53744e6ec87d3aaf4d0b9664d76341848bfe22940d6f532cee345b8601",
+      "sha256": "efaba21c5a4ebb5928ab64ee690c298b98147df0c0bed5504f2c0ab7b6ec5d62",
       "note": "Mounted regression: an ambiguous Send admits its same-ID retry, which settles the outcome and frees the session."
     },
     {
@@ -334,11 +334,11 @@
       "status": "M",
       "path": "packages/ui/src/lib/reviewFlow.ts",
       "predecessorBlob": "26915e5708c736009843629be2c906398de67807",
-      "blob": "daa3801b2c47058ec380b9521ae0522b5e8777b2",
+      "blob": "c61fef3a64fa00c0203ae9a32066d89b7e00c355",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "24c93eeebe33e8ca310845b3aa251f4d06ccf4803f41743197d6f6debe6ffd4b",
-      "sha256": "905e2ecbcaf6777df56211eae8e9805b53df6961e166041a0468d3f6d879ea13",
+      "sha256": "2bd0dc5d6ba89d53fe983d6dd7b3d95905dc2dc403297a47f6579f39b1b8ab00",
       "note": "Send Review Flow messages through the Send route: ordinary admission, unresolved-Send fence and pinned model."
     },
     {
@@ -587,11 +587,11 @@
       "status": "A",
       "path": "packages/ui/src/sync/send-admission-route.test.ts",
       "predecessorBlob": null,
-      "blob": "b057585e3a848198f28c7063141ffda9b3bf4001",
+      "blob": "5fd307080f33728f688d4c96d62ff27a5ceaadf7",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "6df70cc358a8bd7b1008971b1a69c0d6575c5209a116ca874444a6fdea9ee897",
+      "sha256": "e3c41604ab391af9a3405ad94469bb0460efe4807adb725963ee71b0f5f56009",
       "note": "Route regressions: atomic admission, same-ID retry release, native model pin and revalidation, loader-only refusal, stock concurrency."
     },
     {
@@ -631,11 +631,11 @@
       "status": "M",
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94",
-      "blob": "a58541447c709e0c7be583cf5d6565fad74111bd",
+      "blob": "cab20d94d6b35ee40776c79ff93ac4d80bdb1a85",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
-      "sha256": "096305479729d7f3968dade07b0306124f6fe3d41fc962046d32948a8f55b379",
+      "sha256": "2cebcc77440df5c44de91de61b77f97e944dcf48f1ff94c16dd45dc20468fad2",
       "note": "Route ordinary Sends through cross-tab admission with the pinned native model rechecked before every request."
     },
     {
