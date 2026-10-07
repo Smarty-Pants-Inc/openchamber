@@ -145,5 +145,23 @@ test('the marker keeps the client ID and a hash of the text, never the text', as
   const stored = storage.getItem('oc.send.unconfirmed:' + JSON.stringify([r, 'session'])) ?? '';
   expect(stored).toContain('msg_1');
   expect(stored).not.toContain('a private prompt');
-  expect(sendAdmission.unconfirmed(r, 'session')?.contentHash).toBe(sendContentHash('  a private prompt '));
+  expect(sendAdmission.unconfirmed(r, 'session')?.contentHash).toBe(sendContentHash('a private prompt'));
+});
+
+// Re-audit of 2f0c8e95, P2: the same client ID with different content is not its retry, and an exact identity is kept.
+test('a retry must carry the same content: the same ID with other content is refused', async () => {
+  const r = runtime(), first = await begin(sendAdmission, r, 'msg_1', 'hello');
+  first!.dispatched(); first!.failed('unknown');
+  expect(sendContentHash(' hello\n')).not.toBe(sendContentHash('hello'));
+  expect(sendAdmission.begin(r, 'session', 'msg_1', 'hello, edited')).toBeNull();
+  expect(sendAdmission.begin(r, 'session', 'msg_1', ' hello\n')).toBeNull();
+  expect(await begin(sendAdmission, r, 'msg_1', 'hello')).not.toBeNull();
+});
+
+// Re-audit of 2f0c8e95, P2: a value this build does not write (an earlier format kept the prompt text) is removed.
+test('an unparseable or text-bearing marker is removed when read', () => {
+  const r = runtime(), key = 'oc.send.unconfirmed:' + JSON.stringify([r, 'session']);
+  storage.setItem(key, JSON.stringify({ messageID: 'msg_old', content: 'an old private prompt' }));
+  expect(sendAdmission.unconfirmed(r, 'session')).toBeUndefined();
+  expect(storage.getItem(key)).toBeNull();
 });

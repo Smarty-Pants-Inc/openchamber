@@ -142,3 +142,42 @@ test('discard and send anyway: an explicit confirm clears the fence and sends on
     expect(sendAdmission.unconfirmed(c.runtimeA, session.id)).toBeUndefined();
   } finally { sendUnconfirmed.ms = was; info.mockRestore(); warning.mockRestore(); await c.dispose(); }
 }, 30_000);
+
+// Re-audit of 2f0c8e95, P2s: a marker that outlives the session turning stock still offers the explicit escape, and the
+// confirm does nothing once the composer shows another session.
+test('a stale marker on a now-stock session offers the discard, and the confirm is inert after switching away', async () => {
+  const actions: Array<{ label: string; onClick: () => void }> = [];
+  const record = (_message: React.ReactNode, data?: ExternalToast) => {
+    const parsed = actionSchema.safeParse(data?.action);
+    if (parsed.success) actions.push({ label: parsed.data.label, onClick: () => parsed.data.onClick() });
+    return 'test-toast';
+  };
+  const info = spyOn(toast, 'info').mockImplementation(record);
+  const warning = spyOn(toast, 'warning').mockImplementation(record);
+  const other = { ...session, id: '01234567-1234-4234-9234-0123456789ff', title: 'other' };
+  const stock = { ...session, nativeCreation: undefined };
+  const c = await mountedNativeComposer(false, undefined, undefined, undefined, f => {
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [stock, other] });
+    useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+    useInputStore.setState({ pendingInputText: null, attachedFiles: [], pendingSyntheticParts: [] });
+  });
+  let posts = 0;
+  c.handlers.prompt = async () => { posts++; return new Response(null, { status: 204 }); };
+  c.handlers.history = async () => Response.json([]);
+  try {
+    // An earlier ordinary Send left an unresolved marker; the session is stock now.
+    const stale = sendAdmission.begin(c.runtimeA, session.id, 'msg_stale', 'old');
+    expect(await stale!.acquire()).toBe('acquired');
+    stale!.dispatched(); stale!.failed('unknown');
+    await c.replace('A stock message'); await c.submit(); await act(async () => { await sleep(50); });
+    expect(posts).toBe(0);
+    expect(actions.map(action => action.label)).toEqual(['Discard and send anyway']);
+    await act(async () => { actions[0].onClick(); await sleep(20); });
+    // Switch to another session before confirming: the confirm must not clear this marker or send anything.
+    await act(async () => { useSessionUIStore.setState({ currentSessionId: other.id }); });
+    await act(async () => { c.rerender(); await sleep(20); });
+    await act(async () => { actions[1].onClick(); await sleep(50); });
+    expect(posts).toBe(0);
+    expect(sendAdmission.unconfirmed(c.runtimeA, session.id)?.messageID).toBe('msg_stale');
+  } finally { info.mockRestore(); warning.mockRestore(); await c.dispose(); }
+}, 30_000);

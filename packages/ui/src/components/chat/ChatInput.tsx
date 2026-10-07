@@ -1460,19 +1460,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const composerText = composerRef.current?.getValue() ?? messageRef.current;
         const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerText);
         // smarty-code#1427: while a send to this session is unresolved, in this tab or another, only that same message
-        // goes again, with its original client ID, so the gateway dedupes it. Anything else waits for its outcome.
-        const unconfirmed = currentSessionId && isOrdinarySession(currentSessionId)
+        // (the same text, attachments and context) goes again, with its original client ID, so the gateway dedupes it.
+        // Anything else waits for its outcome. Read for every session: a marker outlives a session turning stock.
+        const unconfirmed = currentSessionId && !options?.queuedOnly
             ? sendAdmission.unconfirmed(getRuntimeKey(), currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined) : undefined;
-        const retryID = unconfirmed && pendingKeys && unconfirmed.contentHash === sendContentHash(composerText) ? unconfirmed.messageID : undefined;
+        const retryID = unconfirmed && pendingKeys && unconfirmed.contentHash === sendContentHash(pendingKeys.content) ? unconfirmed.messageID : undefined;
         if (unconfirmed && (!retryID || unconfirmed.inFlight)) {
             if (unconfirmed.inFlight) { toast.info(t('chat.send.waitingForConfirmation')); return; }
             // The outcome is unknown and this is not its retry. The person may choose to send anyway, after a second,
             // explicit confirm that names the risk; nothing is sent by dismissing either notice.
             const runtimeKey = getRuntimeKey(), sessionId = currentSessionId!, waitingID = unconfirmed.messageID;
+            // Only for this session and this composer: after switching away, the confirm does nothing.
+            const stillHere = () => getRuntimeKey() === runtimeKey && composerSessionIdRef.current === sessionId;
             toast.info(t('chat.send.waitingForConfirmation'), { action: { label: t('chat.send.discard.action'), onClick: () => {
+                if (!stillHere()) return;
                 toast.warning(t('chat.send.discard.title'), { description: t('chat.send.discard.risk'), duration: Infinity,
                     action: { label: t('chat.send.discard.confirm'), onClick: () => {
-                        if (sendAdmission.discard(runtimeKey, sessionId, waitingID)) void handleSubmitRef.current(options);
+                        if (stillHere() && sendAdmission.discard(runtimeKey, sessionId, waitingID)) void handleSubmitRef.current(options);
                     } } });
             } } });
             return;
@@ -2091,7 +2095,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // The group's client message ID, fixed at its first Send (before snippet expansion or any other preparation that
         // may stall): every attempt of this content sends with it, so a re-send is one message (review 3, P1 2).
         // smarty-code#1427: an unresolved Send is recognized by the composer's own text, which is what a retry shows.
-        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID, admissionText: composerText };
+        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID, admissionText: pendingKeys!.content };
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,

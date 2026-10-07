@@ -50,10 +50,15 @@ const releasing = new Map<string, Promise<unknown>>();
 const locks = (): LockManager | undefined => globalThis.navigator?.locks;
 
 function readMarker(runtimeKey: string, sessionId: string): Marker | undefined {
-  try {
-    const parsed = markerSchema.safeParse(JSON.parse(localStorage.getItem(markerKey(runtimeKey, sessionId)) ?? 'null'));
-    return parsed.success ? parsed.data : undefined;
-  } catch { return undefined; }
+  let raw: string | null;
+  try { raw = localStorage.getItem(markerKey(runtimeKey, sessionId)); } catch { return undefined; }
+  if (raw === null) return undefined;
+  const parse = (text: string) => { try { return markerSchema.safeParse(JSON.parse(text)); } catch { return markerSchema.safeParse(null); } };
+  const parsed = parse(raw);
+  if (parsed.success) return parsed.data;
+  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text.
+  writeMarker(runtimeKey, sessionId, null);
+  return undefined;
 }
 /** False when the browser refused the write: the caller must not rely on the marker. */
 function writeMarker(runtimeKey: string, sessionId: string, marker: Marker | null): boolean {
@@ -64,10 +69,10 @@ function writeMarker(runtimeKey: string, sessionId: string, marker: Marker | nul
   } catch { return false; }
 }
 
-/** FNV-1a 64-bit of the trimmed text: enough to recognize the same message again, without storing what it says. */
-export function sendContentHash(text: string): string {
+/** FNV-1a 64-bit of the exact content identity: enough to recognize the same message again, without storing it. */
+export function sendContentHash(identity: string): string {
   let hash = 0xcbf29ce484222325n;
-  for (const unit of new TextEncoder().encode(text.trim())) hash = BigInt.asUintN(64, (hash ^ BigInt(unit)) * 0x100000001b3n);
+  for (const unit of new TextEncoder().encode(identity)) hash = BigInt.asUintN(64, (hash ^ BigInt(unit)) * 0x100000001b3n);
   return hash.toString(16).padStart(16, '0');
 }
 
@@ -123,11 +128,11 @@ export const sendAdmission = {
   begin(runtimeKey: string, sessionId: string, messageID: string, content: string, directory?: string): SendAttempt | null {
     reconcile(runtimeKey, sessionId, directory);
     const id = key(runtimeKey, sessionId), held = claims.get(id), marker = readMarker(runtimeKey, sessionId);
-    if (held && !(held.phase === 'unknown' && held.messageID === messageID)) return null;
-    if (marker && marker.messageID !== messageID) return null;
+    const contentHash = sendContentHash(content);
+    if (held && !(held.phase === 'unknown' && held.messageID === messageID && held.contentHash === contentHash)) return null;
+    if (marker && (marker.messageID !== messageID || marker.contentHash !== contentHash)) return null;
     // A retry of an unresolved send: if it fails before leaving, the original is still unresolved.
     const retry = held?.phase === 'unknown' || marker?.messageID === messageID;
-    const contentHash = sendContentHash(content);
     const claim: Claim = { messageID, contentHash, phase: 'preparing', unlock: () => {} };
     claims.set(id, claim);
     const owns = () => claims.get(id) === claim;
