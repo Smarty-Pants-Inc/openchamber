@@ -181,7 +181,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const updateStore = useUpdateStore(useShallow((s) => ({
     checkForUpdates: s.checkForUpdates,
     available: s.available,
-    runtimeType: s.runtimeType,
     info: s.info,
     downloading: s.downloading,
     downloaded: s.downloaded,
@@ -403,11 +402,9 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     setSettingsDialogOpen(true);
   }, [mobileVariant, setSessionSwitcherOpen, setSettingsDialogOpen]);
 
-  // The pill self-updates OpenChamber (web: package-manager install and restart). A managed Smarty Code install is
+  // The pill self-updates the Electron shell (the only runtime with an update check). A managed Smarty Code install is
   // the operator's, so show it only on a runtime confirmed stock (smarty-code#126 F7 (e)).
-  const showSidebarUpdateButton =
-    updateStore.available && stockConfirmed &&
-    (updateStore.runtimeType === 'desktop' || updateStore.runtimeType === 'web');
+  const showSidebarUpdateButton = updateStore.available && stockConfirmed;
 
   const handleOpenDirectoryDialog = React.useCallback(() => {
     sessionEvents.requestDirectoryDialog();
@@ -750,7 +747,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         error={updateStore.error}
         onDownload={updateStore.downloadUpdate}
         onRestart={updateStore.restartToUpdate}
-        runtimeType={updateStore.runtimeType}
       />
 
       <ProjectEditDialog

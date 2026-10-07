@@ -1,6 +1,5 @@
 import { PRODUCT_NAME } from '../../brand.generated.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
-import { requestServerShutdown } from './cli-http.js';
 import { isPortAvailable } from './cli-ports.js';
 import {
   discoverLifecycleInstances,
@@ -95,11 +94,9 @@ async function stopCommand(options) {
           logStatus('info', `found unmanaged ${PRODUCT_NAME} instance on port ${options.port}`, 'attempting shutdown');
         }
         unmanagedStopSpin?.start(`Stopping unmanaged ${PRODUCT_NAME} on port ${options.port}...`);
-        const requested = await requestServerShutdown(options.port, options.host);
-
         if (Number.isFinite(explicitInstance.pid) && isProcessRunning(explicitInstance.pid)) {
           await stopInstanceProcess(explicitInstance.pid, {
-            shutdownWaitMs: requested ? 5000 : 0,
+            shutdownWaitMs: 0,
             gracefulTimeoutMs: 2500,
             forceTimeoutMs: 3000,
           }).catch(() => false);
@@ -115,22 +112,6 @@ async function stopCommand(options) {
           if (showOutput && !unmanagedStopSpin) {
             logStatus('success', `stopped ${PRODUCT_NAME} on port ${options.port}`);
             finish('stop complete');
-          }
-          printQuietStopResults();
-        } else if (requested) {
-          unmanagedStopSpin?.stop(`Shutdown requested on port ${options.port} (still occupied)`);
-          jsonResults.push({ port: options.port, runtime: 'unmanaged', stopped: false, reason: 'shutdown-requested-port-busy' });
-          if (isJsonMode(options)) {
-            printJson({
-              status: 'warning',
-              stoppedCount: 0,
-              results: jsonResults,
-              messages: [{ level: 'warning', code: 'SHUTDOWN_PARTIAL', message: `Shutdown was requested for port ${options.port}, but the port is still occupied.` }],
-            });
-          }
-          if (showOutput && !unmanagedStopSpin) {
-            logStatus('warning', `shutdown requested on port ${options.port}`, 'port is still occupied');
-            finish('partial stop');
           }
           printQuietStopResults();
         } else {
@@ -217,9 +198,8 @@ async function stopCommand(options) {
       }
       stopSpin?.start(`Stopping ${PRODUCT_NAME} on port ${instance.port}...`);
       try {
-        const requested = await requestServerShutdown(instance.port, instance.host || options.host);
         const stopped = await stopInstanceProcess(instance.pid, {
-          shutdownWaitMs: requested ? 5000 : 0,
+          shutdownWaitMs: 0,
           gracefulTimeoutMs: 2500,
           forceTimeoutMs: 3000,
         });

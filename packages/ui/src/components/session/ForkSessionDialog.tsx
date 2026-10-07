@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -68,7 +69,8 @@ export function ForkSessionDialog(props: ForkSessionDialogProps) {
   const [instructions, setInstructions] = React.useState(EXECUTION_FORK_DEFAULT_INSTRUCTIONS);
   const [createWorktree, setCreateWorktree] = React.useState(false);
   const [runAsGoal, setRunAsGoal] = React.useState(false);
-  const showCreateWorktree = !isVSCodeRuntime() && isGitRepository === true;
+  // Worktree creation needs a runtime-local bridge; the server refuses it.
+  const showCreateWorktree = !isVSCodeRuntime() && canMutateWorktrees() && isGitRepository === true;
   // The goal loop lives in the web server; VS Code only renders goal state.
   const showRunAsGoal = React.useMemo(() => !isVSCodeRuntime(), []);
 

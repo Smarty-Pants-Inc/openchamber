@@ -51,7 +51,6 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
 
   const [deleteLocalBranch, setDeleteLocalBranch] = React.useState(false);
-  const [deleteRemoteBranch, setDeleteRemoteBranch] = React.useState(false);
   const [isDirty, setIsDirty] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
 
@@ -72,7 +71,6 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
   React.useEffect(() => {
     if (!open) {
       setDeleteLocalBranch(false);
-      setDeleteRemoteBranch(false);
       setIsDirty(false);
       setIsProcessing(false);
       return;
@@ -110,7 +108,6 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
         }
 
         await removeProjectWorktree(project, target, {
-          deleteRemoteBranch: hasBranch && deleteRemoteBranch,
           deleteLocalBranch: hasBranch && deleteLocalBranch,
         });
 
@@ -121,10 +118,7 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
 
         toast.success(t('sessions.sidebar.sessionDialogs.worktree.removedTitle', { name }), {
           id: toastId,
-          description:
-            hasBranch && deleteRemoteBranch
-              ? t('sessions.sidebar.sessionDialogs.worktree.removedWithRemote')
-              : t('sessions.sidebar.sessionDialogs.worktree.removed'),
+          description: t('sessions.sidebar.sessionDialogs.worktree.removed'),
         });
         onDeleted?.();
       } catch (error) {
@@ -134,7 +128,7 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
         });
       }
     })();
-  }, [archiveSessions, currentDirectory, deleteLocalBranch, deleteRemoteBranch, hasBranch, onDeleted, project, t, worktreePath]);
+  }, [archiveSessions, currentDirectory, deleteLocalBranch, hasBranch, onDeleted, project, t, worktreePath]);
 
   const handleConfirm = () => {
     if (!worktree || isProcessing) return;
@@ -219,7 +213,6 @@ export const MobileDeleteWorktreeDialog: React.FC<MobileDeleteWorktreeDialogProp
         {hasBranch ? (
           <div className="flex flex-col gap-2">
             {toggle(deleteLocalBranch, setDeleteLocalBranch, t('mobile.projectEdit.deleteLocalBranch'), isProcessing)}
-            {toggle(deleteRemoteBranch, setDeleteRemoteBranch, t('mobile.projectEdit.deleteRemoteBranch'), isProcessing)}
           </div>
         ) : null}
       </div>

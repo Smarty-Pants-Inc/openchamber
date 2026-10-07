@@ -34,6 +34,7 @@ import {
   parseBranchCreationSource,
   getRangeFiles,
 } from './service.js';
+import { registerGitRoutes } from './routes.js';
 
 // ---------------------------------------------------------------------------
 // Shared test infrastructure
@@ -554,19 +555,12 @@ describe('createWorktree', () => {
     });
   });
 
-  it('reports directory, Git, and setup bootstrap phases while preserving legacy status', async () => {
+  it('reports directory-created, then ready/setup-ready once Git population finishes', async () => {
     if (!canRunGit()) return;
 
     const previousXdgDataHome = process.env.XDG_DATA_HOME;
     const dataHome = createTempDir();
-    const setupMarker = path.join(dataHome, 'setup-started');
-    const setupScript = path.join(dataHome, 'setup-phase.cjs');
     process.env.XDG_DATA_HOME = dataHome;
-
-    fs.writeFileSync(
-      setupScript,
-      `require('node:fs').writeFileSync(${JSON.stringify(setupMarker)}, 'started'); setTimeout(() => {}, 1000);\n`,
-    );
 
     try {
       const repo = createTempDir();
@@ -582,19 +576,11 @@ describe('createWorktree', () => {
         branchName: 'feature/bootstrap-phases',
         worktreeName: 'bootstrap-phases',
         returnAfterDirectoryCreated: true,
-        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
       });
 
       expect(created.bootstrapStatus).toMatchObject({
         status: 'pending',
         phase: 'directory-created',
-        error: null,
-      });
-
-      await expect.poll(() => fs.existsSync(setupMarker), { timeout: 5_000 }).toBe(true);
-      await expect(getWorktreeBootstrapStatus(created.path)).resolves.toMatchObject({
-        status: 'pending',
-        phase: 'git-ready',
         error: null,
       });
 
@@ -607,6 +593,7 @@ describe('createWorktree', () => {
         phase: 'setup-ready',
         error: null,
       });
+      expect(fs.existsSync(path.join(created.path, 'README.md'))).toBe(true);
     } finally {
       if (previousXdgDataHome === undefined) {
         delete process.env.XDG_DATA_HOME;
@@ -771,13 +758,7 @@ describe('createWorktree', () => {
     const dataHome = createTempDir();
     const setupStarted = path.join(dataHome, 'remove-race-started');
     const setupCompleted = path.join(dataHome, 'remove-race-completed');
-    const setupScript = path.join(dataHome, 'remove-race.cjs');
     process.env.XDG_DATA_HOME = dataHome;
-
-    fs.writeFileSync(
-      setupScript,
-      `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(setupStarted)}, 'started'); setTimeout(() => fs.writeFileSync(${JSON.stringify(setupCompleted)}, 'completed'), 300);\n`,
-    );
 
     try {
       const repo = createTempDir();
@@ -787,13 +768,17 @@ describe('createWorktree', () => {
       fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
       runGit(repo, ['add', 'README.md']);
       runGit(repo, ['commit', '-m', 'Initial commit']);
+      // The repository's own post-checkout hook keeps the bootstrap busy; request-supplied commands no longer exist.
+      installPostCheckoutHook(
+        repo,
+        `#!/bin/sh\nprintf started > ${JSON.stringify(setupStarted)}\nsleep 0.3\nprintf completed > ${JSON.stringify(setupCompleted)}\n`,
+      );
 
       const created = await createWorktree(repo, {
         mode: 'new',
         branchName: 'feature/remove-bootstrap-race',
         worktreeName: 'remove-bootstrap-race',
         returnAfterDirectoryCreated: true,
-        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(setupScript)}`,
       });
 
       await expect.poll(() => fs.existsSync(setupStarted), { timeout: 5_000 }).toBe(true);
@@ -1015,10 +1000,119 @@ describe('createWorktree', () => {
 });
 
 // ---------------------------------------------------------------------------
-// createWorktree from a forked GitHub PR head (issue #2422)
+// Worktree requests carrying removed host-power inputs (smarty-code#1398 slice 2)
 // ---------------------------------------------------------------------------
 
-describe('createWorktree from a forked GitHub PR', () => {
+describe('worktree requests carrying removed host-power inputs', () => {
+  const withFixture = async (test) => {
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const dataHome = createTempDir();
+    process.env.XDG_DATA_HOME = dataHome;
+    try {
+      const { repository } = createRepositoryWithRemote();
+      const fork = createTempDir();
+      runGit(fork, ['init', '--bare']);
+      const marker = path.join(dataHome, 'start-command-ran');
+      const script = path.join(dataHome, 'start-command.cjs');
+      fs.writeFileSync(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');\n`);
+      const before = {
+        remotes: runGit(repository, ['remote', '-v']),
+        worktrees: runGit(repository, ['worktree', 'list', '--porcelain']),
+        branches: runGit(repository, ['branch', '--list']),
+      };
+      await test({
+        repository,
+        fork,
+        startCommand: `${JSON.stringify(process.execPath)} ${JSON.stringify(script)}`,
+        assertUntouched: async () => {
+          // Give a wrongly queued background task time to act before asserting that it never did.
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          expect(fs.existsSync(marker)).toBe(false);
+          expect(runGit(repository, ['remote'])).not.toMatch(/pr-alice/);
+          expect(runGit(repository, ['remote', '-v'])).toBe(before.remotes);
+          expect(runGit(repository, ['worktree', 'list', '--porcelain'])).toBe(before.worktrees);
+          expect(runGit(repository, ['branch', '--list'])).toBe(before.branches);
+        },
+      });
+    } finally {
+      if (previousXdgDataHome === undefined) {
+        delete process.env.XDG_DATA_HOME;
+      } else {
+        process.env.XDG_DATA_HOME = previousXdgDataHome;
+      }
+    }
+  };
+
+  const removedInputs = [
+    ['startCommand', ({ startCommand }) => ({ startCommand }), /startCommand is no longer supported/],
+    [
+      'ensureRemoteName and ensureRemoteUrl',
+      ({ fork }) => ({ ensureRemoteName: 'pr-alice', ensureRemoteUrl: fork }),
+      /ensureRemoteName and ensureRemoteUrl are no longer supported/,
+    ],
+    ['ensureRemoteName alone', () => ({ ensureRemoteName: 'pr-alice' }), /ensureRemoteName is no longer supported/],
+    ['ensureRemoteUrl alone', ({ fork }) => ({ ensureRemoteUrl: fork }), /ensureRemoteUrl is no longer supported/],
+  ];
+  const newWorktree = { mode: 'new', branchName: 'feature/refused', worktreeName: 'refused' };
+  const forkHead = {
+    mode: 'existing',
+    branchName: 'feature/login',
+    worktreeName: 'pr-42',
+    existingBranch: 'remotes/pr-alice/feature/login',
+    setUpstream: true,
+    upstreamRemote: 'pr-alice',
+    upstreamBranch: 'feature/login',
+  };
+  const refusal = (message) => ({ name: 'WorktreeRequestRefusedError', statusCode: 400, message: expect.stringMatching(message) });
+
+  it.each(removedInputs)('createWorktree refuses %s with a 400 and leaves the repository untouched', async (_label, removed, message) => {
+    if (!canRunGit()) return;
+
+    await withFixture(async (fixture) => {
+      for (const base of [newWorktree, { ...newWorktree, returnAfterDirectoryCreated: true }, forkHead]) {
+        await expect(createWorktree(fixture.repository, { ...base, ...removed(fixture) })).rejects.toMatchObject(refusal(message));
+      }
+      await fixture.assertUntouched();
+    });
+  }, 30_000);
+
+  it.each(removedInputs)('validateWorktreeCreate refuses %s with a 400 and leaves the repository untouched', async (_label, removed, message) => {
+    if (!canRunGit()) return;
+
+    await withFixture(async (fixture) => {
+      for (const base of [newWorktree, forkHead]) {
+        await expect(validateWorktreeCreate(fixture.repository, { ...base, ...removed(fixture) })).rejects.toMatchObject(refusal(message));
+      }
+      await fixture.assertUntouched();
+    });
+  }, 30_000);
+
+  it('refuses before any git command runs, so a non-repository directory still gets the refusal', async () => {
+    const directory = createTempDir();
+    await expect(createWorktree(directory, { ...newWorktree, startCommand: 'true' })).rejects.toMatchObject(refusal(/startCommand/));
+    await expect(validateWorktreeCreate(directory, { ...newWorktree, ensureRemoteUrl: 'https://example.invalid/fork.git' }))
+      .rejects.toMatchObject(refusal(/ensureRemoteUrl/));
+  });
+
+  it('registers no worktree write route; the read routes stay', () => {
+    const routes = new Set();
+    const record = (method) => (routeName) => routes.add(`${method} ${routeName}`);
+    registerGitRoutes({ get: record('GET'), post: record('POST'), put: record('PUT'), delete: record('DELETE') });
+    // openchamber#554 round 6: a browser may not create, validate, preview or remove a worktree.
+    for (const route of ['POST /api/git/worktrees', 'POST /api/git/worktrees/validate', 'POST /api/git/worktrees/preview', 'DELETE /api/git/worktrees']) {
+      expect(routes.has(route), route).toBe(false);
+    }
+    for (const route of ['GET /api/git/worktrees', 'GET /api/git/worktrees/bootstrap-status', 'GET /api/git/worktree-type']) {
+      expect(routes.has(route), route).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createWorktree from a pull request branch on an already-configured remote
+// ---------------------------------------------------------------------------
+
+describe('createWorktree from a pull request branch', () => {
   const withDataHome = async (test) => {
     const previousXdgDataHome = process.env.XDG_DATA_HOME;
     const dataHome = createTempDir();
@@ -1051,19 +1145,7 @@ describe('createWorktree from a forked GitHub PR', () => {
     }
   };
 
-  const forkWorktreeInput = ({ fork, worktreeName }) => ({
-    mode: 'existing',
-    branchName: 'feature/login',
-    worktreeName,
-    existingBranch: 'remotes/pr-alice/feature/login',
-    setUpstream: true,
-    upstreamRemote: 'pr-alice',
-    upstreamBranch: 'feature/login',
-    ensureRemoteName: 'pr-alice',
-    ensureRemoteUrl: fork,
-  });
-
-  it('creates a worktree from a reachable fork head remote', async () => {
+  it('creates a worktree from a branch of a remote the repository already has, without changing remotes', async () => {
     if (!canRunGit()) return;
 
     await withDataHome(async () => {
@@ -1071,48 +1153,39 @@ describe('createWorktree from a forked GitHub PR', () => {
       const fork = createTempDir();
       runGit(fork, ['init', '--bare']);
       const sha = publishForkHead(repository, fork, 'feature/login');
+      runGit(repository, ['remote', 'add', 'pr-alice', fork]);
+      runGit(repository, ['fetch', 'pr-alice']);
+      const remotesBefore = runGit(repository, ['remote', '-v']);
 
-      const created = await createWorktree(repository, forkWorktreeInput({
-        fork,
+      const validation = await validateWorktreeCreate(repository, {
+        mode: 'existing',
+        branchName: 'feature/login',
+        existingBranch: 'remotes/pr-alice/feature/login',
+        setUpstream: true,
+        upstreamRemote: 'pr-alice',
+        upstreamBranch: 'feature/login',
+      });
+      expect(validation).toMatchObject({ ok: true, errors: [] });
+
+      const created = await createWorktree(repository, {
+        mode: 'existing',
+        branchName: 'feature/login',
         worktreeName: 'pr-42',
-      }));
+        existingBranch: 'remotes/pr-alice/feature/login',
+        setUpstream: true,
+        upstreamRemote: 'pr-alice',
+        upstreamBranch: 'feature/login',
+      });
 
       expect(created.branch).toBe('feature/login');
       expect(runGit(created.path, ['rev-parse', 'HEAD']).trim()).toBe(sha);
-      await expect.poll(() => fs.existsSync(path.join(created.path, 'FORK.md')), { timeout: 5_000 }).toBe(true);
-      expect(runGit(repository, ['remote', 'get-url', 'pr-alice']).trim()).toBe(fork);
       await expect.poll(
         () => getBranchTrackingRemote(created.path, 'feature/login') === 'pr-alice',
         { timeout: 5_000 }
       ).toBe(true);
-      // smarty-code#996 item 4: createWorktree returns while its bootstrap task still writes git state (upstream config,
-      // bootstrap phases) into the repository. afterEach then removed that .git under it: ENOTEMPTY (run 36571361235).
-      // The test ends only once the bootstrap reports ready (the event), 15 s being a hang guard.
+      // The bootstrap task still writes git state after createWorktree returns; end only once it reports ready.
       await expect.poll(async () => (await getWorktreeBootstrapStatus(created.path)).status, { timeout: 15_000 }).toBe('ready');
-    });
-  }, 30_000);
-
-  it('rejects an unreachable fork with an actionable error and no worktree', async () => {
-    if (!canRunGit()) return;
-
-    await withDataHome(async () => {
-      const { repository } = createRepositoryWithRemote();
-      const missingFork = path.join(createTempDir(), 'missing-fork.git');
-      const before = runGit(repository, ['worktree', 'list', '--porcelain']);
-
-      await expect(createWorktree(repository, forkWorktreeInput({
-        fork: missingFork,
-        worktreeName: 'pr-42-unreachable',
-      }))).rejects.toThrow(/Unable to (reach|fetch)/i);
-
-      expect(runGit(repository, ['worktree', 'list', '--porcelain'])).toBe(before);
-
-      const validation = await validateWorktreeCreate(repository, forkWorktreeInput({
-        fork: missingFork,
-        worktreeName: 'pr-42-unreachable',
-      }));
-      expect(validation.ok).toBe(false);
-      expect(validation.errors.some((error) => /Unable to (reach|fetch)/i.test(error.message))).toBe(true);
+      expect(runGit(repository, ['remote', '-v'])).toBe(remotesBefore);
     });
   }, 30_000);
 

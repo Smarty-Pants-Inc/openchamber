@@ -28,6 +28,7 @@ import { useI18n } from '@/lib/i18n';
 import { matchesRankQuery, rankByQuery } from '@/lib/search/fuzzySearch';
 import { PROJECT_COLOR_MAP, PROJECT_ICON_MAP, ProjectIconImage } from '@/lib/projectMeta';
 import { createWorktreeDraft } from '@/lib/worktreeSessionCreator';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { useKeybind } from '@/hooks/useKeybind';
 import type { Theme } from '@/types/theme';
 import { normalizePath } from '../attachments/filePaths';
@@ -242,14 +243,16 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         <SelectGroup>
                             <div className="flex items-center justify-between px-2 py-1.5">
                                 <span className="text-muted-foreground typography-meta">{t('chat.chatInput.worktrees')}</span>
-                                <button
-                                    type="button"
-                                    className="text-muted-foreground typography-meta hover:text-foreground cursor-pointer"
-                                    onPointerDown={(e) => { e.stopPropagation(); }}
-                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); void createWorktreeDraft(); }}
-                                >
-                                    {t('chat.chatInput.worktreeNew')}
-                                </button>
+                                {canMutateWorktrees() ? (
+                                    <button
+                                        type="button"
+                                        className="text-muted-foreground typography-meta hover:text-foreground cursor-pointer"
+                                        onPointerDown={(e) => { e.stopPropagation(); }}
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); void createWorktreeDraft(); }}
+                                    >
+                                        {t('chat.chatInput.worktreeNew')}
+                                    </button>
+                                ) : null}
                             </div>
                             {worktreeBranchOptions.map((option) => (
                                 <SelectItem key={option.value} value={option.value} showSelectedBackground={false} className="max-w-[24rem] truncate">
@@ -433,16 +436,18 @@ export function MobileDraftTargetSheets(
                                     ) : null}
                                     <div className="flex items-center justify-between px-2 pb-1 pt-2">
                                         <span className="text-muted-foreground typography-meta">{t('chat.chatInput.worktrees')}</span>
-                                        <button
-                                            type="button"
-                                            className="cursor-pointer text-muted-foreground typography-meta hover:text-foreground"
-                                            onClick={() => {
-                                                onOpenPickerChange(null);
-                                                void createWorktreeDraft();
-                                            }}
-                                        >
-                                            {t('chat.chatInput.worktreeNew')}
-                                        </button>
+                                        {canMutateWorktrees() ? (
+                                            <button
+                                                type="button"
+                                                className="cursor-pointer text-muted-foreground typography-meta hover:text-foreground"
+                                                onClick={() => {
+                                                    onOpenPickerChange(null);
+                                                    void createWorktreeDraft();
+                                                }}
+                                            >
+                                                {t('chat.chatInput.worktreeNew')}
+                                            </button>
+                                        ) : null}
                                     </div>
                                     {rankByQuery(worktreeBranchOptions, query, (option) => [option.label])
                                         .map((option) => renderRow(option.value, `${option.pending ? '⏳ ' : ''}${option.label}`))}

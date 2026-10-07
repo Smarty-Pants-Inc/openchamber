@@ -69,6 +69,8 @@ mock.module('@/lib/opencode/client', () => ({
 
 mock.module('@/lib/gitApi', () => ({
   checkIsGitRepository: mock(() => Promise.resolve(isGitRepository)),
+  // A runtime with a local worktree bridge (VS Code); the web runtime has none.
+  canMutateWorktrees: () => true,
 }));
 
 mock.module('@/lib/worktrees/worktreeCreate', () => ({
@@ -90,7 +92,6 @@ mock.module('@/lib/worktrees/worktreeStatus', () => ({
 
 mock.module('@/lib/openchamberConfig', () => ({
   getWorktreeSetupWaitEnabled: mock(() => Promise.resolve(waitForWorktreeSetup)),
-  saveWorktreeSetupCommands: mock(() => Promise.resolve()),
 }));
 
 mock.module('./useDirectoryStore', () => ({

@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import {
   Dialog,
   DialogContent,
@@ -411,7 +412,8 @@ export function LinearIssuePickerDialog({
         <div className="mt-4 p-3 bg-muted/30 rounded-lg">
           <p className="typography-meta text-muted-foreground font-medium mb-2">{t('session.linearIssuePicker.actions.sectionTitle')}</p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-            <div
+            {/* Worktree creation needs a runtime-local bridge; the server refuses it. */}
+            {canMutateWorktrees() ? <div
               className="flex items-center gap-2 cursor-pointer"
               role="button"
               tabIndex={0}
@@ -441,7 +443,7 @@ export function LinearIssuePickerDialog({
                 )}
               </button>
               <span className="typography-meta text-muted-foreground">{t('session.linearIssuePicker.actions.createInWorktree')}</span>
-            </div>
+            </div> : null}
             <div className="hidden sm:block sm:flex-1" />
             <Button variant="outline" size="sm" onClick={() => void refresh(debouncedQuery.trim())} disabled={isLoading || Boolean(startingIssueKey)}>
               {t('session.linearIssuePicker.actions.refresh')}

@@ -916,6 +916,7 @@ export const dict = {
   'worktree.bootstrap.toast.failed': 'Worktree-Einrichtung fehlgeschlagen',
   'worktree.bootstrap.toast.failedDescription': 'Die Worktree wurde erstellt, aber die Hintergrund-Einrichtung wurde nicht abgeschlossen.',
   'worktree.bootstrap.toast.timeoutDescription': 'Die Worktree wurde erstellt, aber die Hintergrund-Einrichtung hat ein Timeout.',
+  'worktree.mutationUnavailable': 'Worktrees lassen sich nur in der VS-Code-Erweiterung erstellen und entfernen.',
   'gitView.gitmoji.empty': 'Keine Gitmojis gefunden',
   'gitView.gitmoji.searchPlaceholder': 'Gitmojis durchsuchen...',
   'gitView.gitmoji.title': 'Gitmoji einfügen',

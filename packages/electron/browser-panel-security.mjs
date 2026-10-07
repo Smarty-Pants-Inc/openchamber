@@ -10,3 +10,79 @@ export const shouldAllowBrowserPanelCertificateError = ({ url, error }) => {
     return false;
   }
 };
+
+// Every spelling that reaches this machine: localhost names, 127.0.0.0/8, 0.0.0.0/8
+// (Linux and macOS route 0.0.0.0 to the local host), ::1, :: and IPv4-mapped forms.
+// WHATWG URL parsing has already canonicalized decimal, hex and short IPv4 forms.
+const isLoopbackHostname = (rawHostname) => {
+  const hostname = rawHostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
+  if (/^(127|0)\.\d+\.\d+\.\d+$/.test(hostname)) return true;
+  if (hostname === '::1' || hostname === '::') return true;
+  // A resolver may answer an IPv4-mapped address in dotted form.
+  if (/^::ffff:(127|0)\.\d+\.\d+\.\d+$/.test(hostname)) return true;
+  // ::ffff:127.x.y.z is canonicalized to ::ffff:7fxx:xxxx; ::ffff:0.x.y.z to ::ffff:0:x or ::ffff:xx:xxxx.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/.exec(hostname);
+  if (mapped) {
+    const high = parseInt(mapped[1], 16) >> 8;
+    return high === 0x7f || high === 0;
+  }
+  return false;
+};
+
+/**
+ * True when `url` addresses this machine: a loopback host or a local file.
+ * An unparsable URL counts as local (fail closed).
+ */
+export const isLoopbackUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'file:') return true;
+    if (!parsed.hostname) return false;
+    return isLoopbackHostname(parsed.hostname);
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * Whether a browser-panel request must be cancelled.
+ *
+ * A window showing a remote OpenChamber host lets that host drive its browser
+ * panel (open, snapshot, click, capture). If the panel could load this
+ * machine's loopback, the remote host would read pages served only to this
+ * client. So a panel whose window is not the local app never reaches loopback;
+ * `embedderIsLocal` must be true only when the window is proven local.
+ */
+export const shouldBlockBrowserPanelRequest = ({ url, embedderIsLocal }) => (
+  embedderIsLocal !== true && isLoopbackUrl(url)
+);
+
+const IP_LITERAL = /^(\d+\.\d+\.\d+\.\d+|\[[0-9a-f:.]+\])$/i;
+
+/**
+ * As shouldBlockBrowserPanelRequest, and also when a host name resolves to this
+ * machine (a DNS alias such as 127.0.0.1.nip.io). `resolve(hostname)` returns the
+ * addresses the browser would connect to; a failed lookup blocks (fail closed).
+ *
+ * ponytail: a name that changes its answer between this lookup and the browser's
+ * own connection (DNS rebinding with a zero TTL) is not closed here; the
+ * browser's host cache keeps the window to the lookup's TTL.
+ */
+export const shouldBlockBrowserPanelRequestResolved = async ({ url, embedderIsLocal, resolve }) => {
+  if (embedderIsLocal === true) return false;
+  if (isLoopbackUrl(url)) return true;
+  let hostname;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return true;
+  }
+  if (!hostname || IP_LITERAL.test(hostname)) return false;
+  try {
+    const addresses = await resolve(hostname);
+    return addresses.length === 0 || addresses.some((address) => isLoopbackHostname(address));
+  } catch {
+    return true;
+  }
+};

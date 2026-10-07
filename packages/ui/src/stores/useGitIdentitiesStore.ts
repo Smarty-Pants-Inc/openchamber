@@ -4,13 +4,9 @@ import { devtools, persist } from "zustand/middleware";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
 import {
   getGitIdentities,
-  createGitIdentity,
-  updateGitIdentity,
-  deleteGitIdentity,
-  discoverGitCredentials,
   getGlobalGitIdentity
 } from "@/lib/gitApi";
-import { reportSettingsSaveState, updateDesktopSettings } from "@/lib/persistence";
+import { updateDesktopSettings } from "@/lib/persistence";
 import { getRegisteredRuntimeAPIs } from "@/contexts/runtimeAPIRegistry";
 import { runtimeFetch } from "@/lib/runtime-fetch";
 
@@ -30,32 +26,19 @@ export interface GitIdentityProfile {
   icon?: string | null;
 }
 
-export interface DiscoveredGitCredential {
-  host: string;
-  username: string;
-}
-
 interface GitIdentitiesStore {
 
   selectedProfileId: string | null;
   defaultGitIdentityId: string | null; // null = unset, 'global' = system, profile id = custom
   profiles: GitIdentityProfile[];
   globalIdentity: GitIdentityProfile | null;
-  discoveredCredentials: DiscoveredGitCredential[];
   isLoading: boolean;
 
   setSelectedProfile: (id: string | null) => void;
   loadProfiles: () => Promise<boolean>;
   loadGlobalIdentity: () => Promise<boolean>;
-  loadDiscoveredCredentials: () => Promise<boolean>;
   loadDefaultGitIdentityId: () => Promise<boolean>;
   setDefaultGitIdentityId: (id: string | null) => Promise<boolean>;
-
-  createProfile: (profile: Omit<GitIdentityProfile, 'id'> & { id?: string }) => Promise<boolean>;
-  updateProfile: (id: string, updates: Partial<GitIdentityProfile>) => Promise<boolean>;
-  deleteProfile: (id: string) => Promise<boolean>;
-  getProfileById: (id: string) => GitIdentityProfile | undefined;
-  getUnimportedCredentials: () => DiscoveredGitCredential[];
 }
 
 declare global {
@@ -73,7 +56,6 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
         defaultGitIdentityId: null,
         profiles: [],
         globalIdentity: null,
-        discoveredCredentials: [],
         isLoading: false,
 
         setSelectedProfile: (id: string | null) => {
@@ -119,18 +101,6 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
           } catch (error) {
             console.error("Failed to load global git identity:", error);
             set({ globalIdentity: null });
-            return false;
-          }
-        },
-
-        loadDiscoveredCredentials: async () => {
-          try {
-            const credentials = await discoverGitCredentials();
-            set({ discoveredCredentials: credentials });
-            return true;
-          } catch (error) {
-            console.error("Failed to discover git credentials:", error);
-            set({ discoveredCredentials: [] });
             return false;
           }
         },
@@ -194,88 +164,6 @@ export const useGitIdentitiesStore = create<GitIdentitiesStore>()(
             console.error('Failed to save default git identity setting:', error);
             return false;
           }
-        },
-
-        createProfile: async (profileData) => {
-          try {
-
-            const profile = {
-              ...profileData,
-              id: profileData.id || `profile-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-              color: profileData.color || 'keyword',
-              icon: profileData.icon || 'branch'
-            };
-
-            reportSettingsSaveState('saving');
-            await createGitIdentity(profile);
-            reportSettingsSaveState('saved');
-
-            await get().loadProfiles();
-            return true;
-          } catch (error) {
-            reportSettingsSaveState('error');
-            console.error("Failed to create git identity profile:", error);
-            return false;
-          }
-        },
-
-        updateProfile: async (id, updates) => {
-          try {
-
-            const existing = get().profiles.find(p => p.id === id);
-            if (!existing) {
-              throw new Error("Profile not found");
-            }
-
-            const updated = { ...existing, ...updates };
-            reportSettingsSaveState('saving');
-            await updateGitIdentity(id, updated);
-            reportSettingsSaveState('saved');
-
-            await get().loadProfiles();
-            return true;
-          } catch (error) {
-            reportSettingsSaveState('error');
-            console.error("Failed to update git identity profile:", error);
-            return false;
-          }
-        },
-
-        deleteProfile: async (id) => {
-          try {
-            reportSettingsSaveState('saving');
-            await deleteGitIdentity(id);
-            reportSettingsSaveState('saved');
-
-            if (get().selectedProfileId === id) {
-              set({ selectedProfileId: null });
-            }
-
-            await get().loadProfiles();
-            return true;
-          } catch (error) {
-            reportSettingsSaveState('error');
-            console.error("Failed to delete git identity profile:", error);
-            return false;
-          }
-        },
-
-        getProfileById: (id) => {
-          const { profiles, globalIdentity } = get();
-          if (id === 'global') {
-            return globalIdentity || undefined;
-          }
-          return profiles.find((p) => p.id === id);
-        },
-
-        getUnimportedCredentials: () => {
-          const { profiles, discoveredCredentials } = get();
-          // Filter out credentials that have already been imported as token-based profiles
-          return discoveredCredentials.filter(cred => {
-            return !profiles.some(p => 
-              p.authType === 'token' && p.host === cred.host
-            );
-          });
         },
       }),
       {

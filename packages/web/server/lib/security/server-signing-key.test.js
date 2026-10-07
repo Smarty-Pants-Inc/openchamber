@@ -5,7 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createSettingsRuntime } from '../opencode/settings-runtime.js';
-import { getOrCreateRelaySigningKeypair } from './signing-key.js';
+import { getOrCreateRelaySigningKeypair } from './server-signing-key.js';
 
 const temporaryRoots = [];
 

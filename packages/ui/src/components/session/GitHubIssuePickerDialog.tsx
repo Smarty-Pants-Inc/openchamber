@@ -26,6 +26,7 @@ import { renderMagicPrompt } from '@/lib/magicPrompts';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { useDeviceInfo } from '@/lib/device';
 import { createWorktreeSessionForNewBranch } from '@/lib/worktreeSessionCreator';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { generateBranchSlug } from '@/lib/git/branchNameGenerator';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { GitHubIssue, GitHubIssueComment, GitHubIssuesListResult, GitHubIssueSummary, GitHubRepoSelector } from '@/lib/api/types';
@@ -642,7 +643,8 @@ export function GitHubIssuePickerDialog({
         <div className="mt-4 p-3 bg-muted/30 rounded-lg">
           <p className="typography-meta text-muted-foreground font-medium mb-2">{t('session.githubIssuePicker.actions.sectionTitle')}</p>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
-            <div
+            {/* Worktree creation needs a runtime-local bridge; the server refuses it. */}
+            {canMutateWorktrees() ? <div
               className="flex items-center gap-2 cursor-pointer"
               role="button"
               tabIndex={0}
@@ -673,7 +675,7 @@ export function GitHubIssuePickerDialog({
               </button>
               <span className="typography-meta text-muted-foreground">{t('session.githubIssuePicker.actions.createInWorktree')}</span>
               <span className="typography-meta text-muted-foreground/70 hidden sm:inline">(issue-&lt;number&gt;-&lt;slug&gt;)</span>
-            </div>
+            </div> : null}
             <div className="hidden sm:block sm:flex-1" />
             <div className="flex items-center gap-2">
               {repoUrl ? (

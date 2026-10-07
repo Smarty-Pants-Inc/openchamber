@@ -47,17 +47,20 @@ The following functions are exported and used by the web server:
 - `getRemotes(directory)`: Get list of configured remotes.
 
 ### Worktree Operations
+The web server serves only the worktree reads: `GET /api/git/worktrees`, `GET /api/git/worktrees/bootstrap-status` and `GET /api/git/worktree-type`. Create, validate, preview and remove have no route, and `lib/security/retired-routes.js` refuses every write method under `/api/git/worktrees` with 404, because a checkout runs the repository's hooks and filters with server authority (openchamber#554 round 6). `POST /api/openchamber/sessions` refuses a `worktree` field with 400. The functions below stay for the library's own tests; no browser request reaches them.
+
 - `getWorktrees(directory)`: List all git worktrees for a repository.
-- `validateWorktreeCreate(directory, input)`: Validate worktree creation parameters (mode, branchName, startRef, upstream config).
+- `validateWorktreeCreate(directory, input)`: Validate worktree creation parameters (mode, branchName, startRef, upstream config). A request carrying `startCommand`, `ensureRemoteName` or `ensureRemoteUrl` throws `WorktreeRequestRefusedError` (HTTP 400, "... is no longer supported") before any git command runs; the same refusal applies to `createWorktree`.
 - `createWorktree(directory, input)`: Create a new worktree (supports 'new' and 'existing' modes, upstream setup). When the current tracked branch has no unpublished commits, the UI supplies its remote-tracking ref and this operation fetches that branch once before creating the worktree. A failed fetch falls back to the local branch and reports `sourceFetchFailed`; other remote start refs still require an existing local ref when their fetch fails. After populating the worktree, the repository's `post-checkout` hook runs once with git's standard arguments (null ref as previous HEAD, the checked-out HEAD, and flag `1`) from the worktree directory, mirroring `git worktree add` without `--no-checkout`; a missing or non-executable hook is skipped and a failing hook is logged as a warning, never failing worktree creation or the session bootstrap.
 - `removeWorktree(directory, input)`: Remove a worktree (optionally delete local branch).
 - `isLinkedWorktree(directory)`: Check if directory is a linked worktree (not primary).
 
 ### Worktree creation from a GitHub pull request
-The UI provisions `pr-<owner>` via `ensureRemoteName`/`ensureRemoteUrl`
-(HTTPS clone URL preferred over SSH) and checks out
-`remotes/pr-<owner>/<head>`. A missing head URL or unreachable fork fails with
-a clear error before a worktree is kept. If upstream fetch fails during
+The web server never adds or changes a git remote and never runs a setup or
+start command for a worktree (smarty-code#1398 slice 2). A PR head is checked
+out from a local branch or from a branch of a remote the repository already
+has (`remotes/<remote>/<head>`); a fork that is not yet a remote is refused
+in the UI with instructions to add it. If upstream fetch fails during
 bootstrap, tracking is left unset rather than writing `branch.*.remote` /
 `branch.*.merge` for a ref that was never fetched.
 
@@ -72,6 +75,7 @@ bootstrap, tracking is left unset rather than writing `branch.*.remote` /
 ### Log Operations
 - `getLog(directory, options)`: Get commit history with stats (supports maxCount, from, to, file filters).
 - `getCommitFiles(directory, commitHash)`: Get file changes for a specific commit.
+- Revision arguments from requests (`getCommitFiles`/`getCommitFileDiff` hash, `getBranchBase` branch, `countStashFiles` refs, `getLog` from/to, `getRangeDiff`/`getRangeFiles` base/head) are parsed before any git command runs: a hash must match `^[0-9a-f]{7,64}$`, and any other ref must be a single string that does not start with `-` (git would read it as an option, e.g. `--output=<path>` writes a file). A refused value throws `GitArgumentRefusedError` (HTTP 400); the routes answer 400. Every revision is also passed after `--end-of-options`.
 - `getCommitFileDiff(directory, hash, filePath, isBinary)`: Get before/after content for a specific file in a commit. Returns `{ original, modified, isBinary }`. Runs `git show <hash>^:<path>` and `git show <hash>:<path>` in parallel; returns empty strings on failure (added/deleted/root-commit edge cases).
 
 ### Merge and Rebase Operations
@@ -142,10 +146,10 @@ The following functions are internal helpers used by exported functions:
 - `branch`: Local branch name.
 - `path`: Absolute path to worktree directory.
 - `directoryCreated`: Present when create returned after the target directory exists while background Git/bootstrap work continues.
-- `bootstrapStatus`: Background setup state. The legacy `status` remains `pending`, `ready`, or `failed`, while `phase` reports `directory-created`, `git-ready`, or `setup-ready`. Fast create starts at `pending`/`directory-created`; population and upstream Git completion advances to `pending`/`git-ready` before setup/start scripts; completed setup is `ready`/`setup-ready`. A missing in-memory state falls back to `ready`/`setup-ready`; clients continue to accept legacy status responses that omit `phase`.
+- `bootstrapStatus`: Background setup state. The legacy `status` remains `pending`, `ready`, or `failed`, while `phase` reports `directory-created`, `git-ready`, or `setup-ready`. Fast create starts at `pending`/`directory-created`; population, the repository's `post-checkout` hook and upstream Git completion advance to `pending`/`git-ready`, immediately followed by `ready`/`setup-ready` because the server runs no setup or start command. A missing in-memory state falls back to `ready`/`setup-ready`; clients continue to accept legacy status responses that omit `phase`.
 - `sourceFetchFailed`: Present when the automatic source-branch fetch failed and creation fell back to the tracked local branch.
 - Fast-create background failures remove OpenCode sandbox metadata for directories that never became Git worktrees, and remove the pre-created directory only if it is still empty. User-created files are never recursively deleted by this cleanup.
-- Worktree removal waits for any active create/bootstrap task for that directory before deleting it, preventing a background Git or setup task from restoring removed state or racing filesystem cleanup.
+- Worktree removal waits for any active create/bootstrap task for that directory before deleting it, preventing a background Git task from restoring removed state or racing filesystem cleanup.
 - Worktree bootstrap retries transient `index.lock` conflicts. If the lock remains byte-for-byte and metadata-identical across the retry window, it is treated as stale, removed, and population continues automatically; changing locks are left untouched and reported as failures.
 - Worktree population enables Git `core.longpaths` (local repo config plus `-c core.longpaths=true` on `git reset --hard`) so deeply nested checkouts under the managed data-dir worktree root do not fail on Windows MAX_PATH with "Filename too long". Path-component limits that the filesystem itself rejects still fail bootstrap, with a clearer path-length guidance message.
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { copyTextToClipboard } from '@/lib/clipboard';
@@ -255,19 +256,24 @@ export const AgentGroupDetail: React.FC<AgentGroupDetailProps> = ({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[220px]">
-                <DropdownMenuItem
-                  onSelect={handleRemoveSelectedWorktree}
-                  closeOnClick={false}
-                  variant="destructive"
-                >
-                  {t('agentManager.detail.actions.removeThisWorktree')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={handleKeepOnlySelectedWorktree}
-                  closeOnClick={false}
-                >
-                  {t('agentManager.detail.actions.keepThisRemoveOthers')}
-                </DropdownMenuItem>
+                {/* Worktree removal needs a runtime-local bridge; the server refuses it. */}
+                {canMutateWorktrees() ? (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={handleRemoveSelectedWorktree}
+                      closeOnClick={false}
+                      variant="destructive"
+                    >
+                      {t('agentManager.detail.actions.removeThisWorktree')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={handleKeepOnlySelectedWorktree}
+                      closeOnClick={false}
+                    >
+                      {t('agentManager.detail.actions.keepThisRemoveOthers')}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
                 <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();

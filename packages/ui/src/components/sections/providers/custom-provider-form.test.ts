@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  buildAuthSetRequest,
   buildProviderUpsertRequest,
   isConfigDefinedCustomProvider,
   isCustomOpenAICompatibleProvider,
@@ -200,7 +199,7 @@ describe('validateCustomProvider', () => {
 });
 
 describe('request construction', () => {
-  test('builds auth.set and provider upsert requests', () => {
+  test('builds the provider upsert request without the literal key', () => {
     const validated = validateCustomProvider({
       form: baseForm(),
       t,
@@ -208,10 +207,7 @@ describe('request construction', () => {
     });
     const plan = validated.result!;
 
-    expect(buildAuthSetRequest(plan)).toEqual({
-      providerID: 'custom-provider',
-      auth: { type: 'api', key: 'sk-test' },
-    });
+    expect(plan.apiKey).toBe('sk-test');
     expect(buildProviderUpsertRequest(plan)).toEqual({
       providerID: 'custom-provider',
       config: plan.config,
@@ -231,14 +227,15 @@ describe('request construction', () => {
     expect(buildProviderUpsertRequest(plan, { scope: 'custom' }).scope).toBe('custom');
   });
 
-  test('omits auth.set when using env credentials', () => {
+  test('carries no literal key when using env credentials', () => {
     const validated = validateCustomProvider({
       form: baseForm({ apiKey: '{env:MY_KEY}' }),
       t,
       existingProviderIDs: new Set(),
     });
 
-    expect(buildAuthSetRequest(validated.result!)).toBeNull();
+    expect(validated.result?.apiKey).toBeUndefined();
+    expect(validated.result?.config.env).toEqual(['MY_KEY']);
   });
 });
 

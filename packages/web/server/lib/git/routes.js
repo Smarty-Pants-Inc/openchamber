@@ -27,6 +27,14 @@ export function registerGitRoutes(app) {
       .join('\n');
   };
 
+  // A refused revision argument (option-like, non-string or repeated query
+  // value) is the client's error, answered 400 before any git command runs.
+  const sendRefusedGitArgument = (res, error, GitArgumentRefusedError) => {
+    if (!(error instanceof GitArgumentRefusedError)) return false;
+    res.status(400).json({ error: error.message });
+    return true;
+  };
+
   const isNonRepoGitError = (error) => /not a git repository/i.test(extractGitErrorText(error));
 
   const nonRepoStatusPayload = () => ({
@@ -48,42 +56,6 @@ export function registerGitRoutes(app) {
     }
   });
 
-  app.post('/api/git/identities', async (req, res) => {
-    const { createProfile } = await getGitLibraries();
-    try {
-      const profile = createProfile(req.body);
-      console.log(`Created git identity profile: ${profile.name} (${profile.id})`);
-      res.json(profile);
-    } catch (error) {
-      console.error('Failed to create git identity profile:', error);
-      res.status(400).json({ error: error.message || 'Failed to create git identity profile' });
-    }
-  });
-
-  app.put('/api/git/identities/:id', async (req, res) => {
-    const { updateProfile } = await getGitLibraries();
-    try {
-      const profile = updateProfile(req.params.id, req.body);
-      console.log(`Updated git identity profile: ${profile.name} (${profile.id})`);
-      res.json(profile);
-    } catch (error) {
-      console.error('Failed to update git identity profile:', error);
-      res.status(400).json({ error: error.message || 'Failed to update git identity profile' });
-    }
-  });
-
-  app.delete('/api/git/identities/:id', async (req, res) => {
-    const { deleteProfile } = await getGitLibraries();
-    try {
-      deleteProfile(req.params.id);
-      console.log(`Deleted git identity profile: ${req.params.id}`);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to delete git identity profile:', error);
-      res.status(400).json({ error: error.message || 'Failed to delete git identity profile' });
-    }
-  });
-
   app.get('/api/git/global-identity', async (req, res) => {
     const { getGlobalIdentity } = await getGitLibraries();
     try {
@@ -92,17 +64,6 @@ export function registerGitRoutes(app) {
     } catch (error) {
       console.error('Failed to get global git identity:', error);
       res.status(500).json({ error: 'Failed to get global git identity' });
-    }
-  });
-
-  app.get('/api/git/discover-credentials', async (req, res) => {
-    try {
-      const { discoverGitCredentials } = await import('./index.js');
-      const credentials = discoverGitCredentials();
-      res.json(credentials);
-    } catch (error) {
-      console.error('Failed to discover git credentials:', error);
-      res.status(500).json({ error: 'Failed to discover git credentials' });
     }
   });
 
@@ -172,50 +133,6 @@ export function registerGitRoutes(app) {
     } catch (error) {
       console.error('Failed to check local git identity:', error);
       res.status(500).json({ error: 'Failed to check local git identity' });
-    }
-  });
-
-  app.post('/api/git/set-identity', async (req, res) => {
-    const { getProfile, setLocalIdentity, getGlobalIdentity } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { profileId } = req.body;
-      if (!profileId) {
-        return res.status(400).json({ error: 'profileId is required' });
-      }
-
-      let profile = null;
-
-      if (profileId === 'global') {
-        const globalIdentity = await getGlobalIdentity();
-        if (!globalIdentity?.userName || !globalIdentity?.userEmail) {
-          return res.status(404).json({ error: 'Global identity is not configured' });
-        }
-        profile = {
-          id: 'global',
-          name: 'Global Identity',
-          userName: globalIdentity.userName,
-          userEmail: globalIdentity.userEmail,
-          sshKey: globalIdentity.sshCommand
-            ? globalIdentity.sshCommand.replace('ssh -i ', '')
-            : null,
-        };
-      } else {
-        profile = getProfile(profileId);
-        if (!profile) {
-          return res.status(404).json({ error: 'Profile not found' });
-        }
-      }
-
-      await setLocalIdentity(directory, profile);
-      res.json({ success: true, profile });
-    } catch (error) {
-      console.error('Failed to set git identity:', error);
-      res.status(500).json({ error: error.message || 'Failed to set git identity' });
     }
   });
 
@@ -293,49 +210,6 @@ export function registerGitRoutes(app) {
     }
   });
 
-  const handleIntegrateAction = (action, loadHandler) => {
-    app.post(`/api/git/integrate/${action}`, async (req, res) => {
-      try {
-        const handler = await loadHandler();
-        const result = await handler(req.body || {});
-        res.json(result);
-      } catch (error) {
-        console.error(`Failed to run git integrate ${action}:`, error);
-        res.status(400).json({ error: error.message || `Failed to run git integrate ${action}` });
-      }
-    });
-  };
-
-  handleIntegrateAction('plan', async () => {
-    const { computeIntegratePlan } = await getGitLibraries();
-    return (body) => computeIntegratePlan(body);
-  });
-
-  handleIntegrateAction('conflict-details', async () => {
-    const { getIntegrateConflictDetails } = await getGitLibraries();
-    return (body) => getIntegrateConflictDetails(body?.tempWorktreePath);
-  });
-
-  handleIntegrateAction('cherry-pick-status', async () => {
-    const { isCherryPickInProgress } = await getGitLibraries();
-    return (body) => isCherryPickInProgress(body?.tempWorktreePath);
-  });
-
-  handleIntegrateAction('run', async () => {
-    const { integrateWorktreeCommits } = await getGitLibraries();
-    return (body) => integrateWorktreeCommits(body?.plan);
-  });
-
-  handleIntegrateAction('abort', async () => {
-    const { abortIntegrate } = await getGitLibraries();
-    return (body) => abortIntegrate(body?.state);
-  });
-
-  handleIntegrateAction('continue', async () => {
-    const { continueIntegrate } = await getGitLibraries();
-    return (body) => continueIntegrate(body?.state);
-  });
-
   app.get('/api/git/diff', async (req, res) => {
     const { getDiff } = await getGitLibraries();
     try {
@@ -398,7 +272,7 @@ export function registerGitRoutes(app) {
   });
 
   app.get('/api/git/range-diff', async (req, res) => {
-    const { getRangeDiff } = await getGitLibraries();
+    const { getRangeDiff, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory || typeof directory !== 'string') {
@@ -423,20 +297,21 @@ export function registerGitRoutes(app) {
 
       res.json({ diff });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get git range diff:', error);
       res.status(500).json({ error: error.message || 'Failed to get git range diff' });
     }
   });
 
   app.get('/api/git/branch-base', async (req, res) => {
-    const { getBranchBase } = await getGitLibraries();
+    const { getBranchBase, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = resolveDirectoryQuery(req.query.directory);
       if (!directory) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const branch = resolveDirectoryQuery(req.query.branch);
+      const { branch } = req.query;
       if (!branch) {
         return res.status(400).json({ error: 'branch parameter is required' });
       }
@@ -444,21 +319,21 @@ export function registerGitRoutes(app) {
       const result = await getBranchBase(directory, branch);
       res.json(result);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get branch base:', error);
       res.status(500).json({ error: error.message || 'Failed to get branch base' });
     }
   });
 
   app.get('/api/git/range-files', async (req, res) => {
-    const { getRangeFiles } = await getGitLibraries();
+    const { getRangeFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = resolveDirectoryQuery(req.query.directory);
       if (!directory) {
         return res.status(400).json({ error: 'directory parameter is required' });
       }
 
-      const base = resolveDirectoryQuery(req.query.base);
-      const head = resolveDirectoryQuery(req.query.head);
+      const { base, head } = req.query;
       if (!base || !head) {
         return res.status(400).json({ error: 'base and head parameters are required' });
       }
@@ -466,132 +341,9 @@ export function registerGitRoutes(app) {
       const files = await getRangeFiles(directory, { base, head });
       res.json({ files });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get git range files:', error);
       res.status(500).json({ error: error.message || 'Failed to get git range files' });
-    }
-  });
-
-  app.post('/api/git/revert', async (req, res) => {
-    const { revertFile } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { path, scope } = req.body || {};
-      if (!path || typeof path !== 'string') {
-        return res.status(400).json({ error: 'path parameter is required' });
-      }
-
-      await revertFile(directory, path, { scope });
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to revert git file:', error);
-      res.status(500).json({ error: error.message || 'Failed to revert git file' });
-    }
-  });
-
-  app.post('/api/git/stage', async (req, res) => {
-    const { stageFiles } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { path, paths } = req.body || {};
-      const filePaths = Array.isArray(paths) ? paths : [path];
-      if (!filePaths.some((value) => typeof value === 'string' && value.trim())) {
-        return res.status(400).json({ error: 'path parameter is required' });
-      }
-
-      await stageFiles(directory, filePaths);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to stage git file:', error);
-      res.status(500).json({ error: error.message || 'Failed to stage git file' });
-    }
-  });
-
-  app.post('/api/git/unstage', async (req, res) => {
-    const { unstageFiles } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { path, paths } = req.body || {};
-      const filePaths = Array.isArray(paths) ? paths : [path];
-      if (!filePaths.some((value) => typeof value === 'string' && value.trim())) {
-        return res.status(400).json({ error: 'path parameter is required' });
-      }
-
-      await unstageFiles(directory, filePaths);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to unstage git file:', error);
-      res.status(500).json({ error: error.message || 'Failed to unstage git file' });
-    }
-  });
-
-  app.post('/api/git/apply-hunk', async (req, res) => {
-    const { applyHunk } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { path: filePath, patch, action } = req.body || {};
-      if (!filePath || typeof filePath !== 'string') {
-        return res.status(400).json({ error: 'path parameter is required' });
-      }
-      if (typeof patch !== 'string' || !patch.trim()) {
-        return res.status(400).json({ error: 'patch is required' });
-      }
-      if (action !== 'stage' && action !== 'unstage' && action !== 'discard') {
-        return res.status(400).json({ error: 'action must be stage, unstage, or discard' });
-      }
-
-      await applyHunk(directory, filePath, { patch, action });
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Failed to apply git hunk:', error);
-      res.status(500).json({ error: error.message || 'Failed to apply git hunk' });
-    }
-  });
-
-  app.post('/api/git/pull', async (req, res) => {
-    const { pull } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await pull(directory, req.body);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to pull:', error);
-      res.status(500).json({ error: error.message || 'Failed to pull from remote' });
-    }
-  });
-
-  app.post('/api/git/push', async (req, res) => {
-    const { push } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await push(directory, req.body);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to push:', error);
-      res.status(500).json({ error: error.message || 'Failed to push to remote' });
     }
   });
 
@@ -608,78 +360,15 @@ export function registerGitRoutes(app) {
   });
 
   app.post('/api/git/stashes/file-counts', async (req, res) => {
-    const { countStashFiles } = await getGitLibraries();
+    const { countStashFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
       res.json({ counts: await countStashFiles(directory, req.body?.refs) });
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to count stash files:', error);
       res.status(500).json({ error: error.message || 'Failed to count stash files' });
-    }
-  });
-
-  app.post('/api/git/stash', async (req, res) => {
-    const { stashPush } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
-      res.json(await stashPush(directory, req.body));
-    } catch (error) {
-      console.error('Failed to stash changes:', error);
-      res.status(500).json({ error: error.message || 'Failed to stash changes' });
-    }
-  });
-
-  app.post('/api/git/stash/apply', async (req, res) => {
-    const { stashApply } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
-      res.json(await stashApply(directory, req.body));
-    } catch (error) {
-      console.error('Failed to apply stash:', error);
-      res.status(500).json({ error: error.message || 'Failed to apply stash' });
-    }
-  });
-
-  app.post('/api/git/stash/pop', async (req, res) => {
-    const { stashPop } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
-      res.json(await stashPop(directory, req.body));
-    } catch (error) {
-      console.error('Failed to pop stash:', error);
-      res.status(500).json({ error: error.message || 'Failed to pop stash' });
-    }
-  });
-
-  app.post('/api/git/stash/drop', async (req, res) => {
-    const { stashDrop } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) return res.status(400).json({ error: 'directory parameter is required' });
-      res.json(await stashDrop(directory, req.body));
-    } catch (error) {
-      console.error('Failed to drop stash:', error);
-      res.status(500).json({ error: error.message || 'Failed to drop stash' });
-    }
-  });
-
-  app.post('/api/git/fetch', async (req, res) => {
-    const { fetch: gitFetch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await gitFetch(directory, req.body);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to fetch:', error);
-      res.status(500).json({ error: error.message || 'Failed to fetch from remote' });
     }
   });
 
@@ -699,123 +388,6 @@ export function registerGitRoutes(app) {
     }
   });
 
-  app.delete('/api/git/remotes', async (req, res) => {
-    const { removeRemote } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const remote = String(req.body?.remote || '').trim();
-      if (!remote) {
-        return res.status(400).json({ error: 'remote is required' });
-      }
-
-      const result = await removeRemote(directory, { remote });
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to remove remote:', error);
-      res.status(500).json({ error: error.message || 'Failed to remove remote' });
-    }
-  });
-
-  app.post('/api/git/rebase', async (req, res) => {
-    const { rebase } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await rebase(directory, req.body);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to rebase:', error);
-      res.status(500).json({ error: error.message || 'Failed to rebase' });
-    }
-  });
-
-  app.post('/api/git/rebase/abort', async (req, res) => {
-    const { abortRebase } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await abortRebase(directory);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to abort rebase:', error);
-      res.status(500).json({ error: error.message || 'Failed to abort rebase' });
-    }
-  });
-
-  app.post('/api/git/merge', async (req, res) => {
-    const { merge } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await merge(directory, req.body);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to merge:', error);
-      res.status(500).json({ error: error.message || 'Failed to merge' });
-    }
-  });
-
-  app.post('/api/git/merge/abort', async (req, res) => {
-    const { abortMerge } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await abortMerge(directory);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to abort merge:', error);
-      res.status(500).json({ error: error.message || 'Failed to abort merge' });
-    }
-  });
-
-  app.post('/api/git/rebase/continue', async (req, res) => {
-    const { continueRebase } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await continueRebase(directory);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to continue rebase:', error);
-      res.status(500).json({ error: error.message || 'Failed to continue rebase' });
-    }
-  });
-
-  app.post('/api/git/merge/continue', async (req, res) => {
-    const { continueMerge } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await continueMerge(directory);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to continue merge:', error);
-      res.status(500).json({ error: error.message || 'Failed to continue merge' });
-    }
-  });
-
   app.get('/api/git/conflict-details', async (req, res) => {
     const { getConflictDetails } = await getGitLibraries();
     try {
@@ -829,31 +401,6 @@ export function registerGitRoutes(app) {
     } catch (error) {
       console.error('Failed to get conflict details:', error);
       res.status(500).json({ error: error.message || 'Failed to get conflict details' });
-    }
-  });
-
-  app.post('/api/git/commit', async (req, res) => {
-    const { commit } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { message, addAll, files, stageFiles } = req.body;
-      if (!message) {
-        return res.status(400).json({ error: 'message is required' });
-      }
-
-      const result = await commit(directory, message, {
-        addAll,
-        files,
-        stageFiles,
-      });
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to commit:', error);
-      res.status(500).json({ error: error.message || 'Failed to create commit' });
     }
   });
 
@@ -889,192 +436,6 @@ export function registerGitRoutes(app) {
     }
   });
 
-  app.post('/api/git/branches', async (req, res) => {
-    const { createBranch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { name, startPoint } = req.body;
-      if (!name) {
-        return res.status(400).json({ error: 'name is required' });
-      }
-
-      const result = await createBranch(directory, name, { startPoint });
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to create branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to create branch' });
-    }
-  });
-
-  app.delete('/api/git/branches', async (req, res) => {
-    const { deleteBranch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { branch, force } = req.body;
-      if (!branch) {
-        return res.status(400).json({ error: 'branch is required' });
-      }
-
-      const result = await deleteBranch(directory, branch, { force });
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to delete branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to delete branch' });
-    }
-  });
-
-
-  app.put('/api/git/branches/rename', async (req, res) => {
-    const { renameBranch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { oldName, newName } = req.body;
-      if (!oldName) {
-        return res.status(400).json({ error: 'oldName is required' });
-      }
-      if (!newName) {
-        return res.status(400).json({ error: 'newName is required' });
-      }
-
-      const result = await renameBranch(directory, oldName, newName);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to rename branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to rename branch' });
-    }
-  });
-  app.delete('/api/git/remote-branches', async (req, res) => {
-    const { deleteRemoteBranch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { branch, remote } = req.body;
-      if (!branch) {
-        return res.status(400).json({ error: 'branch is required' });
-      }
-
-      const result = await deleteRemoteBranch(directory, { branch, remote });
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to delete remote branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to delete remote branch' });
-    }
-  });
-
-  app.post('/api/git/checkout', async (req, res) => {
-    const { checkoutBranch } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const { branch } = req.body;
-      if (!branch) {
-        return res.status(400).json({ error: 'branch is required' });
-      }
-
-      const result = await checkoutBranch(directory, branch);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to checkout branch:', error);
-      res.status(500).json({ error: error.message || 'Failed to checkout branch' });
-    }
-  });
-
-  app.post('/api/git/checkout-commit', async (req, res) => {
-    const { checkoutCommit } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-      const { hash } = req.body;
-      if (!req.body.hash || typeof req.body.hash !== 'string' || !/^[0-9a-fA-F]{7,40}$/.test(req.body.hash)) {
-        return res.status(400).json({ error: 'Invalid commit hash' });
-      }
-      const result = await checkoutCommit(directory, hash);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to checkout commit:', error);
-      res.status(500).json({ error: error.message || 'Failed to checkout commit' });
-    }
-  });
-
-  app.post('/api/git/cherry-pick', async (req, res) => {
-    const { cherryPick } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-      const { hash } = req.body;
-      if (!req.body.hash || typeof req.body.hash !== 'string' || !/^[0-9a-fA-F]{7,40}$/.test(req.body.hash)) {
-        return res.status(400).json({ error: 'Invalid commit hash' });
-      }
-      const result = await cherryPick(directory, hash);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to cherry-pick:', error);
-      res.status(500).json({ error: error.message || 'Failed to cherry-pick' });
-    }
-  });
-
-  app.post('/api/git/revert-commit', async (req, res) => {
-    const { revertCommit } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-      const { hash } = req.body;
-      if (!req.body.hash || typeof req.body.hash !== 'string' || !/^[0-9a-fA-F]{7,40}$/.test(req.body.hash)) {
-        return res.status(400).json({ error: 'Invalid commit hash' });
-      }
-      const result = await revertCommit(directory, hash);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to revert commit:', error);
-      res.status(500).json({ error: error.message || 'Failed to revert commit' });
-    }
-  });
-
-  app.post('/api/git/reset-to-commit', async (req, res) => {
-    const { resetToCommit } = await getGitLibraries();
-    try {
-      const directory = req.query.directory;
-      if (!directory) {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-      const { hash, mode, force } = req.body;
-      if (!req.body.hash || typeof req.body.hash !== 'string' || !/^[0-9a-fA-F]{7,40}$/.test(req.body.hash)) {
-        return res.status(400).json({ error: 'Invalid commit hash' });
-      }
-      if (!['soft', 'mixed', 'hard'].includes(mode)) {
-        return res.status(400).json({ error: 'mode must be soft, mixed, or hard' });
-      }
-      const result = await resetToCommit(directory, hash, mode, force === true);
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to reset to commit:', error);
-      res.status(500).json({ error: error.message || 'Failed to reset' });
-    }
-  });
 
   app.get('/api/git/worktrees', async (req, res) => {
     const { getWorktrees } = await getGitLibraries();
@@ -1095,66 +456,6 @@ export function registerGitRoutes(app) {
     }
   });
 
-  app.post('/api/git/worktrees/validate', async (req, res) => {
-    const { validateWorktreeCreate } = await getGitLibraries();
-    if (typeof validateWorktreeCreate !== 'function') {
-      return res.status(501).json({ error: 'Worktree validation is not available' });
-    }
-
-    try {
-      const directory = req.query.directory;
-      if (!directory || typeof directory !== 'string') {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const result = await validateWorktreeCreate(directory, req.body || {});
-      res.json(result);
-    } catch (error) {
-      console.error('Failed to validate worktree creation:', error);
-      res.status(500).json({ error: error.message || 'Failed to validate worktree creation' });
-    }
-  });
-
-  app.post('/api/git/worktrees', async (req, res) => {
-    const { createWorktree } = await getGitLibraries();
-    if (typeof createWorktree !== 'function') {
-      return res.status(501).json({ error: 'Worktree creation is not available' });
-    }
-
-    try {
-      const directory = req.query.directory;
-      if (!directory || typeof directory !== 'string') {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const created = await createWorktree(directory, req.body || {});
-      res.json(created);
-    } catch (error) {
-      console.error('Failed to create worktree:', error);
-      res.status(500).json({ error: error.message || 'Failed to create worktree' });
-    }
-  });
-
-  app.post('/api/git/worktrees/preview', async (req, res) => {
-    const { previewWorktreeCreate } = await getGitLibraries();
-    if (typeof previewWorktreeCreate !== 'function') {
-      return res.status(501).json({ error: 'Worktree preview is not available' });
-    }
-
-    try {
-      const directory = req.query.directory;
-      if (!directory || typeof directory !== 'string') {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const preview = await previewWorktreeCreate(directory, req.body || {});
-      res.json(preview);
-    } catch (error) {
-      console.error('Failed to preview worktree:', error);
-      res.status(500).json({ error: error.message || 'Failed to preview worktree' });
-    }
-  });
-
   app.get('/api/git/worktrees/bootstrap-status', async (req, res) => {
     const { getWorktreeBootstrapStatus } = await getGitLibraries();
     if (typeof getWorktreeBootstrapStatus !== 'function') {
@@ -1172,34 +473,6 @@ export function registerGitRoutes(app) {
     } catch (error) {
       console.error('Failed to get worktree bootstrap status:', error);
       res.status(500).json({ error: error.message || 'Failed to get worktree bootstrap status' });
-    }
-  });
-
-  app.delete('/api/git/worktrees', async (req, res) => {
-    const { removeWorktree } = await getGitLibraries();
-    if (typeof removeWorktree !== 'function') {
-      return res.status(501).json({ error: 'Worktree removal is not available' });
-    }
-
-    try {
-      const directory = req.query.directory;
-      if (!directory || typeof directory !== 'string') {
-        return res.status(400).json({ error: 'directory parameter is required' });
-      }
-
-      const worktreeDirectory = typeof req.body?.directory === 'string' ? req.body.directory : '';
-      if (!worktreeDirectory) {
-        return res.status(400).json({ error: 'worktree directory is required' });
-      }
-
-      const result = await removeWorktree(directory, {
-        directory: worktreeDirectory,
-        deleteLocalBranch: req.body?.deleteLocalBranch === true,
-      });
-      res.json({ success: Boolean(result) });
-    } catch (error) {
-      console.error('Failed to remove worktree:', error);
-      res.status(500).json({ error: error.message || 'Failed to remove worktree' });
     }
   });
 
@@ -1258,7 +531,7 @@ export function registerGitRoutes(app) {
   });
 
   app.get('/api/git/log', async (req, res) => {
-    const { getLog } = await getGitLibraries();
+    const { getLog, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory) {
@@ -1276,13 +549,14 @@ export function registerGitRoutes(app) {
       });
       res.json(log);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get log:', error);
       res.status(500).json({ error: error.message || 'Failed to get commit log' });
     }
   });
 
   app.get('/api/git/commit-files', async (req, res) => {
-    const { getCommitFiles } = await getGitLibraries();
+    const { getCommitFiles, GitArgumentRefusedError } = await getGitLibraries();
     try {
       const { directory, hash } = req.query;
       if (!directory) {
@@ -1295,6 +569,7 @@ export function registerGitRoutes(app) {
       const result = await getCommitFiles(directory, hash);
       res.json(result);
     } catch (error) {
+      if (sendRefusedGitArgument(res, error, GitArgumentRefusedError)) return;
       console.error('Failed to get commit files:', error);
       res.status(500).json({ error: error.message || 'Failed to get commit files' });
     }

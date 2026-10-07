@@ -11,6 +11,7 @@ This module provides server-side Text-to-Speech services using OpenAI's TTS API.
 - `packages/web/server/lib/text/summarization.js`: Shared text summarization stub and sanitization utilities. It performs no external Zen calls.
 - `packages/web/server/lib/tts/stt.js`: STT proxy for OpenAI-compatible transcription endpoints.
 - `packages/web/server/lib/tts/base-url.js`: shared base URL validation and normalization for custom OpenAI-compatible endpoints.
+- `POST /api/tts/say/speak` (macOS) runs `say` with `execFile` and an argument array, never a shell. `rate` must be a number from 50 to 500; `voice` must match `^[A-Za-z0-9()._][A-Za-z0-9 ()._-]{0,63}$` and, when `say -v '?'` listed voices, be one of them. Either refusal is a 400 on every platform, before the macOS check. The text goes through stdin, so it is never read as an option. `registerTtsRoutes(app, { sayTTSCapability, platform })` takes the platform (default `process.platform`) so tests can drive the macOS path.
 - `packages/web/server/lib/tts/language-detect.js`: dependency-free language detection for voice selection (`detectTextLanguage`, `pickVoiceForLanguage`, `languageOfLocale`). Used by the macOS `say` route (`language: 'auto'` switches to an installed voice whose locale matches the text; the response carries `X-Speech-Voice` and `X-Speech-Language`) and by the dictation module's local TTS model choice.
 
 ## Public exports

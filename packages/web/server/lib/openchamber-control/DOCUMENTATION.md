@@ -52,7 +52,10 @@ other.
 - One failed directory status lookup produces `unknown` for only that
   directory and does not erase other session results.
 - Destructive session/worktree deletion and project-path registration are not
-  part of the action contract.
+  part of the action contract. `session.create` with a `worktree` is refused
+  with 400 ("worktree is no longer supported") before any side effect: a
+  worktree checkout runs repository hooks with server authority
+  (openchamber#554 round 6).
 - `browser.capture` writes its image on the server, into
   `.openchamber/screenshots/` under the scoped project directory, and returns
   the project-relative path rather than the image bytes. The client that took

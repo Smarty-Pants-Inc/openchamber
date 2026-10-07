@@ -35,9 +35,10 @@ import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue, buildLinkedLinearIssue } from '@/lib/linkedIssues';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { validateWorktreeCreate } from '@/lib/worktrees/worktreeManager';
+import { WorktreeMutationUnavailableError } from '@/lib/gitApi';
 import { createWorktreeWithDefaults } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
-import { getWorktreeSetupCommands, getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
+import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
 import { generateBranchSlug } from '@/lib/git/branchNameGenerator';
 import { renderMagicPrompt } from '@/lib/magicPrompts';
@@ -111,16 +112,6 @@ const normalizeBranchName = (value: string): string => {
     .replace(/^\/+|\/+$/g, '');
 };
 
-const sanitizeRemoteName = (value: string): string => {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return normalized || 'pr-head';
-};
-
 const resolvePrWorktreeConfig = (pr: GitHubPullRequestSummary, localBranches: string[], remoteBranches: string[]) => {
   const headBranch = normalizeBranchName(pr.head || '');
   if (!headBranch) {
@@ -133,8 +124,6 @@ const resolvePrWorktreeConfig = (pr: GitHubPullRequestSummary, localBranches: st
       setUpstream: undefined,
       upstreamRemote: undefined,
       upstreamBranch: undefined,
-      ensureRemoteName: undefined,
-      ensureRemoteUrl: undefined,
       sourceLabel: headBranch,
     };
   }
@@ -155,34 +144,17 @@ const resolvePrWorktreeConfig = (pr: GitHubPullRequestSummary, localBranches: st
       setUpstream: true as const,
       upstreamRemote: remoteName,
       upstreamBranch: headBranch,
-      ensureRemoteName: undefined,
-      ensureRemoteUrl: undefined,
       sourceLabel: `${remoteName}/${headBranch}`,
     };
   }
 
-  const ownerFromLabel = String(pr.headLabel || '').split(':')[0]?.trim();
-  const remoteSeed = pr.headRepo?.owner || ownerFromLabel || 'pr-head';
-  const remoteName = `pr-${sanitizeRemoteName(remoteSeed)}`;
-  // Prefer HTTPS so anonymous public fetches do not require SSH agent setup.
-  const remoteUrl = pr.headRepo?.cloneUrl || pr.headRepo?.sshUrl || '';
-
-  if (!remoteUrl) {
-    throw new Error(
-      'PR head repository URL is unavailable. The fork may have been deleted; '
-      + 'push the branch to a reachable repository and try again.'
-    );
-  }
-
-  return {
-    existingBranch: `remotes/${remoteName}/${headBranch}`,
-    setUpstream: true as const,
-    upstreamRemote: remoteName,
-    upstreamBranch: headBranch,
-    ensureRemoteName: remoteName,
-    ensureRemoteUrl: remoteUrl,
-    sourceLabel: `${remoteName}/${headBranch}`,
-  };
+  // The server no longer adds or changes git remotes (smarty-code#1398 slice 2): a PR head
+  // on a fork that is not yet a remote of this repository cannot be checked out from here.
+  const headOwner = pr.headRepo?.owner || String(pr.headLabel || '').split(':')[0]?.trim() || '';
+  throw new Error(
+    `PR branch ${headOwner ? `${headOwner}:` : ''}${headBranch} is not on a remote of this repository. `
+    + 'Add the fork as a git remote, fetch it, and try again.'
+  );
 };
 
 const slugifyWorktreeName = (value: string): string => {
@@ -850,8 +822,6 @@ export function NewWorktreeDialog({
           worktreeName: normalizedWorktree,
           existingBranch: prConfig?.existingBranch ?? (mode === 'existing-branch' ? normalizedBranch : undefined),
         };
-        if (prConfig?.ensureRemoteName) validateArgs.ensureRemoteName = prConfig.ensureRemoteName;
-        if (prConfig?.ensureRemoteUrl) validateArgs.ensureRemoteUrl = prConfig.ensureRemoteUrl;
         const result = await validateWorktreeCreate(projectRef, validateArgs);
         
         if (abortController.signal.aborted) return;
@@ -962,7 +932,6 @@ export function NewWorktreeDialog({
       const includePrDiff = mode === 'new-branch' ? newBranchState.includePrDiff : false;
       const shouldCreateSession = Boolean(linkedIssue || linkedPrState || linkedLinearIssue);
 
-      const setupCommands = await getWorktreeSetupCommands(projectRef);
       const sourceBranch = newBranchState.sourceBranch;
 
       let sourceLabel = '';
@@ -976,14 +945,11 @@ export function NewWorktreeDialog({
             branchName: normalizedBranch,
             worktreeName: normalizedWorktree,
             existingBranch: prConfig.existingBranch,
-            setupCommands,
             setUpstream: prConfig.setUpstream,
             upstreamRemote: prConfig.upstreamRemote,
             upstreamBranch: prConfig.upstreamBranch,
             returnAfterDirectoryCreated: true,
           };
-          if (prConfig.ensureRemoteName) prArgs.ensureRemoteName = prConfig.ensureRemoteName;
-          if (prConfig.ensureRemoteUrl) prArgs.ensureRemoteUrl = prConfig.ensureRemoteUrl;
           return prArgs;
         }
 
@@ -994,7 +960,6 @@ export function NewWorktreeDialog({
           branchName: mode === 'existing-branch' ? undefined : normalizedBranch,
           worktreeName: normalizedWorktree,
           existingBranch: mode === 'existing-branch' ? normalizedBranch : undefined,
-          setupCommands,
           returnAfterDirectoryCreated: true,
         };
         if (sourceBranch && mode === 'new-branch') baseArgs.startRef = sourceBranch;
@@ -1077,7 +1042,9 @@ export function NewWorktreeDialog({
         onWorktreeCreated?.(metadata.path);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('session.newWorktree.error.createWorktreeFailed');
+      const message = error instanceof WorktreeMutationUnavailableError
+        ? t('worktree.mutationUnavailable')
+        : error instanceof Error ? error.message : t('session.newWorktree.error.createWorktreeFailed');
       toast.error(t('session.newWorktree.error.createWorktreeFailed'), { description: message });
     } finally {
       setIsCreating(false);

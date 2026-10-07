@@ -10,11 +10,12 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextStore } from '@/stores/contextStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
+import { canMutateWorktrees, checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
+import { formatMessage, useI18nStore } from '@/lib/i18n';
 import { generateBranchName } from '@/lib/git/branchNameGenerator';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
-import { getWorktreeSetupCommands, getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
+import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
 import {
   removeProjectWorktree,
   type ProjectRef,
@@ -29,6 +30,16 @@ import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { normalizePath } from '@/lib/pathNormalization';
 import { resolveProjectForDirectory } from '@/lib/projectResolution';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
+
+/**
+ * Tell the user that this runtime cannot create or remove worktrees. The
+ * OpenChamber server refuses worktree mutations; only a runtime with a local
+ * bridge (VS Code) performs them, so entry points that cannot be hidden report
+ * this instead of failing with a transport error.
+ */
+const notifyWorktreeMutationUnavailable = (): void => {
+  toast.error(formatMessage(useI18nStore.getState().dictionary, 'worktree.mutationUnavailable'));
+};
 
 const waitForWorktreeBootstrapIfEnabled = async (project: ProjectRef, directory: string): Promise<void> => {
   if (await getWorktreeSetupWaitEnabled(project)) {
@@ -71,14 +82,12 @@ export const createQuickWorktree = async (
   options: { preferredName?: string; startRef?: string } = {},
 ) => {
   const preferredName = options.preferredName ?? generateBranchName();
-  const setupCommands = await getWorktreeSetupCommands(project);
   return createWorktreeWithDefaults(project, {
     preferredName,
     mode: 'new',
     branchName: preferredName,
     worktreeName: preferredName,
     startRef: options.startRef,
-    setupCommands,
     returnAfterDirectoryCreated: true,
   });
 };
@@ -183,6 +192,11 @@ const createInstantWorktreeDraft = async (options?: {
   }
 
   if (isCreatingWorktreeSession) {
+    return null;
+  }
+
+  if (!canMutateWorktrees()) {
+    notifyWorktreeMutationUnavailable();
     return null;
   }
 
@@ -323,13 +337,16 @@ export async function createWorktreeSessionForNewBranch(
     setUpstream?: boolean;
     upstreamRemote?: string;
     upstreamBranch?: string;
-    ensureRemoteName?: string;
-    ensureRemoteUrl?: string;
     createdFromBranch?: string;
     returnAfterDirectoryCreated?: boolean;
   }
 ): Promise<{ id: string; branch: string; path: string } | null> {
   if (isCreatingWorktreeSession) {
+    return null;
+  }
+
+  if (!canMutateWorktrees()) {
+    notifyWorktreeMutationUnavailable();
     return null;
   }
 
@@ -363,7 +380,6 @@ export async function createWorktreeSessionForNewBranch(
       return null;
     }
 
-    const setupCommands = await getWorktreeSetupCommands(projectRef);
     const rootBranch = await getRootBranch(projectRef.path);
     try {
       const metadata = await createWorktreeWithDefaults(projectRef, {
@@ -375,9 +391,6 @@ export async function createWorktreeSessionForNewBranch(
         setUpstream: options?.setUpstream,
         upstreamRemote: options?.upstreamRemote,
         upstreamBranch: options?.upstreamBranch,
-        ensureRemoteName: options?.ensureRemoteName,
-        ensureRemoteUrl: options?.ensureRemoteUrl,
-        setupCommands,
         returnAfterDirectoryCreated: options?.returnAfterDirectoryCreated,
       });
       const createdMetadata = {

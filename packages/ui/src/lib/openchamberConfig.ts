@@ -345,19 +345,6 @@ async function updateOpenChamberConfig(
   return writeOpenChamberConfig(project, merged);
 }
 
-/**
- * Get worktree setup commands from config.
- */
-export async function getWorktreeSetupCommands(project: ProjectRef): Promise<string[]> {
-  const config = await readOpenChamberConfig(project);
-  return config?.['setup-worktree'] ?? [];
-}
-
-export async function saveWorktreeSetupCommands(project: ProjectRef, commands: string[]): Promise<boolean> {
-  const filtered = commands.filter((cmd) => cmd.trim().length > 0);
-  return updateOpenChamberConfig(project, { 'setup-worktree': filtered });
-}
-
 export async function getWorktreeSetupWaitEnabled(project: ProjectRef): Promise<boolean> {
   const config = await readOpenChamberConfig(project);
   return config?.['setup-worktree-wait'] === true;
@@ -377,25 +364,6 @@ export async function getProjectDraftStarters(project: ProjectRef): Promise<Draf
 
 export async function saveProjectDraftStarters(project: ProjectRef, starters: DraftStarterRef[]): Promise<boolean> {
   return updateOpenChamberConfig(project, { draftStarters: sanitizeStarterRefs(starters) });
-}
-
-/**
- * Substitute variables in a command string.
- * Supported variables:
- * - $ROOT_PROJECT_PATH: The root project directory path
- * - $ROOT_WORKTREE_PATH: Legacy alias for $ROOT_PROJECT_PATH
- */
-export function substituteCommandVariables(
-  command: string,
-  variables: { rootWorktreePath: string }
-): string {
-  return command
-    // New preferred name
-    .replace(/\$ROOT_PROJECT_PATH/g, variables.rootWorktreePath)
-    .replace(/\$\{ROOT_PROJECT_PATH\}/g, variables.rootWorktreePath)
-    // Legacy
-    .replace(/\$ROOT_WORKTREE_PATH/g, variables.rootWorktreePath)
-    .replace(/\$\{ROOT_WORKTREE_PATH\}/g, variables.rootWorktreePath);
 }
 
 async function deleteLegacyOpenChamberConfig(projectDirectory: string): Promise<void> {

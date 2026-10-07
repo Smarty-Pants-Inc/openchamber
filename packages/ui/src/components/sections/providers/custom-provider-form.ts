@@ -74,7 +74,7 @@ export type CustomProviderConfig = {
 export type CustomProviderPersistPlan = {
   providerID: string;
   name: string;
-  /** Literal API key to send via auth.set; omitted when using {env:VAR} or empty. */
+  /** Literal API key from the form; omitted when using {env:VAR} or empty. The browser never writes it (smarty-code#1398). */
   apiKey?: string;
   config: CustomProviderConfig;
 };
@@ -394,22 +394,6 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
         models: modelConfig,
       },
     },
-  };
-}
-
-/**
- * Builds the OpenCode auth.set request body when a literal API key is present.
- */
-export function buildAuthSetRequest(plan: CustomProviderPersistPlan): {
-  providerID: string;
-  auth: { type: 'api'; key: string };
-} | null {
-  if (!plan.apiKey) {
-    return null;
-  }
-  return {
-    providerID: plan.providerID,
-    auth: { type: 'api', key: plan.apiKey },
   };
 }
 

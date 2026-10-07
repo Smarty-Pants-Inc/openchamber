@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { createPortal } from 'react-dom';
 import {
   RiAddLine,
@@ -89,8 +90,6 @@ type MobileSessionsSheetProps = {
     instanceLabel: string | null;
     onOpenInstances?: () => void;
     onOpenSettings: () => void;
-    /** Present only while a server update is available (hosted web). */
-    onOpenUpdate?: () => void;
   };
 };
 
@@ -959,6 +958,8 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const [worktreeRefreshKey, setWorktreeRefreshKey] = React.useState(0);
   const [directoryDialogOpen, setDirectoryDialogOpen] = React.useState(false);
   const [newWorktreeDialogOpen, setNewWorktreeDialogOpen] = React.useState(false);
+  // Worktree creation needs a runtime-local bridge; the server refuses it.
+  const worktreeMutationsAvailable = canMutateWorktrees();
   const [worktreeDialogProjectId, setWorktreeDialogProjectId] = React.useState<string | null>(null);
   // Seeded from the app-level worktree discovery (MobileApp populates
   // availableWorktreesByProject on connect) so the FIRST open already shows
@@ -1661,7 +1662,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                             {project.sessionCount}
                           </span>
                         </button>
-                        {project.isGitRepo ? (
+                        {project.isGitRepo && worktreeMutationsAvailable ? (
                           <NewWorktreeIconButton
                             className="mr-2"
                             onClick={() => handleNewWorktree(project.id)}
@@ -1843,7 +1844,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                             {node.totalSessions}
                           </span>
                         </button>
-                        {node.project.isGitRepo ? (
+                        {node.project.isGitRepo && worktreeMutationsAvailable ? (
                           <NewWorktreeIconButton
                             className="mr-2"
                             onClick={() => handleNewWorktree(node.project.id)}
@@ -1882,6 +1883,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
                                           aria-label={t('mobile.projectEdit.deleteWorktreeAria', { label: bucket.label })}
                                           onClick={() => {
                                             setRevealedRowId(null);
+                                            // Worktree removal needs a runtime-local bridge; the server refuses it.
+                                            if (!worktreeMutationsAvailable) {
+                                              toast.error(t('worktree.mutationUnavailable'));
+                                              return;
+                                            }
                                             if (bucket.worktree) {
                                               setWorktreeToDelete({ project: node.project, worktree: bucket.worktree });
                                             }
@@ -1980,21 +1986,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               <div className="min-w-0 flex-1" />
             )}
             <div className="flex shrink-0 items-center gap-1">
-              {footer.onOpenUpdate ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="lg"
-                  className="w-10 px-0"
-                  onClick={footer.onOpenUpdate}
-                  aria-label={t('mobile.menu.update')}
-                  title={t('mobile.menu.update')}
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <Icon name="download" className="size-5" />
-                  <span className="absolute right-2 top-2 inline-flex size-2 rounded-full bg-primary" aria-hidden />
-                </Button>
-              ) : null}
               <Button
                 type="button"
                 variant="default"

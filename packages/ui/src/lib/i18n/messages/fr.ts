@@ -2992,6 +2992,7 @@ export const dict = {
   'worktree.bootstrap.toast.failed': 'Échec de la configuration du worktree',
   'worktree.bootstrap.toast.failedDescription': 'Le worktree a été créé, mais la configuration en arrière-plan ne s’est pas terminée.',
   'worktree.bootstrap.toast.timeoutDescription': 'Le worktree a été créé, mais la configuration en arrière-plan a expiré.',
+  'worktree.mutationUnavailable': 'Les worktrees ne peuvent être créés et supprimés que dans l’extension VS Code.',
   'contextPanel.browser.inspectUnavailable': 'Cette page ne peut pas être inspectée depuis le panneau de navigateur.',
   'contextPanel.browser.back': 'Retour',
   'contextPanel.browser.forward': 'Suivant',

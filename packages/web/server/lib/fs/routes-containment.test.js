@@ -94,15 +94,6 @@ describe('containment review cases (OC100 pass 1)', () => {
     expect(await fs.readdir(path.join(root, 'outside'))).toEqual([]);
   });
 
-  it('exec refuses a working directory that leaves through a symbolic link, before spawning', async () => {
-    await fs.symlink(path.join(root, 'outside'), path.join(root, 'project', 'link'));
-    const spawn = vi.fn();
-    const call = setup({ spawn });
-    const res = await call('/api/fs/exec', { commands: ['touch created'], cwd: path.join(root, 'project', 'link') });
-    expect(res.statusCode).toBe(403);
-    expect(spawn).not.toHaveBeenCalled();
-  });
-
   it('a symlink-relocated chats root under the config root still works', async () => {
     await fs.rm(path.join(root, 'config'), { recursive: true });
     await fs.mkdir(path.join(root, 'config'));

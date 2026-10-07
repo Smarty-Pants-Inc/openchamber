@@ -997,6 +997,7 @@ export const dict = {
   'worktree.bootstrap.toast.failed': 'Worktree kurulumu başarısız oldu',
   'worktree.bootstrap.toast.failedDescription': 'Worktree oluşturuldu ancak arka plandaki kurulum tamamlanmadı.',
   'worktree.bootstrap.toast.timeoutDescription': 'Worktree oluşturuldu ancak arka plandaki kurulum zaman aşımına uğradı.',
+  'worktree.mutationUnavailable': 'Worktree\'ler yalnızca VS Code uzantısında oluşturulup kaldırılabilir.',
   'gitView.gitmoji.empty': 'gitmoji bulunamadı',
   'gitView.gitmoji.searchPlaceholder': 'gitmoji ara...',
   'gitView.gitmoji.title': 'gitmoji ekle',

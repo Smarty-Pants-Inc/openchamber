@@ -79,7 +79,7 @@ export const createStartupPipelineRuntime = (dependencies) => {
       upstreamStallTimeoutMs,
     });
 
-    // The deleted terminal's namespace is refused locally, never proxied upstream.
+    // Retired namespaces (the deleted terminal and the host-power routes) are refused locally, never proxied upstream.
     installRetiredRouteRefusal({ app, server });
     setupProxy(app);
     registerOrgEntryRoutes(app);

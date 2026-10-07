@@ -2443,13 +2443,11 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       ])
       const branchName = branchNameModule.generateBranchName()
       createdWorktreeProject = { id: project.id, path: project.path }
-      const setupCommands = await configModule.getWorktreeSetupCommands(createdWorktreeProject)
       createdWorktree = await createModule.createWorktreeWithDefaults(createdWorktreeProject, {
         preferredName: branchName,
         mode: "new",
         branchName,
         worktreeName: branchName,
-        setupCommands,
         returnAfterDirectoryCreated: true,
       })
       sessionDirectory = normalizePath(createdWorktree.path)

@@ -1029,6 +1029,7 @@ export const dict: Record<I18nKey, string> = {
   'worktree.bootstrap.toast.failed': 'worktree 設定失敗',
   'worktree.bootstrap.toast.failedDescription': 'worktree 已建立，但背景設定未完成。',
   'worktree.bootstrap.toast.timeoutDescription': 'worktree 已建立，但背景設定逾時。',
+  'worktree.mutationUnavailable': '只能在 VS Code 擴充功能中建立和移除 worktree。',
   'gitView.gitmoji.empty': '找不到 gitmoji',
   'gitView.gitmoji.searchPlaceholder': '搜尋 gitmoji...',
   'gitView.gitmoji.title': '插入 gitmoji',

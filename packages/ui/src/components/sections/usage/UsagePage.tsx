@@ -1,6 +1,5 @@
 import React from 'react';
 import { UsageCard } from './UsageCard';
-import { QuotaCredentials } from './QuotaCredentials';
 import { QUOTA_PROVIDERS } from '@/lib/quota';
 import { useQuotaAutoRefresh, useQuotaStore } from '@/stores/useQuotaStore';
 import { updateDesktopSettings } from '@/lib/persistence';
@@ -80,7 +79,6 @@ export const UsagePage: React.FC = () => {
     ? selectedResult.error
     : null;
   const showInDropdown = selectedProviderId ? dropdownProviderIds.includes(selectedProviderId) : false;
-  const hasCredentialsForm = selectedProviderId === 'exe-dev' || selectedProviderId === 'ollama-cloud' || selectedProviderId === 'cursor';
   const handleDropdownToggle = React.useCallback((enabled: boolean) => {
     if (!selectedProviderId) {
       return;
@@ -194,18 +192,13 @@ export const UsagePage: React.FC = () => {
         </div>
       )}
 
-      {/* Providers with an inline credentials form don't need the "go to Providers" banner — the form IS the fix. */}
-      {selectedResult && !selectedResult.configured && !hasCredentialsForm && (
+      {selectedResult && !selectedResult.configured && (
         <div className="mb-8 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-4 py-3">
           <p className="typography-ui-label font-medium text-[var(--status-warning)]">{t('settings.usage.page.state.providerNotConfiguredTitle')}</p>
           <p className="typography-meta text-[var(--status-warning)]/80 mt-1">
             {t('settings.usage.page.state.providerNotConfiguredDescription')}
           </p>
         </div>
-      )}
-
-      {(selectedProviderId === 'exe-dev' || selectedProviderId === 'ollama-cloud' || selectedProviderId === 'cursor') && (
-        <QuotaCredentials providerId={selectedProviderId} providerName={providerName} />
       )}
 
       {usage?.windows && Object.keys(usage.windows).length > 0 && (

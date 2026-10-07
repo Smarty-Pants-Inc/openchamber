@@ -21,12 +21,6 @@ import { registerBrowserController } from '@/lib/browser/controlClient';
 import { suggestFromHistory } from '@/lib/browser/history';
 import { selectBrowserHistory, useBrowserHistoryStore } from '@/stores/useBrowserHistoryStore';
 import {
-  DevTunnelUnavailableError,
-  resolveBrowsableUrl,
-  shouldTunnelLoopbackUrl,
-  toDisplayUrl,
-} from '@/lib/browser/devTunnel';
-import {
   buildClickScript,
   buildInspectScript,
   buildScrollScript,
@@ -45,7 +39,7 @@ import {
 } from '@/lib/browser/viewport';
 import { BrowserEmptyState } from './BrowserEmptyState';
 import { useAnnotationAttach, useAnnotationOverlayLabels } from './useAnnotationAttach';
-import { readEventPayload, useWebviewNavigation } from './useWebviewNavigation';
+import { useWebviewNavigation } from './useWebviewNavigation';
 
 export type BrowserPaneProps = {
   initialUrl: string;
@@ -105,7 +99,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
   // an imperative navigation is lost, and mutating `src` after the element
   // exists is not reliably honoured either — both leave a panel that never
   // loads. `null` means "still resolving", and the view is not rendered yet.
-  const [initialSrc, setInitialSrc] = React.useState<string | null>(startUrl ? null : BLANK_URL);
+  const [initialSrc, setInitialSrc] = React.useState<string>(startUrl || BLANK_URL);
 
   const [address, setAddress] = React.useState(startUrl);
   const [isAnnotating, setIsAnnotating] = React.useState(false);
@@ -141,14 +135,11 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
   const navigation = useWebviewNavigation(webviewElement, {
     initialUrl: startUrl,
     onUrlChange: React.useCallback((url: string) => {
-      const display = toDisplayUrl(url);
-      setAddress(display);
-      persistUrl(display);
+      setAddress(url);
+      persistUrl(url);
     }, [persistUrl]),
   });
 
-  /** Set when a remote dev server could not be reached from this machine. */
-  const [tunnelFailedUrl, setTunnelFailedUrl] = React.useState<string | null>(null);
   const attachAnnotation = useAnnotationAttach(directory);
   const overlayLabels = useAnnotationOverlayLabels();
   const isLoading = navigation.status.kind === 'loading';
@@ -161,7 +152,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
   React.useEffect(() => {
     if (navigation.status.kind !== 'ready') return;
     recordHistoryVisit(directory, {
-      url: toDisplayUrl(navigation.status.url),
+      url: navigation.status.url,
       title: navigation.status.title,
     });
   }, [directory, navigation.status, recordHistoryVisit]);
@@ -173,52 +164,19 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
   const loadUrl = React.useCallback((value: string) => {
     const next = normalizeBrowserUrl(value);
     if (next === BLANK_URL) return;
-    // The address bar shows what the user asked for; a tunnel only changes
-    // where the bytes come from, and surfacing 127.0.0.1:<random> would be
-    // confusing and useless to copy.
     setAddress(next);
-    setTunnelFailedUrl(null);
-    void resolveBrowsableUrl(next).then((target) => {
-      const webview = webviewRef.current;
-      if (!webview) {
-        setInitialSrc(target);
-        return;
-      }
-      try {
-        webview.loadURL(target);
-      } catch {
-        // Not attached yet: hand the navigation to the attribute, which
-        // Chromium applies once the view attaches.
-        setInitialSrc(target);
-      }
-    }).catch((error: unknown) => {
-      // Loading the address here anyway would answer from this machine while
-      // showing the remote one's address. Say what happened instead.
-      if (error instanceof DevTunnelUnavailableError) setTunnelFailedUrl(next);
-    });
-  }, []);
-
-  // Resolving through the tunnel is what lets a persisted loopback URL reach a
-  // dev server on a remote host; locally it returns the URL unchanged.
-  React.useEffect(() => {
-    if (!startUrl) return;
-    let active = true;
-    void resolveBrowsableUrl(startUrl)
-      .then((target) => { if (active) setInitialSrc(target); })
-      .catch((error: unknown) => {
-        if (!active) return;
-        if (error instanceof DevTunnelUnavailableError) {
-          // The view still needs a src or the panel stays blank forever; it
-          // gets a blank one, with the failure stated over it.
-          setTunnelFailedUrl(startUrl);
-          setInitialSrc(BLANK_URL);
-          return;
-        }
-        setInitialSrc(startUrl);
-      });
-    return () => { active = false; };
-    // Only ever the initial navigation; later changes come from the user.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const webview = webviewRef.current;
+    if (!webview) {
+      setInitialSrc(next);
+      return;
+    }
+    try {
+      webview.loadURL(next);
+    } catch {
+      // Not attached yet: hand the navigation to the attribute, which
+      // Chromium applies once the view attaches.
+      setInitialSrc(next);
+    }
   }, []);
 
   const annotationHost = React.useMemo<AnnotationHost>(() => ({
@@ -336,7 +294,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
       await waitForIdle();
       let title = '';
       try { title = webview.getTitle() || ''; } catch { title = ''; }
-      return { url: toDisplayUrl(webview.getURL()), title };
+      return { url: webview.getURL(), title };
     }
 
     if (action === 'browser.capture') {
@@ -368,7 +326,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
       try { title = webview.getTitle() || ''; } catch { title = ''; }
       return {
         ...capture,
-        url: toDisplayUrl(webview.getURL()),
+        url: webview.getURL(),
         title,
         viewport: viewportSummary(viewportRef.current),
       };
@@ -511,61 +469,6 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
     };
   }, [webviewElement]);
 
-  /**
-   * Keeps loopback navigations on the machine the page came from.
-   *
-   * A tunnelled page can send the view to another local port — a docs server
-   * behind a dev gateway, an API on its own port. That navigation happens
-   * inside the view, so nothing resolved it, and it would be looked for on this
-   * machine instead of the host.
-   *
-   * A link or a script navigation is caught before it happens. A server
-   * redirect cannot be: by the time the view reports it, it is already loading.
-   * That one is recovered from its failure instead, once per address, so a port
-   * that genuinely is not there still fails honestly.
-   */
-  const retunneledUrlsRef = React.useRef(new Set<string>());
-  // Asking for an address again is a fresh request, so the recovery budget
-  // comes back with it. The automatic retry deliberately does not reset it.
-  const loadUrlFromUser = React.useCallback((value: string) => {
-    retunneledUrlsRef.current.clear();
-    loadUrl(value);
-  }, [loadUrl]);
-  React.useEffect(() => {
-    if (!webviewElement) return;
-
-    const onWillNavigate = (event: Event) => {
-      const detail = readEventPayload<{ url?: string }>(event);
-      const target = typeof detail.url === 'string' ? detail.url : '';
-      if (!target || !shouldTunnelLoopbackUrl(target)) return;
-      event.preventDefault();
-      loadUrl(target);
-    };
-
-    const onFailLoad = (event: Event) => {
-      const detail = readEventPayload<{
-        errorCode?: number;
-        validatedURL?: string;
-        isMainFrame?: boolean;
-      }>(event);
-      if (detail.isMainFrame === false) return;
-      // Superseded navigations are not failures.
-      if (detail.errorCode === -3) return;
-      const target = typeof detail.validatedURL === 'string' ? detail.validatedURL : '';
-      if (!target || !shouldTunnelLoopbackUrl(target)) return;
-      if (retunneledUrlsRef.current.has(target)) return;
-      retunneledUrlsRef.current.add(target);
-      loadUrl(target);
-    };
-
-    webviewElement.addEventListener('will-navigate', onWillNavigate);
-    webviewElement.addEventListener('did-fail-load', onFailLoad);
-    return () => {
-      webviewElement.removeEventListener('will-navigate', onWillNavigate);
-      webviewElement.removeEventListener('did-fail-load', onFailLoad);
-    };
-  }, [loadUrl, webviewElement]);
-
   // Popups open in place; a detached window would escape the panel entirely.
   React.useEffect(() => {
     if (!webviewElement) return;
@@ -706,7 +609,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
     // on the server, where our ephemeral port means nothing. Asking about it
     // failed every time, which read as "settled" and left the page on the error
     // until a manual reload.
-    void probeLoopbackStatus(toDisplayUrl(status.url)).then((httpStatus) => {
+    void probeLoopbackStatus(status.url).then((httpStatus) => {
       if (cancelled) return;
       if (httpStatus === null || httpStatus < 500) {
         servedOkRef.current = true;
@@ -729,7 +632,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
       <BrowserToolbar
         address={address}
         onAddressChange={setAddress}
-        onSubmit={loadUrlFromUser}
+        onSubmit={loadUrl}
         suggestions={suggestions}
         onForgetSuggestion={(url) => forgetHistoryVisit(directory, url)}
         onBack={() => { try { webviewRef.current?.goBack(); } catch { /* not attached */ } }}
@@ -770,28 +673,26 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
           layout && 'flex items-center justify-center overflow-hidden bg-[var(--surface-muted)]',
         )}
       >
-        {initialSrc !== null ? (
-          <webview
-            ref={attachWebview}
-            src={initialSrc}
-            partition="persist:openchamber-browser"
-            allowpopups
-            style={layout
-              ? {
-                // Laid out at the chosen size and scaled visually: the page must
-                // measure itself at the width being tested, not at the panel's.
-                width: `${layout.width}px`,
-                height: `${layout.height}px`,
-                transform: `scale(${layout.scale})`,
-                border: 'none',
-                flex: 'none',
-                boxShadow: '0 2px 18px rgba(0,0,0,.28)',
-              }
-              : { width: '100%', height: '100%', border: 'none' }}
-          />
-        ) : null}
-        {initialSrc !== null && !startUrl && !navigation.url && !isLoading ? (
-          <BrowserEmptyState onOpen={loadUrlFromUser} directory={directory} />
+        <webview
+          ref={attachWebview}
+          src={initialSrc}
+          partition="persist:openchamber-browser"
+          allowpopups
+          style={layout
+            ? {
+              // Laid out at the chosen size and scaled visually: the page must
+              // measure itself at the width being tested, not at the panel's.
+              width: `${layout.width}px`,
+              height: `${layout.height}px`,
+              transform: `scale(${layout.scale})`,
+              border: 'none',
+              flex: 'none',
+              boxShadow: '0 2px 18px rgba(0,0,0,.28)',
+            }
+            : { width: '100%', height: '100%', border: 'none' }}
+        />
+        {!startUrl && !navigation.url && !isLoading ? (
+          <BrowserEmptyState onOpen={loadUrl} directory={directory} />
         ) : null}
         {isWaitingForServer ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background p-6 text-center">
@@ -799,15 +700,7 @@ const WebviewBrowser: React.FC<BrowserPaneProps> = ({ initialUrl, directory, tab
             <span className="typography-micro text-muted-foreground">{t('contextPanel.browser.waitingForServerHint')}</span>
           </div>
         ) : null}
-        {tunnelFailedUrl ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background p-6 text-center">
-            <span className="typography-ui-header text-foreground">{t('contextPanel.browser.tunnelFailed')}</span>
-            <span className="typography-micro text-muted-foreground">
-              {t('contextPanel.browser.tunnelFailedHint', { url: tunnelFailedUrl })}
-            </span>
-          </div>
-        ) : null}
-        {failed && !tunnelFailedUrl ? (
+        {failed ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background p-6 text-center">
             <span className="typography-ui-header text-foreground">
               {failed.crashed ? t('contextPanel.browser.crashed') : t('contextPanel.browser.loadFailed')}

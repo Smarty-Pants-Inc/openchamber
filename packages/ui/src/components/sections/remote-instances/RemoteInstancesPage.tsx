@@ -36,7 +36,6 @@ import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint'
 import { useDesktopSshStore } from '@/stores/useDesktopSshStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { toast } from '@/components/ui';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Radio } from '@/components/ui/radio';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
@@ -509,14 +508,14 @@ export const RemoteInstancesPage: React.FC = () => {
   const [createdPairingId, setCreatedPairingId] = React.useState<string | null>(null);
   const [pairingQrDataUrl, setPairingQrDataUrl] = React.useState<string | null>(null);
   const [pairingCopied, setPairingCopied] = React.useState(false);
-  // "Add a device" dialog: a configure phase (name + transport + fallback) then a
-  // result phase (QR + link). The QR only ever shows inside this dialog.
+  // "Add a device" dialog: a configure phase (name + transport) then a result
+  // phase (QR + link). The QR only ever shows inside this dialog. This server
+  // hosts no relay, so links carry direct candidates only.
   const [addDeviceOpen, setAddDeviceOpen] = React.useState(false);
   const [addDevicePhase, setAddDevicePhase] = React.useState<'configure' | 'result'>('configure');
   const [addDeviceCreating, setAddDeviceCreating] = React.useState(false);
-  const [addDeviceTransport, setAddDeviceTransport] = React.useState<'local' | 'lan' | 'relay'>('relay');
-  const [addDeviceFallback, setAddDeviceFallback] = React.useState(true);
-  const [transportOptions, setTransportOptions] = React.useState<{ localUrl: string | null; lanUrl: string | null; relayAvailable: boolean } | null>(null);
+  const [addDeviceTransport, setAddDeviceTransport] = React.useState<'local' | 'lan'>('lan');
+  const [transportOptions, setTransportOptions] = React.useState<{ localUrl: string | null; lanUrl: string | null } | null>(null);
   const revokedClientCount = React.useMemo(() => remoteClients.filter((client) => Boolean(client.revokedAt)).length, [remoteClients]);
   const [sshAddDialogOpen, setSshAddDialogOpen] = React.useState(false);
   const [sshAddMode, setSshAddMode] = React.useState<'saved' | 'manual'>('saved');
@@ -916,11 +915,11 @@ export const RemoteInstancesPage: React.FC = () => {
   // for LAN reachability (derived from its bind, not the UI origin), so "Local
   // network" works even when the UI is opened on localhost. Falls back to the
   // client-side guess if the endpoint is unavailable.
-  const resolveTransportOptions = React.useCallback(async (): Promise<{ localUrl: string | null; lanUrl: string | null; relayAvailable: boolean }> => {
+  const resolveTransportOptions = React.useCallback(async (): Promise<{ localUrl: string | null; lanUrl: string | null }> => {
     if (clientAuth?.getPairingTransports) {
       try {
         const transports = await clientAuth.getPairingTransports();
-        return { localUrl: transports.local, lanUrl: transports.lan, relayAvailable: transports.relayAvailable };
+        return { localUrl: transports.local, lanUrl: transports.lan };
       } catch {
         // fall through to the client-side guess
       }
@@ -934,7 +933,7 @@ export const RemoteInstancesPage: React.FC = () => {
     } catch {
       // keep null
     }
-    return { localUrl, lanUrl, relayAvailable: true };
+    return { localUrl, lanUrl };
   }, [clientAuth]);
 
   const openAddDevice = React.useCallback(async () => {
@@ -944,13 +943,10 @@ export const RemoteInstancesPage: React.FC = () => {
     setPairingCopied(false);
     setCreatedPairingId(null);
     setAddDevicePhase('configure');
-    setAddDeviceFallback(true);
     setAddDeviceOpen(true);
     const opts = await resolveTransportOptions();
     setTransportOptions(opts);
-    // "Anywhere" (relay, with home-network preference) is the right default for
-    // most people; fall back to narrower options only when relay is unavailable.
-    setAddDeviceTransport(opts.relayAvailable ? 'relay' : opts.lanUrl ? 'lan' : 'local');
+    setAddDeviceTransport(opts.lanUrl ? 'lan' : 'local');
   }, [resolveTransportOptions]);
 
   const createPairingLink = React.useCallback(async () => {
@@ -959,31 +955,11 @@ export const RemoteInstancesPage: React.FC = () => {
     setAddDeviceCreating(true);
     try {
       const label = remoteClientLabel.trim() || undefined;
-      // Map the chosen transport (+ fallback) to the per-link candidate request.
-      let serverUrl: string | undefined;
-      let includeRelay: boolean;
-      let includeDirect = true;
-      if (addDeviceTransport === 'local') {
-        serverUrl = transportOptions.localUrl ?? undefined;
-        includeRelay = false;
-      } else if (addDeviceTransport === 'lan') {
-        serverUrl = transportOptions.lanUrl ?? undefined;
-        includeRelay = addDeviceFallback;
-      } else if (addDeviceFallback && transportOptions.lanUrl) {
-        // Relay, but prefer the local network when available: carry both.
-        serverUrl = transportOptions.lanUrl;
-        includeRelay = true;
-      } else {
-        // Relay only.
-        includeDirect = false;
-        includeRelay = true;
-      }
+      const serverUrl = (addDeviceTransport === 'local' ? transportOptions.localUrl : transportOptions.lanUrl) ?? undefined;
       const { pairing, server } = await clientAuth.createPairingSession({
         label,
         allowedClientKinds: ['mobile', 'desktop'],
         serverUrl,
-        includeRelay,
-        includeDirect,
       });
       const payload = buildPairingConnectionPayload({
         pairingId: pairing.id,
@@ -1014,7 +990,7 @@ export const RemoteInstancesPage: React.FC = () => {
     } finally {
       setAddDeviceCreating(false);
     }
-  }, [clientAuth, transportOptions, addDeviceTransport, addDeviceFallback, remoteClientLabel, loadRemoteClients]);
+  }, [clientAuth, transportOptions, addDeviceTransport, remoteClientLabel, loadRemoteClients]);
 
   const handleCopyPairing = React.useCallback(() => {
     if (!pairingUrl) return;
@@ -1587,9 +1563,6 @@ export const RemoteInstancesPage: React.FC = () => {
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)] animate-pulse" />
                             <p className="typography-ui-label text-foreground truncate">{pending.label || t('settings.remoteInstances.clientAuth.field.labelPlaceholder')}</p>
-                            {pending.usesRelay ? (
-                              <span className="typography-micro text-muted-foreground bg-muted px-1 rounded shrink-0 leading-none pb-px border border-border/50">{t('settings.remoteInstances.clientAuth.state.viaRelay')}</span>
-                            ) : null}
                           </div>
                           <p className="typography-micro text-muted-foreground truncate">{t('settings.remoteInstances.clientAuth.state.pending')}</p>
                         </div>
@@ -1610,9 +1583,7 @@ export const RemoteInstancesPage: React.FC = () => {
                       const statusText = client.revokedAt
                         ? t('settings.remoteInstances.clientAuth.state.revoked')
                         : isOnline
-                          ? (client.lastTransport === 'relay' && !isLocalDesktopClient
-                            ? t('settings.remoteInstances.clientAuth.state.connectedRelay')
-                            : t('settings.remoteInstances.clientAuth.state.connectedDirect'))
+                          ? t('settings.remoteInstances.clientAuth.state.connectedDirect')
                           : Number.isFinite(lastUsedMs)
                             ? t('settings.remoteInstances.clientAuth.lastUsed', {
                                 date: formatDateTimeForPreference(lastUsedMs, timeFormatPreference, {
@@ -1861,12 +1832,10 @@ export const RemoteInstancesPage: React.FC = () => {
                 />
                 <div className="space-y-1.5">
                   <p className="typography-ui-label text-foreground">{t('settings.remoteInstances.clientAuth.addDevice.transportLabel')}</p>
-                  {/* Ordered by how likely a first-time user is to want each option;
-                      "Anywhere" is the default. Every option explains its outcome in
-                      plain words — "relay" appears only inside the description. */}
+                  {/* Ordered by how likely a first-time user is to want each option.
+                      Every option explains its outcome in plain words. */}
                   <div role="radiogroup" aria-label={t('settings.remoteInstances.clientAuth.addDevice.transportLabel')} className="space-y-1.5">
                     {([
-                      { key: 'relay' as const, label: t('settings.remoteInstances.clientAuth.addDevice.transport.relay'), hint: t('settings.remoteInstances.clientAuth.addDevice.transport.relayHint'), available: Boolean(transportOptions?.relayAvailable) },
                       { key: 'lan' as const, label: t('settings.remoteInstances.clientAuth.addDevice.transport.lan'), hint: t('settings.remoteInstances.clientAuth.addDevice.transport.lanHint'), available: Boolean(transportOptions?.lanUrl) },
                       { key: 'local' as const, label: t('settings.remoteInstances.clientAuth.addDevice.transport.local'), hint: t('settings.remoteInstances.clientAuth.addDevice.transport.localHint'), available: Boolean(transportOptions?.localUrl) },
                     ]).map((option) => {
@@ -1893,18 +1862,6 @@ export const RemoteInstancesPage: React.FC = () => {
                       );
                     })}
                   </div>
-                  {addDeviceTransport === 'lan' ? (
-                    <label className="flex w-fit cursor-pointer items-center gap-2 pt-1">
-                      <Checkbox checked={addDeviceFallback} onChange={setAddDeviceFallback} ariaLabel={t('settings.remoteInstances.clientAuth.addDevice.fallback.relay')} />
-                      <span className="typography-meta text-muted-foreground">{t('settings.remoteInstances.clientAuth.addDevice.fallback.relay')}</span>
-                    </label>
-                  ) : null}
-                  {addDeviceTransport === 'relay' && transportOptions?.lanUrl ? (
-                    <label className="flex w-fit cursor-pointer items-center gap-2 pt-1">
-                      <Checkbox checked={addDeviceFallback} onChange={setAddDeviceFallback} ariaLabel={t('settings.remoteInstances.clientAuth.addDevice.fallback.preferLocal')} />
-                      <span className="typography-meta text-muted-foreground">{t('settings.remoteInstances.clientAuth.addDevice.fallback.preferLocal')}</span>
-                    </label>
-                  ) : null}
                 </div>
                 {remoteClientError ? <p className="typography-meta text-[var(--status-error)]">{remoteClientError}</p> : null}
                 <div className="flex justify-end gap-2">

@@ -1,4 +1,5 @@
 import { matchesRankQuery } from '@/lib/search/fuzzySearch';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import React from 'react';
 import {
   DndContext,
@@ -324,12 +325,15 @@ export const TodosSection: React.FC<{
                                 <DropdownMenuItem onClick={() => onSendToNewSession(todo.id, todo.text)}>
                                   {t('rightSidebar.contextNotesTodo.todo.sendMenu.newSession')}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => onSendToNewWorktreeSession(todo.id, todo.text)}
-                                  disabled={!canCreateWorktree}
-                                >
-                                  {t('rightSidebar.contextNotesTodo.todo.sendMenu.newWorktreeSession')}
-                                </DropdownMenuItem>
+                                {/* Worktree creation needs a runtime-local bridge; the server refuses it. */}
+                                {canMutateWorktrees() ? (
+                                  <DropdownMenuItem
+                                    onClick={() => onSendToNewWorktreeSession(todo.id, todo.text)}
+                                    disabled={!canCreateWorktree}
+                                  >
+                                    {t('rightSidebar.contextNotesTodo.todo.sendMenu.newWorktreeSession')}
+                                  </DropdownMenuItem>
+                                ) : null}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>

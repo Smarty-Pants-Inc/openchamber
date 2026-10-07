@@ -57,17 +57,16 @@ This module provides OpenCode server integration utilities for the web server ru
 ## Public exports (auth.js)
 - `readAuthFile()`: Reads and parses `~/.local/share/opencode/auth.json`.
 - `writeAuthFile(auth)`: Writes auth file with automatic backup.
-- `removeProviderAuth(providerId)`: Removes a provider's auth entry.
-- `getProviderAuth(providerId)`: Returns auth for a specific provider or null.
+- `getProviderAuth(providerId)`: Returns auth for a specific provider or null (used only to report whether auth exists; the key itself never leaves the server).
 - `listProviderAuths()`: Returns list of provider IDs with configured auth.
 - `AUTH_FILE`: Auth file path constant.
 - `OPENCODE_DATA_DIR`: OpenCode data directory path constant.
+- No HTTP route deletes provider auth: `DELETE /api/provider/:providerId/auth` was removed (smarty-code#1398).
 
 ## Public exports (providers.js)
 - `getProviderSources(providerId, workingDirectory)`: Resolves which OpenCode config layers define a provider.
 - `upsertProviderConfig(providerId, config, workingDirectory, scope?, options?)`: Validates and writes a custom provider block (`npm`, `name`, `options.baseURL`, `models`, optional `env`/`headers`) into the user/project/custom config layer. The adapter may be OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages. Existing provider, option, and retained-model fields not managed by the form are preserved; omitted models, headers, and env credentials remain explicit removals. Updating a legacy `providers` entry migrates it to the canonical `provider` key. Does not store API keys. Requires `config.env` or `options.hasStoredAuth` (auth already written via OpenCode `auth.set`). Edit flows must pass the provider's effective existing layer (`custom` > `project` > `user`) so updates do not create a global user override.
 - `validateCustomProviderConfig(providerId, config, options?)`: Structural validation for custom provider payloads (id format, adapter allowlist `@ai-sdk/openai-compatible`/`@ai-sdk/openai`/`@ai-sdk/anthropic`, http(s) base URL, models, credentials via `env` or `hasStoredAuth`).
-- `removeProviderConfig(providerId, workingDirectory, scope?)`: Removes a provider block from the selected config layer.
 
 ## Public exports (shared.js)
 - `OPENCODE_CONFIG_DIR`, `AGENT_DIR`, `COMMAND_DIR`, `SKILL_DIR`, `CONFIG_FILE`: Path constants rooted at `$XDG_CONFIG_HOME/opencode` when `XDG_CONFIG_HOME` is non-empty, otherwise `~/.config/opencode`. These constants are evaluated when the module loads; no files are migrated. `OPENCODE_CONFIG` remains a separate explicit config-file path and is resolved at call time for the custom config layer; it does not replace the global config directory.
@@ -97,8 +96,7 @@ This module provides OpenCode server integration utilities for the web server ru
   - `POST /api/opencode/directory` (validates and activates an existing project directory; `{ create: true }` explicitly creates the requested project directory before activation, including outside the previously active workspace)
   - `GET /api/provider/:providerId/source`
   - `PUT /api/provider` (create/update custom OpenAI-compatible provider config in OpenCode user/project/custom layers via `scope`; secrets stay in auth via the OpenCode auth API)
-  - `DELETE /api/provider/:providerId/auth`
-- Owns lazy auth library loading for provider auth checks/removal.
+- Owns lazy auth library loading for provider auth presence checks.
 - Keeps route behavior independent from composition root; `index.js` now supplies dependencies only.
 
 ## Public exports (session-runtime.js)
@@ -307,8 +305,8 @@ do not prove Google login or installed browser behavior.
 ## Public exports (core-routes.js)
 - `registerServerStatusRoutes(app, dependencies)`: registers status/system endpoints:
   - `GET /health`
-  - `POST /api/system/shutdown`
   - `GET /api/system/info`
+  - No HTTP shutdown route: `POST /api/system/shutdown` was removed (smarty-code#1398); stop the process with a signal.
  - `registerAuthAndAccessRoutes(app, dependencies)`: registers browser auth/session exchange and API access middleware:
    - `GET /auth/session`
    - `POST /auth/session`
@@ -334,7 +332,7 @@ do not prove Google login or installed browser behavior.
 ## Public exports (cli-options.js)
 - `parseServeCliOptions(options)`: parses serve CLI flags and environment-derived defaults:
   - Port/host/ui-password
-  - Tunnel provider/mode/config/token/hostname
+  - Tunnel provider/mode/config/token/hostname (operator-started tunnel at launch; there is no HTTP tunnel control)
   - Legacy `--tunnel` shorthand normalization
 
 ## Public exports (cli-entry-runtime.js)
@@ -409,11 +407,23 @@ reloaded, and historical bundles are not retained by this module.
   - `run(options)`
 
 Before the generic proxy, the pipeline installs the retired-route refusal from
-`../security/retired-routes.js`. The deleted web terminal's namespace
-(`/api/terminal` and everything below it, in any case, encoding, slash or dot
-spelling) gets a local 404 after authentication and never reaches the upstream
-proxy or the served index. Its upgrade listener is prepended, so it runs before
-every other upgrade listener: it writes a raw `404` and destroys the socket.
+`../security/retired-routes.js`. Its `RETIRED_NAMESPACES` list owns every
+retired namespace: the deleted web terminal (`/api/terminal`) and the host-power
+routes removed in smarty-code#1398 slice 2 (`/api/fs/exec`,
+`/api/system/shutdown`, `/api/openchamber/update-check` and `update-install`,
+`/api/openchamber/tunnel`, `/api/openchamber/relay`, `/api/dev-tunnel`, the git
+write routes, `/api/quota/credentials` and `/api/provider/:id/auth`), plus the
+engine's credential API: `PUT`, `PATCH` and `DELETE /api/auth/:providerID`
+(the SDK's `auth.set` and `auth.remove`). A
+namespace that still serves read methods (`/api/git/branches`, `identities`,
+`remotes`) lists only its retired write methods; Better Auth's sign-in and
+session routes share `/api/auth` but use only `GET` and `POST`, which stay served. A retired request, in any case,
+encoding, slash or dot spelling, gets a local 404 after authentication and never
+reaches the upstream proxy or the served index; a packaged-client CORS preflight
+for a retired method gets the same 404 instead of 204. The upgrade listener is
+prepended, so it runs before every other upgrade listener: it writes a raw
+`404` and destroys the socket for any retired namespace.
+`../security/host-power-removal.test.js` is the trust-boundary probe.
 
 The pipeline binds the OpenChamber listener and publishes its active port
 before starting managed OpenCode. The managed custom tool therefore receives
@@ -421,12 +431,8 @@ an authoritative loopback callback URL even when OpenChamber binds port `0`.
 
 ## Public exports (openchamber-routes.js)
 - `registerOpenChamberRoutes(app, dependencies)`: registers OpenChamber endpoints:
-  - `GET /api/openchamber/update-check`
-  - `POST /api/openchamber/update-install`
-    - Foreground servers running under a systemd user unit queue installation in
-      a separate transient unit and restart the configured service afterwards.
-      `OPENCHAMBER_SYSTEMD_UNIT` overrides the default `openchamber.service`.
   - `GET /api/openchamber/models-metadata`
+  - There is no update check or update install: `/api/openchamber/update-check` (which reported install data to `api.openchamber.dev`) and `/api/openchamber/update-install` were removed (smarty-code#1398).
   - `GET /api/zen/models`
 
 ## Public exports (pwa-manifest-routes.js)

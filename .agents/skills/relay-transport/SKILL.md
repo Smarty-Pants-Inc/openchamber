@@ -7,9 +7,9 @@ compatibility: opencode
 
 ## Overview
 
-OpenChamber has a private relay: a client (mobile app, browser, another desktop) reaches a user's instance through an OpenChamber-hosted relay over an **end-to-end encrypted tunnel**. All of the app's traffic — many HTTP requests, the event stream (SSE), and WebSockets (terminal, dictation) — is multiplexed and encrypted through **one** connection per client.
+OpenChamber's UI keeps a private-relay **client**: a client (mobile app, another desktop) can reach an OpenChamber instance through an OpenChamber-hosted relay over an **end-to-end encrypted tunnel**. All of the app's traffic — many HTTP requests, the event stream (SSE), and WebSockets — is multiplexed and encrypted through **one** connection per client.
 
-Architecture overview: `packages/web/server/lib/relay/DOCUMENTATION.md`. Code: `packages/ui/src/lib/relay/` (client + shared, TS) and `packages/web/server/lib/relay/` (host, JS).
+This server no longer hosts a relay: the host side (`packages/web/server/lib/relay/`, its `/api/openchamber/relay/*` routes and the dev-server byte pipe) was removed in smarty-code#1398, so this server never advertises relay pairing candidates. Client code: `packages/ui/src/lib/relay/` (TS).
 
 Load `ui-api-decoupling` when the change adds or alters a shared runtime API, URL/auth contract, bridge, proxy, or runtime-switch behavior. This skill owns relay mechanics; `ui-api-decoupling` owns the shared UI/runtime boundary.
 
@@ -27,8 +27,8 @@ Load `ui-api-decoupling` when the change adds or alters a shared runtime API, UR
 Adding a new WS endpoint (or porting one, e.g. the planned terminal port) requires ALL of these, or it breaks over the relay:
 
 1. **Open it via `openRuntimeWebSocket`** (`packages/ui/src/lib/relay/runtime-socket.ts`), never `new WebSocket(...)` directly. A raw `new WebSocket` against a runtime URL fails in relay mode (the resolver yields a tunnel-virtual/custom-scheme URL the platform rejects — surfaced as "The string did not match the expected pattern").
-2. **Add the path to BOTH allowlists** (they are separate and both required):
-   - Host tunnel dispatcher: `ALLOWED_WS_PATHS` in `packages/web/server/lib/relay/tunnel-host.js`.
+2. **Register the path on the server in BOTH places** (they are separate and both required):
+   - Upgrade handler: the owning module attaches its own `server.on('upgrade', handler)` and detaches it with `server.off` on stop. The handler returns at once for any other pathname. For its own path it runs the human-mode `applicationAuthority` check, then auth (`requireUpgradeAuth`, or `ensureSessionToken` plus `isRequestOriginAllowed`), and only then `handleUpgrade`. Precedents: `packages/web/server/lib/event-stream/runtime.js`, `lib/realtime-proxy.js`, `lib/opencode/session-voice-socket.js`, `lib/dictation/runtime.js`. Never put a socket under a namespace in `lib/security/retired-routes.js`: `installRetiredRouteRefusal` prepends the first upgrade listener, which answers it with 404 before any other handler.
    - URL-token auth gate: `isUrlAuthWebSocketPath` in `packages/web/server/lib/ui-auth/ui-auth.js` (otherwise the `oc_url_token` is refused for that path → 401).
 3. **Mint the URL token before connecting.** Call `refreshRuntimeUrlAuthToken()` and build the URL through the resolver's `websocket(...)` so `oc_url_token` is appended. SSE/HTTP do not need this; WS does.
 4. **Do not touch origin handling.** The server rejects WS upgrades whose `Origin` it does not trust. Over the tunnel the host dials loopback and presents the loopback origin (`http://127.0.0.1:<port>`), which the server trusts as same-origin — this already covers every allowlisted WS path. **Never reintroduce reliance on `window.location.origin`**: in the iOS WKWebView it is `"null"`/empty for the custom scheme, so forwarding it produces a 403.
@@ -36,8 +36,8 @@ Adding a new WS endpoint (or porting one, e.g. the planned terminal port) requir
 
 ## Wire Format And Codec Branch
 
-- **Two implementations must stay byte-compatible.** The E2EE and framing exist as TS (`packages/ui/src/lib/relay/{crypto,handshake,tunnel-codec}.ts`, normative) and a JS host mirror (`packages/web/server/lib/relay/{e2ee,tunnel-codec}.js`). Any wire-format, frame-type, handshake, or batching change must update **both** and keep `packages/web/server/lib/relay/cross-compat.test.js` green.
-- **Frame types live in `protocol.ts`** and must match across `protocol.ts`, `tunnel-codec.ts`, and `tunnel-codec.js`. Adding a frame type without mirroring it corrupts the stream on one side.
+- **The client must stay byte-compatible with relay hosts it talks to.** The E2EE and framing live in TS (`packages/ui/src/lib/relay/{crypto,handshake,tunnel-codec}.ts`, normative). This repository no longer contains a host mirror, so a wire-format, frame-type, handshake, or batching change needs proof against the host it targets.
+- **Frame types live in `protocol.ts`** and must match across `protocol.ts` and `tunnel-codec.ts`.
 - **Frame batching is capability-negotiated** in the handshake with a legacy fallback, so mixed client/host app versions still interoperate. Preserve the negotiation and the single-frame fallback; do not make batching unconditional.
 - **The encrypted-frame counter/IV is per-direction and strictly increasing.** One encrypted WS message = one encrypt call = one counter tick. Keep encrypt+send serialized per direction; do not reorder or parallelize it.
 
@@ -64,4 +64,4 @@ Blind short retries on hidden, offline, unauthorized, or stale-path clients wast
 - Run relay tests per file (`bun test <file>`); the suite has order sensitivity.
 - Validate both sides: `packages/ui` `type-check`/`lint`, and `node --check` on changed JS host files.
 
-Completion requires every applicable branch above: WS path allowlists/auth/origin and real relay exercise; mirrored TS/JS wire changes with cross-compat coverage; preserved direct and relay runtime branches; or reconnect pacing under offline, hidden, permanent-failure, recovery, and abort conditions.
+Completion requires every applicable branch above: WS path allowlists/auth/origin and real relay exercise; wire changes proven against the target host; preserved direct and relay runtime branches; or reconnect pacing under offline, hidden, permanent-failure, recovery, and abort conditions.

@@ -122,7 +122,6 @@ mock.module('@/components/ui', () => ({
 mock.module('@/lib/gitApi', () => ({
   checkIsGitRepository: (directory: string) => isGitRepositoryImplementation(directory),
   getGitStatus: (directory: string) => getGitStatusImplementation(directory),
-  deleteRemoteBranch: mock(),
   git: {
     worktree: {
       list: mock(() => Promise.resolve([])),
@@ -141,7 +140,6 @@ mock.module('@/lib/gitApi', () => ({
 }));
 
 mock.module('@/lib/openchamberConfig', () => ({
-  substituteCommandVariables: (command: string) => command,
 }));
 
 mock.module('@/lib/worktreeSessionCreator', () => ({

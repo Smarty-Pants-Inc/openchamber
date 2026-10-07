@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, net as electronNet, Notification, powerMonitor, powerSaveBlocker, protocol, screen, session, shell, webContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net as electronNet, Notification, powerMonitor, powerSaveBlocker, protocol, screen, session, shell, webContents } from 'electron';
 import contextMenu from 'electron-context-menu';
 import log from 'electron-log/main.js';
 import dgram from 'node:dgram';
@@ -32,8 +32,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
-import { shouldAllowBrowserPanelCertificateError } from './browser-panel-security.mjs';
-import { createRelayDevTunnelBridge } from './relay-dev-tunnel.mjs';
+import { shouldAllowBrowserPanelCertificateError, shouldBlockBrowserPanelRequestResolved } from './browser-panel-security.mjs';
 import { attachRendererRecovery } from './renderer-recovery.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 import { fetchUpdateNotes } from '@openchamber/web/server/lib/changelog/update-notes.js';
@@ -506,7 +505,6 @@ const refreshQuitRiskFlags = async () => {
   if (!base) return;
 
   const scheduledUrl = `${base}/api/openchamber/scheduled-tasks/status`;
-  const tunnelUrl = `${base}/api/openchamber/tunnel/status`;
 
   const fetchJson = async (url) => {
     try {
@@ -518,7 +516,7 @@ const refreshQuitRiskFlags = async () => {
     }
   };
 
-  const [scheduled, tunnel] = await Promise.all([fetchJson(scheduledUrl), fetchJson(tunnelUrl)]);
+  const scheduled = await fetchJson(scheduledUrl);
 
   if (scheduled && typeof scheduled === 'object') {
     const enabledCount = Number(scheduled.enabledScheduledTasksCount ?? 0);
@@ -529,9 +527,6 @@ const refreshQuitRiskFlags = async () => {
     quitRisk.hasRunningScheduledTasks = Boolean(scheduled.hasRunningScheduledTasks) || quitRisk.runningScheduledTasksCount > 0;
   }
 
-  if (tunnel && typeof tunnel === 'object') {
-    quitRisk.hasActiveTunnel = Boolean(tunnel.active);
-  }
 };
 
 const settingsFilePath = () => {
@@ -1222,6 +1217,36 @@ const hardenBrowserPanelSession = () => {
 
   // Serial, HID and USB device pickers.
   panelSession.setDevicePermissionHandler(() => false);
+
+  // A window on a remote OpenChamber host lets that host drive its browser panel,
+  // so that panel never reaches this machine's loopback or files (openchamber#554
+  // round 6). Every request is checked: the restored URL, typed and agent
+  // navigation, each redirect hop, popups loaded in place, history, subframes and
+  // subresources.
+  // Host names are resolved through the panel session's own resolver, so a DNS
+  // alias of loopback (127.0.0.1.nip.io) is refused too.
+  const resolve = async (hostname) => (await panelSession.resolveHost(hostname)).endpoints.map((endpoint) => endpoint.address);
+  panelSession.webRequest.onBeforeRequest((details, callback) => {
+    void shouldBlockBrowserPanelRequestResolved({
+      url: details.url,
+      embedderIsLocal: browserPanelEmbedderIsLocal(details.webContents),
+      resolve,
+    }).catch(() => true).then((cancel) => {
+      if (cancel) log.info('[electron] browser panel refused a local address for a remote window');
+      callback({ cancel });
+    });
+  });
+};
+
+// True only when the request's panel sits in a window showing the local app.
+const browserPanelEmbedderIsLocal = (contents) => {
+  if (contents && !contents.isDestroyed()) {
+    const host = contents.hostWebContents;
+    return Boolean(host && !host.isDestroyed() && isLocalSender(host));
+  }
+  // ponytail: a request with no view (a service worker, a preconnect) cannot name its
+  // window. It counts as local only while no window shows a remote host.
+  return BrowserWindow.getAllWindows().every((window) => window.isDestroyed() || isLocalSender(window.webContents));
 };
 
 const registerPackagedUiProtocol = () => {
@@ -3775,30 +3800,6 @@ const runSpecChain = (specs, appName) => {
   throw new Error(`Failed to open in ${appName}: ${failures.join('; ')}`);
 };
 
-// The tunnel client lives in the web package (it already has a WebSocket
-// client) and is loaded only if the user actually previews a remote dev server.
-let devTunnelClientPromise = null;
-const relayDevTunnelBridge = createRelayDevTunnelBridge({ createMessageChannel: () => new MessageChannelMain(), logger: log });
-const getDevTunnelClient = async () => {
-  if (!devTunnelClientPromise) {
-    devTunnelClientPromise = import('@openchamber/web/server/lib/dev-tunnel/client.js')
-      .then(({ createDevTunnelClient }) => createDevTunnelClient({ logger: log }))
-      .catch((error) => {
-        devTunnelClientPromise = null;
-        throw error;
-      });
-  }
-  return devTunnelClientPromise;
-};
-
-const closeAllDevTunnels = () => {
-  relayDevTunnelBridge.closeAll();
-  if (!devTunnelClientPromise) return;
-  const pending = devTunnelClientPromise;
-  devTunnelClientPromise = null;
-  pending.then((client) => client.closeAll()).catch(() => {});
-};
-
 const handleInvoke = async (browserWindow, command, args = {}) => {
   switch (command) {
     case 'desktop_start_window_drag':
@@ -3889,46 +3890,6 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       const active = setDesktopKeepAwakeActive(enabled);
       return { supported: true, enabled, active };
     }
-
-    // Dev-server tunnels: bind a loopback port here and pipe it to a dev server
-    // on the remote OpenChamber host, so the browser panel loads a real origin
-    // instead of a rewritten page. Deliberately absent from
-    // COMMANDS_SAFE_FOR_REMOTE — a remote page must never open local listeners.
-    case 'desktop_dev_tunnel_open': {
-      const baseUrl = typeof args.baseUrl === 'string' ? args.baseUrl.trim() : '';
-      const port = Number.isFinite(args.port) ? Math.trunc(args.port) : 0;
-      if (!baseUrl) throw new Error('baseUrl is required');
-      if (!(port > 0 && port <= 65535)) throw new Error('A valid port is required');
-
-      if (args.relay === true) {
-        const targetKey = typeof args.targetKey === 'string' ? args.targetKey.trim() : '';
-        return relayDevTunnelBridge.open({ targetKey, remotePort: port, webContents: browserWindow?.webContents });
-      }
-
-      const headers = {};
-      const requestHeaders = args.requestHeaders && typeof args.requestHeaders === 'object' ? args.requestHeaders : {};
-      for (const [name, value] of Object.entries(requestHeaders)) {
-        if (typeof value === 'string' && value) headers[name] = value;
-      }
-      if (typeof args.clientToken === 'string' && args.clientToken) {
-        headers.Authorization = `Bearer ${args.clientToken}`;
-      }
-
-      const client = await getDevTunnelClient();
-      const result = await client.open({ baseUrl, port, headers });
-      return { localPort: result.localPort, reused: result.reused, url: `http://127.0.0.1:${result.localPort}/` };
-    }
-
-    case 'desktop_dev_tunnel_close': {
-      const baseUrl = typeof args.baseUrl === 'string' ? args.baseUrl.trim() : '';
-      const port = Number.isFinite(args.port) ? Math.trunc(args.port) : 0;
-      if (!baseUrl || !(port > 0)) return { closed: false };
-      const client = await getDevTunnelClient();
-      return { closed: client.close({ baseUrl, port }) };
-    }
-
-    case 'desktop_relay_dev_tunnel_close_all':
-      return { closed: relayDevTunnelBridge.closeForWebContents(browserWindow?.webContents.id) };
 
     /**
      * Forces prefers-color-scheme for one previewed page.
@@ -4797,7 +4758,6 @@ const buildMacMenu = () => {
         { label: 'New Window', accelerator: 'Cmd+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Cmd+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Cmd+Shift+N', click: () => dispatchAction('new-worktree-session') },
         // registerAccelerator:false → show the shortcut hint but let the
         // renderer own the (customizable) key binding, avoiding a double open.
         { label: 'New Mini Chat', accelerator: 'Cmd+Alt+N', registerAccelerator: false, click: () => dispatchOpenMiniChat() },
@@ -4896,7 +4856,6 @@ const buildAutoHiddenMenu = () => {
         { label: 'New Window', accelerator: 'Ctrl+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Ctrl+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Ctrl+Shift+N', click: () => dispatchAction('new-worktree-session') },
         { type: 'separator' },
         { label: 'Add Workspace', click: () => dispatchAction('change-workspace') },
         { type: 'separator' },
@@ -5362,8 +5321,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   state.quitRequested = true;
-  // Loopback listeners would otherwise outlive the window that needed them.
-  closeAllDevTunnels();
 
   if (state.installingUpdate) {
     return;
