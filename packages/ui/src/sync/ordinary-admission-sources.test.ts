@@ -251,3 +251,65 @@ test('a live ordinary owner with no unavailable mark still sends after file prep
     expect(view(f.prompts()[0])).not.toBeNull();
   } finally { hold.restore(); await route; f.dispose(); }
 });
+
+// openchamber#549 round-8 review, P1 2: every ordinary request kind marks its dispatch, so an ambiguous failure after
+// the request left keeps the reservation instead of releasing it.
+const ambiguousAfterDispatch: Array<[string, () => Response | never]> = [
+  ['a gateway 503', () => new Response(null, { status: 503 })],
+  ['a lost connection', () => { throw new TypeError('Failed to fetch'); }],
+];
+for (const [kind, content, suffix, extra] of [
+  ['shell', 'echo hello', '/shell', { inputMode: 'shell' as const }],
+  ['slash command', '/probe', '/command', {}],
+] as const) {
+  for (const [failure, reply] of ambiguousAfterDispatch) {
+    test(`an ordinary ${kind} request lost to ${failure} keeps its reservation`, async () => {
+      const f = nativeDraftFixture();
+      // SAFETY: the child store accepts the fixture's minimal command record; only its name is read here.
+      f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, directory: A }], command: [{ name: 'probe' }] as never });
+      useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+      await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+      const fixtureFetch = globalThis.fetch;
+      let posts = 0;
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        if (request.method === 'POST' && new URL(request.url).pathname.endsWith(suffix)) { posts++; return reply(); }
+        return fixtureFetch(input, init);
+      };
+      try {
+        const outcome = await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content,
+          providerID: 'p', modelID: 'm', ...extra }).then(() => 'sent', () => 'failed');
+        expect(outcome).toBe('failed');
+        expect(posts).toBe(1);
+        expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(true);
+        const second = await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A,
+          content: 'Unrelated', providerID: 'p', modelID: 'm' }).then(() => 'sent', () => 'refused');
+        expect(second).toBe('refused');
+        expect(f.prompts()).toHaveLength(0);
+      } finally { globalThis.fetch = fixtureFetch; f.dispose(); }
+    });
+  }
+}
+
+test('an ordinary shell request refused before it leaves still releases the reservation', async () => {
+  const f = nativeDraftFixture();
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, directory: A }] });
+  useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+  await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+  const fixtureFetch = globalThis.fetch;
+  let posts = 0;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/shell')) posts++;
+    return fixtureFetch(input, init);
+  };
+  try {
+    // The session turns ended before dispatch: the final check refuses, nothing is posted, Send is free again.
+    useGlobalSessionsStore.getState().applySnapshot([endedRow], []);
+    const outcome = await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content: 'echo hi',
+      providerID: 'p', modelID: 'm', inputMode: 'shell' }).then(() => 'sent', () => 'refused');
+    expect(outcome).toBe('refused');
+    expect(posts).toBe(0);
+    expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+  } finally { globalThis.fetch = fixtureFetch; f.dispose(); }
+});

@@ -1428,9 +1428,12 @@ class OpencodeService {
     model: { providerID: string; modelID: string };
     messageId?: string;
     directory?: string | null;
+    /** The caller's final admission check, immediately before the shell POST; it also marks the request dispatched. */
+    beforeDispatch?: () => void;
   }): Promise<{ info: Message; parts: Part[] }> {
     this.assertRuntimeUnchanged(params.runtimeKey);
     const requestDirectory = this.normalizeCandidatePath(params.directory ?? null) ?? this.currentDirectory;
+    params.beforeDispatch?.();
     const response = await this.client.session.shell({
       sessionID: params.sessionId,
       ...(requestDirectory ? { directory: requestDirectory } : {}),

@@ -269,6 +269,9 @@ async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
+      // Like prompts and commands: the final admission check, then the request counts as dispatched, so an
+      // ambiguous failure keeps the reservation (openchamber#549 round 8).
+      beforeDispatch: () => { params.beforeDispatch?.(); onPromptDispatch() },
     })
     return 'shell'
   }
