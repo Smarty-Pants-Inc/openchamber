@@ -9,7 +9,7 @@
 // sentinel server counts every request that reaches it.
 import http from 'node:http';
 import { app, BrowserWindow, session } from 'electron';
-import { shouldBlockBrowserPanelRequest } from '../browser-panel-security.mjs';
+import { shouldBlockBrowserPanelRequestResolved } from '../browser-panel-security.mjs';
 
 const remoteIp = process.argv.at(-1);
 const PARTITION = 'persist:openchamber-browser-probe';
@@ -58,8 +58,11 @@ const embedderIsLocal = (contents) => {
   return BrowserWindow.getAllWindows().every((window) => window.isDestroyed() || isLocalSender(window.webContents));
 };
 // PROBE_WITHOUT_RULE=1 is the negative control: the same steps with no rule.
-if (process.env.PROBE_WITHOUT_RULE !== '1') session.fromPartition(PARTITION).webRequest.onBeforeRequest((details, callback) => {
-  callback({ cancel: shouldBlockBrowserPanelRequest({ url: details.url, embedderIsLocal: embedderIsLocal(details.webContents) }) });
+const panelSession = session.fromPartition(PARTITION);
+const resolve = async (hostname) => (await panelSession.resolveHost(hostname)).endpoints.map((endpoint) => endpoint.address);
+if (process.env.PROBE_WITHOUT_RULE !== '1') panelSession.webRequest.onBeforeRequest((details, callback) => {
+  void shouldBlockBrowserPanelRequestResolved({ url: details.url, embedderIsLocal: embedderIsLocal(details.webContents), resolve })
+    .catch(() => true).then((cancel) => callback({ cancel }));
 });
 app.on('web-contents-created', (_event, contents) => {
   if (contents.getType() !== 'webview') return;
@@ -92,6 +95,8 @@ const remote = await openPanel(remoteOrigin, loopback('restored'));
 rows.push({ label: 'remote: restored URL', sentinelHits: sentinelHits.filter((url) => url === '/restored').length, title: title(remote.view) });
 await step('remote: embedder loadURL', async () => { await remote.view.loadURL(loopback('navigate')).catch(() => {}); return { title: title(remote.view) }; });
 await step('remote: localhost spelling', async () => { await remote.view.loadURL(`http://localhost:${sentinelPort}/spelling`).catch(() => {}); return { title: title(remote.view) }; });
+// A public DNS name that resolves to 127.0.0.1 (security pass 62a27a85).
+await step('remote: DNS alias', async () => { await remote.view.loadURL(`http://127.0.0.1.nip.io:${sentinelPort}/alias`).catch(() => {}); return { title: title(remote.view) }; });
 await step('remote: control page loads', async () => { await remote.view.loadURL(`${remoteOrigin}/page`); return { title: title(remote.view) }; });
 await step('remote: redirect hop', async () => { await remote.view.loadURL(`${remoteOrigin}/redirect`).catch(() => {}); return { title: title(remote.view) }; });
 await remote.view.loadURL(`${remoteOrigin}/page`);

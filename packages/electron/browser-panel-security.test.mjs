@@ -68,3 +68,27 @@ test('a remote window\'s panel still reaches other hosts, and the local app reac
     assert.equal(shouldBlockBrowserPanelRequest({ url, embedderIsLocal: true }), false, url);
   }
 });
+
+test('a remote window\'s panel cannot reach this machine through a DNS alias', async () => {
+  const { shouldBlockBrowserPanelRequestResolved } = await import('./browser-panel-security.mjs');
+  const answers = {
+    '127.0.0.1.nip.io': ['127.0.0.1'], 'v6.example.test': ['2001:db8::1', '::1'],
+    'mapped.example.test': ['::ffff:127.0.0.1'], 'zero.example.test': ['0.0.0.0'],
+    'example.com': ['93.184.216.34'], 'empty.example.test': [],
+  };
+  const resolve = async (hostname) => {
+    if (!(hostname in answers)) throw new Error('ENOTFOUND');
+    return answers[hostname];
+  };
+  const blocked = (url, embedderIsLocal = false) => shouldBlockBrowserPanelRequestResolved({ url, embedderIsLocal, resolve });
+  for (const url of ['http://127.0.0.1.nip.io:3000/', 'http://v6.example.test/', 'http://mapped.example.test/',
+    'http://zero.example.test/', 'http://empty.example.test/', 'http://unknown.example.test/', 'http://localhost/']) {
+    assert.equal(await blocked(url), true, url);
+    assert.equal(await blocked(url, undefined), true, url);
+  }
+  // Other hosts, IP literals (no lookup) and non-network schemes pass; the local app is never blocked.
+  for (const url of ['https://example.com/', 'http://10.0.0.5/', 'http://[2001:db8::1]/', 'about:blank', 'data:text/html,hi']) {
+    assert.equal(await blocked(url), false, url);
+  }
+  assert.equal(await blocked('http://127.0.0.1.nip.io:3000/', true), false);
+});

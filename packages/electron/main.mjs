@@ -32,7 +32,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
-import { shouldAllowBrowserPanelCertificateError, shouldBlockBrowserPanelRequest } from './browser-panel-security.mjs';
+import { shouldAllowBrowserPanelCertificateError, shouldBlockBrowserPanelRequestResolved } from './browser-panel-security.mjs';
 import { attachRendererRecovery } from './renderer-recovery.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 import { fetchUpdateNotes } from '@openchamber/web/server/lib/changelog/update-notes.js';
@@ -1223,13 +1223,18 @@ const hardenBrowserPanelSession = () => {
   // round 6). Every request is checked: the restored URL, typed and agent
   // navigation, each redirect hop, popups loaded in place, history, subframes and
   // subresources.
+  // Host names are resolved through the panel session's own resolver, so a DNS
+  // alias of loopback (127.0.0.1.nip.io) is refused too.
+  const resolve = async (hostname) => (await panelSession.resolveHost(hostname)).endpoints.map((endpoint) => endpoint.address);
   panelSession.webRequest.onBeforeRequest((details, callback) => {
-    const cancel = shouldBlockBrowserPanelRequest({
+    void shouldBlockBrowserPanelRequestResolved({
       url: details.url,
       embedderIsLocal: browserPanelEmbedderIsLocal(details.webContents),
+      resolve,
+    }).catch(() => true).then((cancel) => {
+      if (cancel) log.info('[electron] browser panel refused a local address for a remote window');
+      callback({ cancel });
     });
-    if (cancel) log.info('[electron] browser panel refused a local address for a remote window');
-    callback({ cancel });
   });
 };
 

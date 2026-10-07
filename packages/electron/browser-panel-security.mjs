@@ -19,6 +19,8 @@ const isLoopbackHostname = (rawHostname) => {
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
   if (/^(127|0)\.\d+\.\d+\.\d+$/.test(hostname)) return true;
   if (hostname === '::1' || hostname === '::') return true;
+  // A resolver may answer an IPv4-mapped address in dotted form.
+  if (/^::ffff:(127|0)\.\d+\.\d+\.\d+$/.test(hostname)) return true;
   // ::ffff:127.x.y.z is canonicalized to ::ffff:7fxx:xxxx; ::ffff:0.x.y.z to ::ffff:0:x or ::ffff:xx:xxxx.
   const mapped = /^::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}$/.exec(hostname);
   if (mapped) {
@@ -55,3 +57,32 @@ export const isLoopbackUrl = (url) => {
 export const shouldBlockBrowserPanelRequest = ({ url, embedderIsLocal }) => (
   embedderIsLocal !== true && isLoopbackUrl(url)
 );
+
+const IP_LITERAL = /^(\d+\.\d+\.\d+\.\d+|\[[0-9a-f:.]+\])$/i;
+
+/**
+ * As shouldBlockBrowserPanelRequest, and also when a host name resolves to this
+ * machine (a DNS alias such as 127.0.0.1.nip.io). `resolve(hostname)` returns the
+ * addresses the browser would connect to; a failed lookup blocks (fail closed).
+ *
+ * ponytail: a name that changes its answer between this lookup and the browser's
+ * own connection (DNS rebinding with a zero TTL) is not closed here; the
+ * browser's host cache keeps the window to the lookup's TTL.
+ */
+export const shouldBlockBrowserPanelRequestResolved = async ({ url, embedderIsLocal, resolve }) => {
+  if (embedderIsLocal === true) return false;
+  if (isLoopbackUrl(url)) return true;
+  let hostname;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    return true;
+  }
+  if (!hostname || IP_LITERAL.test(hostname)) return false;
+  try {
+    const addresses = await resolve(hostname);
+    return addresses.length === 0 || addresses.some((address) => isLoopbackHostname(address));
+  } catch {
+    return true;
+  }
+};

@@ -1740,15 +1740,15 @@
       "path": "packages/electron/main.mjs",
       "brandingSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
       "behaviorSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
-      "combinedSha256": "d4fb33830632c42579677a101a96600c092694217d006c70273358a6ed3c1db1",
+      "combinedSha256": "9347f2f40b4f73124ebdeeb45bff579ed08de5dd183ad7c99e488699831e007c",
       "reason": "openchamber#552 (smarty-code#1398): web terminal removal: the Toggle Terminal Dock and Toggle Terminal Expanded menu items (both platform templates) are removed, since their handlers were deleted (Astra F2); the native Open in Terminal integration and branded strings are unchanged.",
       "terminalRemovalAdded": true,
       "terminalRemovalBaseSha256": "cc94d799ae22cc087ca93da12553660a102bfc89c032bf2e0e586d041a2efb94",
       "terminalRemovalSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
       "preHostPowerRemovalCombinedSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
       "hostPowerRemovalBaseSha256": "bbbc096787a90ad614a5ba11f64099f062b4fc5e0aefdbda9432d668d10bd456",
-      "hostPowerRemovalSha256": "d4fb33830632c42579677a101a96600c092694217d006c70273358a6ed3c1db1",
-      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the relay dev-tunnel IPC bridge and the HTTP tunnel-status quit-risk fetch are removed; the native updater is kept. openchamber#554 round 6: the browser panel session cancels every request to this machine's loopback or files while its window shows a remote host (shouldBlockBrowserPanelRequest via webRequest.onBeforeRequest), and the New Worktree menu item is removed from both menu templates; branded strings unchanged."
+      "hostPowerRemovalSha256": "9347f2f40b4f73124ebdeeb45bff579ed08de5dd183ad7c99e488699831e007c",
+      "hostPowerRemovalNote": "smarty-code#1398 slice 2: host-power route removal: the relay dev-tunnel IPC bridge and the HTTP tunnel-status quit-risk fetch are removed; the native updater is kept. openchamber#554 round 6: the browser panel session cancels every request to this machine's loopback or files while its window shows a remote host (shouldBlockBrowserPanelRequest via webRequest.onBeforeRequest), and the New Worktree menu item is removed from both menu templates; branded strings unchanged. Security pass 62a27a85: host names are also resolved through the panel session (resolveHost), so a DNS alias of loopback is refused; branded strings unchanged."
     },
     {
       "path": "packages/ui/src/components/sections/openchamber/AboutSettings.tsx",
