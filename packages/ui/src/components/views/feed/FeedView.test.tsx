@@ -37,7 +37,8 @@ await plugin({ name: 'feed-view-vite-transforms', setup(build) {
 } });
 const { FeedView } = await import('./FeedView');
 const { SmartiesNavSection, ClassicViewToggle } = await import('./FeedNav');
-const { useFeedStore, ensureSmartiesLoaded, draftKey } = await import('./feedStore');
+const { useFeedStore, ensureSmartiesLoaded, draftKey, smartyHeaderTitle } = await import('./feedStore');
+const { SidebarNav } = await import('@/components/session/sidebar/shell/SidebarNav');
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
 
@@ -150,18 +151,47 @@ test('4: another person’s Smarty is view only: transcript, no message box, no 
   await unmount();
 });
 
-test('5: the old view is hidden by default; the one bottom button switches to it and back, remembered on this device', async () => {
+test('5: the old view is hidden by default; the one bottom button switches to it and back, for this visit only', async () => {
   const { host, unmount } = await mount(<ClassicViewToggle />);
   const toggle = host.querySelector('button')!;
   expect(toggle.textContent).toBe('Smarty Code');
   expect(toggle.getAttribute('aria-pressed')).toBe('false');
   await act(async () => { toggle.click(); });
   expect(useFeedStore.getState().pageOpen).toBe(false);
-  expect(localStorage.getItem('smarty.smarties.view')).toBe('classic');
   expect(toggle.textContent).toBe('Back to Smarties');
   await act(async () => { toggle.click(); });
   expect(useFeedStore.getState().pageOpen).toBe(true);
-  expect(localStorage.getItem('smarty.smarties.view')).toBe('smarty');
+  // Nothing is remembered on the device: the next load lands on the own Smarty again.
+  expect(localStorage.length).toBe(0);
+  await unmount();
+});
+
+test('1: every load lands on the own Smarty: the app’s automatic closes (a session restored on load) do not leave it', async () => {
+  useFeedStore.getState().setPageOpen(false);
+  expect(useFeedStore.getState().pageOpen).toBe(true);
+  expect(useFeedStore.getState().selectedId).toBe('paul');
+  // A load where the person's Smarty is listed second still selects their own (own is listed first by the client).
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'kate', smarties: [
+    { id: 'kate', label: 'Kate’s Smarty', own: true, writable: true }, { id: 'paul', label: 'Paul’s Smarty', own: false, writable: false }] }), true);
+  useFeedStore.setState({ selectedId: null });
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'kate', smarties: [
+    { id: 'kate', label: 'Kate’s Smarty', own: true, writable: true }, { id: 'paul', label: 'Paul’s Smarty', own: false, writable: false }] }), true);
+  expect(useFeedStore.getState().selectedId).toBe('kate');
+});
+
+test('2: while a Smarty fills the app, the top bar names it; in the old view it names nothing of ours', async () => {
+  expect(smartyHeaderTitle(useFeedStore.getState())).toBe('Paul’s Smarty');
+  useFeedStore.getState().selectSmarty('kate');
+  expect(smartyHeaderTitle(useFeedStore.getState())).toBe('Kate’s Smarty');
+  useFeedStore.getState().showClassic();
+  expect(smartyHeaderTitle(useFeedStore.getState())).toBeNull();
+});
+
+test('3: in the Smarty view the nav is only the Smarties section; the old view adds New session back', async () => {
+  const { host, unmount } = await mount(<SidebarNav onNewSession={() => undefined} />);
+  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
+  await act(async () => { useFeedStore.getState().showClassic(); });
+  expect(host.textContent).toContain('New session');
   await unmount();
 });
 
@@ -175,6 +205,7 @@ test('5: on a phone the Inbox opens as a sheet and the header holds the Smarty s
   await act(async () => { button(document.body, 'Close inbox')?.click(); }); await settle();
   await act(async () => { button(host, 'Smarty Code')!.click(); });
   expect(useFeedStore.getState().pageOpen).toBe(false);
+  expect(useFeedStore.getState().view).toBe('classic');
   await unmount();
 });
 

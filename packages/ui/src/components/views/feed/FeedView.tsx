@@ -27,8 +27,11 @@ export type FeedServices = {
 };
 const defaultServices: FeedServices = { loadFeed: (id, query) => loadSmartyFeed(id, query), openStream: openSmartyStream, send: (id, text, clientId) => sendSmartyMessage(id, text, clientId) };
 
-/** `onClose` shows the old view (the phone's way to it; a desktop uses the nav's bottom button). */
-export function FeedView({ onClose, compact = false, services }: { onClose: () => void; compact?: boolean; services?: Partial<FeedServices> }): React.ReactNode {
+/**
+ * `onClose`: the host's close request. It is ignored on purpose: the Smarty view leaves only to the old view, through
+ * the bottom button (or, on a phone, the header's button), never through a host's automatic close.
+ */
+export function FeedView({ compact = false, services }: { onClose?: () => void; compact?: boolean; services?: Partial<FeedServices> }): React.ReactNode {
   const { t } = useI18n();
   const smarties = useFeedStore(state => state.smarties);
   const selectedId = useFeedStore(state => state.selectedId);
@@ -39,7 +42,7 @@ export function FeedView({ onClose, compact = false, services }: { onClose: () =
   const smarty = smarties.state === 'ready' ? smarties.smarties.find(item => item.id === selectedId) : undefined;
   // Until the list answers there is nothing true to show: an empty page, never a spinner that a blank replaces.
   if (smarties.state !== 'ready' || !smarty) return <div className="h-full bg-background" />;
-  return <SmartyPage key={`${getRuntimeKey()}\u0000${smarty.id}`} smarty={smarty} all={smarties.smarties} me={smarties.me} compact={compact} onClose={onClose} services={{ ...defaultServices, ...services }} />;
+  return <SmartyPage key={`${getRuntimeKey()}\u0000${smarty.id}`} smarty={smarty} all={smarties.smarties} me={smarties.me} compact={compact} services={{ ...defaultServices, ...services }} />;
 }
 
 /** First paint shows the newest 50 blocks; "Show earlier" adds 100 at a time (smarty-code#1407, for a fast first paint). */
@@ -124,8 +127,8 @@ function useSmartyFeed(id: string, services: FeedServices) {
   return { feed, retry: () => { setFeed({ state: 'loading' }); setAttempt(n => n + 1); }, earlier: hasEarlier ? { state: earlier, show: showEarlier } : null };
 }
 
-function SmartyPage({ smarty, all, me, compact, onClose, services }: {
-  smarty: Smarty; all: readonly Smarty[]; me: string; compact: boolean; onClose: () => void; services: FeedServices;
+function SmartyPage({ smarty, all, me, compact, services }: {
+  smarty: Smarty; all: readonly Smarty[]; me: string; compact: boolean; services: FeedServices;
 }): React.ReactNode {
   const { t } = useI18n();
   const stableServices = React.useRef(services).current;
@@ -161,7 +164,7 @@ function SmartyPage({ smarty, all, me, compact, onClose, services }: {
               {inboxLabel}
             </Button>) : null}
           {compact ? (
-            <Button variant="ghost" size="sm" onClick={onClose}>{t('feed.classic.show')}</Button>) : null}
+            <Button variant="ghost" size="sm" onClick={() => useFeedStore.getState().showClassic()}>{t('feed.classic.show')}</Button>) : null}
         </div>
       </header>
       <div className="flex min-h-0 flex-1 flex-row">

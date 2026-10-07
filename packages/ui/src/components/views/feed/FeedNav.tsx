@@ -53,7 +53,7 @@ export function ClassicViewToggle(): React.ReactNode {
   if (!available) return null;
   return (
     <Button type="button" variant="ghost" size="sm" aria-pressed={classicShown} className="w-full justify-start"
-      onClick={() => { useUIStore.getState().closeMainSurfaces(); if (classicShown) openFeedPage(); else useFeedStore.getState().setPageOpen(false); }}>
+      onClick={() => { useUIStore.getState().closeMainSurfaces(); if (classicShown) openFeedPage(); else useFeedStore.getState().showClassic(); }}>
       <Icon name={classicShown ? 'chat-ai-3' : 'code-box'} className="size-4" />
       {classicShown ? t('feed.classic.hide') : t('feed.classic.show')}
     </Button>
