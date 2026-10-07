@@ -50,8 +50,8 @@ export function FeedView({ compact = false, services }: { onClose?: () => void; 
 export const FIRST_PAGE = 50, EARLIER_PAGE = 100;
 
 /**
- * `blocks`: every block held, oldest first; the newest `shown` of them render. `start`: where the oldest held block
- * begins in the feed file, for the next older page; undefined when the server cannot page back.
+ * `blocks`: every block held, oldest first; the newest `shown` of them render. `start`: the gateway's `earlier` cursor,
+ * the `before` for the next older page; undefined at the top of the feed.
  */
 type ReadyFeed = { state: 'ready'; blocks: SmartyBlock[]; shown: number; offset: number; start?: number };
 const NO_PENDING: readonly PendingSend[] = [];
@@ -99,7 +99,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
       if (!current) return;
       offset.current = first.offset;
       // A server that ignores `limit` sends more: they are held, and "Show earlier" reveals them before asking again.
-      setFeed({ state: 'ready', blocks: first.blocks, shown: Math.min(FIRST_PAGE, first.blocks.length), offset: first.offset, start: first.start });
+      setFeed({ state: 'ready', blocks: first.blocks, shown: Math.min(FIRST_PAGE, first.blocks.length), offset: first.offset, start: first.earlier ?? undefined });
       stream = services.openStream(id, {
         onBlocks: next => { if (current) setFeed(state => append(state, next)); },
         onReconnect: () => { if (current) catchUp(offset.current); },
@@ -123,7 +123,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
       setFeed(state => {
         if (state.state !== 'ready') return state;
         const older = unseen(state.blocks, page.blocks);
-        return { ...state, blocks: [...older, ...state.blocks], shown: state.shown + older.length, start: page.start };
+        return { ...state, blocks: [...older, ...state.blocks], shown: state.shown + older.length, start: page.earlier ?? undefined };
       });
       setEarlier('idle');
     }, () => { if (live.current) setEarlier('failed'); });

@@ -8,9 +8,9 @@ import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean() });
 const listSchema = z.object({ me: z.string().min(1), smarties: z.array(smartySchema) });
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
-// `start`: the byte offset where the first returned block begins (0 at the top of the feed), for paging back with
-// `before`. A server without paging omits it, and the view then offers no older page.
-const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative(), start: z.number().int().nonnegative().optional() });
+// `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
+// of appended blocks (`after`) omits it.
+const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative(), earlier: z.number().int().nonnegative().nullable().optional() });
 
 export type Smarty = z.infer<typeof smartySchema>;
 export type SmartyBlock = z.infer<typeof blockSchema>;

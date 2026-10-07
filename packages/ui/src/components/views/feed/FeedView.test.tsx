@@ -307,9 +307,9 @@ test('first paint is the newest 50 blocks; "Show earlier" reveals held blocks, t
   // The server ignored `limit` and sent 60 blocks (40..99), starting at byte 4000.
   const paged: Partial<FeedServices> = { ...services, loadFeed: async (_id, query) => {
     queries.push(query);
-    if (query?.before !== undefined) return { blocks: range(0, 40), offset: 4000, start: 0 };
+    if (query?.before !== undefined) return { blocks: range(0, 40), offset: 4000, earlier: null };
     if (query?.after !== undefined) return { blocks: [], offset: 9000 };
-    return { blocks: range(40, 100), offset: 9000, start: 4000 };
+    return { blocks: range(40, 100), offset: 9000, earlier: 4000 };
   } };
   const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={paged} />);
   expect(queries[0]).toEqual({ limit: 50 });

@@ -29,7 +29,8 @@ test('the feed reads the last blocks, or those after an offset; a send posts tex
   expect(calls.at(-1)?.url).toBe('/api/me/smarties/paul/feed');
   await loadSmartyFeed('paul', { after: 10 }, fake(() => json(JSON.stringify(feed))));
   expect(calls.at(-1)?.url).toBe('/api/me/smarties/paul/feed?after=10');
-  await loadSmartyFeed('paul', { before: 500, limit: 100 }, fake(() => json(JSON.stringify({ ...feed, start: 0 }))));
+  // The gateway's paging cursor is `earlier` (null at the top).
+  expect(await loadSmartyFeed('paul', { before: 500, limit: 100 }, fake(() => json(JSON.stringify({ ...feed, earlier: null }))))).toEqual({ ...feed, earlier: null });
   expect(calls.at(-1)?.url).toBe('/api/me/smarties/paul/feed?before=500&limit=100');
   expect(loadSmartyFeed('kate', {}, fake(() => json(JSON.stringify({}), 403)))).rejects.toBeInstanceOf(SmartiesRequestError);
   await sendSmartyMessage('paul', 'Ship it', 'msg_1', fake(() => json(JSON.stringify({ accepted: true }), 202)));
