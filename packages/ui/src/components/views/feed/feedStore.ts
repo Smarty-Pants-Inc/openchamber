@@ -18,8 +18,11 @@ type FeedStore = {
   pageOpen: boolean;
   /** Keyed by runtime and Smarty (draftKey), so a late answer from one server never writes into another's draft. */
   drafts: Readonly<Record<string, string>>;
-  /** A send that failed: its text and client ID, so sending the same text again is deduped by the gateway. */
-  failedSends: Readonly<Record<string, FailedSend>>;
+  /**
+   * Sends that failed, per draft key: each keeps its own text and client ID, apart from the draft, so "Send again"
+   * retries exactly that message (the gateway dedupes the ID) and later typing never merges into it.
+   */
+  failedSends: Readonly<Record<string, readonly FailedSend[]>>;
   /**
    * Opens the Smarty view. Closing requests (`false`) are ignored: the app's automatic closes (a session restored on
    * load, a draft opening) must not leave the Smarty view. Only `showClassic` (the bottom button) leaves it.
@@ -29,7 +32,8 @@ type FeedStore = {
   selectSmarty: (id: string) => void;
   setSmarties: (smarties: SmartiesState) => void;
   setDraftAt: (key: string, text: string) => void;
-  setFailedSend: (key: string, failed: FailedSend | null) => void;
+  addFailedSend: (key: string, failed: FailedSend) => void;
+  removeFailedSend: (key: string, clientId: string) => void;
 };
 export type FailedSend = { text: string; clientId: string; at: number };
 
@@ -51,11 +55,8 @@ export const useFeedStore = create<FeedStore>(set => {
       return { smarties: next, selectedId, pageOpen: isPageOpen(state.view, next) };
     }),
     setDraftAt: (key, text) => set(state => ({ drafts: { ...state.drafts, [key]: text } })),
-    setFailedSend: (key, failed) => set(state => {
-      const failedSends = { ...state.failedSends };
-      if (failed) failedSends[key] = failed; else delete failedSends[key];
-      return { failedSends };
-    }),
+    addFailedSend: (key, failed) => set(state => ({ failedSends: { ...state.failedSends, [key]: [...(state.failedSends[key] ?? []), failed] } })),
+    removeFailedSend: (key, clientId) => set(state => ({ failedSends: { ...state.failedSends, [key]: (state.failedSends[key] ?? []).filter(item => item.clientId !== clientId) } })),
   };
 });
 

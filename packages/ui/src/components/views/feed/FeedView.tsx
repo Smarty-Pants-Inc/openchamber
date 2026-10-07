@@ -15,7 +15,7 @@ import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, ty
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, readDraftAt, useFeedStore } from './feedStore';
+import { draftKey, ensureSmartiesLoaded, readDraftAt, useFeedStore, type FailedSend } from './feedStore';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
@@ -191,35 +191,39 @@ function SmartyPage({ smarty, all, me, compact, services }: {
 }
 
 /**
- * The message box: Enter sends, Shift+Enter is a new line. The box clears at Send; a failed send puts the text back
- * (before anything typed since) with a plain line saying so, which stays until the next Send. Sending the same text
- * again reuses its client ID (kept with the draft, not the component), so the gateway never delivers it twice.
+ * The message box: Enter sends, Shift+Enter is a new line. The box clears at Send and stays the person's from then on.
+ * A failed send waits beside it with a plain line and "Send again", which retries exactly that message under its own
+ * client ID, so a send the gateway accepted (but whose answer was lost) is never delivered twice, and later typing
+ * never merges into it (openchamber#558 P2).
  */
-/** The gateway dedupes a client ID for 10 minutes; a retry reuses the failed send's ID only well inside that. */
+/** The gateway dedupes a client ID for 10 minutes from its first send; a retry reuses the ID only well inside that. */
 const RETRY_ID_MS = 9 * 60_000;
+const NO_FAILED: readonly FailedSend[] = [];
 
 function FeedMessageBox({ smarty, send }: { smarty: Smarty; send: FeedServices['send'] }): React.ReactNode {
   const { t } = useI18n();
+  // The draft key (runtime and Smarty) is fixed per send: a late answer touches only this key's failed list.
   const key = draftKey(smarty.id);
   const draft = useFeedStore(state => state.drafts[key] ?? '');
-  const failed = useFeedStore(state => Boolean(state.failedSends[key]));
-  const [sending, setSending] = React.useState(false);
+  const failed = useFeedStore(state => state.failedSends[key] ?? NO_FAILED);
+  const [sending, setSending] = React.useState(0);
   const label = t('feed.message.label', { name: smarty.label });
 
+  const deliver = (message: FailedSend) => {
+    setSending(n => n + 1);
+    send(smarty.id, message.text, message.clientId).then(() => undefined, () => { useFeedStore.getState().addFailedSend(key, message); })
+      .finally(() => setSending(n => n - 1));
+  };
   const submit = () => {
-    // The draft key (runtime and Smarty) is fixed at Send: a late answer restores only into this draft.
-    const store = useFeedStore.getState(), text = readDraftAt(key);
-    if (!text.trim() || sending) return;
-    const previous = store.failedSends[key];
-    // `at` is when this client ID was first sent (the gateway's dedupe clock starts then), kept across failed retries.
-    const reuse = previous && previous.text === text && Date.now() - previous.at < RETRY_ID_MS ? previous : null;
-    const clientId = reuse?.clientId ?? ascendingId('msg'), sentAt = reuse?.at ?? Date.now();
-    store.setDraftAt(key, ''); store.setFailedSend(key, null); setSending(true);
-    send(smarty.id, text, clientId).then(() => undefined, () => {
-      const typed = readDraftAt(key);
-      useFeedStore.getState().setDraftAt(key, typed.trim() ? `${text}\n\n${typed}` : text);
-      useFeedStore.getState().setFailedSend(key, { text, clientId, at: sentAt });
-    }).finally(() => setSending(false));
+    const text = readDraftAt(key);
+    if (!text.trim()) return;
+    useFeedStore.getState().setDraftAt(key, '');
+    deliver({ text, clientId: ascendingId('msg'), at: Date.now() });
+  };
+  const sendAgain = (message: FailedSend) => {
+    useFeedStore.getState().removeFailedSend(key, message.clientId);
+    // Past the gateway's window the old ID no longer dedupes: the retry is a new send.
+    deliver(Date.now() - message.at < RETRY_ID_MS ? message : { text: message.text, clientId: ascendingId('msg'), at: Date.now() });
   };
 
   return (
@@ -233,11 +237,15 @@ function FeedMessageBox({ smarty, send }: { smarty: Smarty; send: FeedServices['
               event.preventDefault();
               submit();
             }} />
-          <Button type="submit" disabled={!draft.trim() || sending} aria-label={t('feed.reply.send')}><Icon name="send-plane-2" className="size-4" />{t('feed.reply.send')}</Button>
+          <Button type="submit" disabled={!draft.trim()} aria-label={t('feed.reply.send')}><Icon name="send-plane-2" className="size-4" />{t('feed.reply.send')}</Button>
         </div>
-        {failed
-          ? <p role="alert" className="typography-micro text-[var(--status-error)]">{t('feed.message.failed')}</p>
-          : <p aria-live="polite" className="typography-micro text-muted-foreground">{sending ? t('feed.reply.sending') : t('feed.reply.hint')}</p>}
+        {failed.map(message => (
+          <div key={message.clientId} role="alert" className="flex min-w-0 items-center gap-2 typography-micro text-[var(--status-error)]">
+            <span className="shrink-0">{t('feed.message.failed')}</span>
+            <q className="min-w-0 truncate text-muted-foreground">{message.text}</q>
+            <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={() => sendAgain(message)}>{t('feed.message.retry')}</Button>
+          </div>))}
+        <p aria-live="polite" className="typography-micro text-muted-foreground">{sending ? t('feed.reply.sending') : t('feed.reply.hint')}</p>
       </div>
     </form>
   );

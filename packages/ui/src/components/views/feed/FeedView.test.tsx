@@ -123,19 +123,39 @@ test('3: the own Smarty shows the conversation, the inbox inside it, and a "Mess
   await unmount();
 });
 
-test('3: a failed send gives the text back with a plain line, and sending it again reuses its client ID', async () => {
+test('3: a failed send stays apart from the draft; Send again retries exactly it, with its client ID', async () => {
   sendResult = async () => { throw new Error('502'); };
   const { host, unmount } = await mount(view());
   const box = host.querySelector('textarea')!;
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
   await pressEnter(box); await settle();
-  expect(box.value).toBe('Ship it');
-  expect(host.querySelector('form [role="alert"]')?.textContent).toBe('Your message was not sent. Try again.');
+  // The failed message waits beside the box; the box stays the person's (here, empty).
+  expect(box.value).toBe('');
+  expect(host.querySelector('form [role="alert"]')?.textContent).toContain('Your message was not sent.');
+  expect(host.querySelector('form [role="alert"]')?.textContent).toContain('Ship it');
   sendResult = async () => undefined;
-  await pressEnter(box); await settle();
-  expect(sent).toHaveLength(2);
+  await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+  expect(sent.map(({ text }) => text)).toEqual(['Ship it', 'Ship it']);
   expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
   expect(host.querySelector('form [role="alert"]')).toBeNull();
+  await unmount();
+});
+
+test('3: an accepted send whose answer was lost, then more typing: the retry is the original alone, the new draft untouched (P2)', async () => {
+  sendResult = async () => { throw new Error('response lost'); };
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(box); await settle();
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'And the docs'); });
+  sendResult = async () => undefined;
+  await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+  expect(sent.map(({ text, clientId }) => ({ text, clientId }))).toEqual([{ text: 'Ship it', clientId: sent[0]!.clientId }, { text: 'Ship it', clientId: sent[0]!.clientId }]);
+  expect(box.value).toBe('And the docs');
+  // The new draft sends on its own, under its own client ID.
+  await pressEnter(box); await settle();
+  expect(sent[2]).toMatchObject({ text: 'And the docs' });
+  expect(sent[2]!.clientId).not.toBe(sent[0]!.clientId);
   await unmount();
 });
 
@@ -257,8 +277,7 @@ test('a failed send keeps its client ID with the draft: closing and reopening th
   await first.unmount();
   sendResult = async () => undefined;
   const second = await mount(view());
-  expect(second.host.querySelector('textarea')!.value).toBe('Ship it');
-  await pressEnter(second.host.querySelector('textarea')!); await settle();
+  await act(async () => { button(second.host, 'Send again')!.click(); }); await settle();
   expect(sent[1]!.clientId).toBe(sent[0]!.clientId);
   await second.unmount();
 });
@@ -345,7 +364,7 @@ test('a retry after the dedupe window, counted from the first send (not the fail
     // Retried at t=10 min: past the gateway's window from the first send.
     now += 8 * 60_000;
     sendResult = async () => undefined;
-    await pressEnter(host.querySelector('textarea')!); await settle();
+    await act(async () => { button(host, 'Send again')!.click(); }); await settle();
     expect(sent).toHaveLength(2);
     expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
     await unmount();
