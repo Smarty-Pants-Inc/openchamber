@@ -1,0 +1,13 @@
+{
+  "issue": "smarty-code#1356 / openchamber#564",
+  "sourceHead": "499d02b97f1d2ffff615e7a6e120fd76342801b6",
+  "note": "Node-mode member execution refusal successor; earlier ledgers and their digests stay byte-identical. These hashes bind source, not security or activation acceptance.",
+  "files": [
+    {
+      "path": "packages/web/server/index.js",
+      "predecessorSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
+      "sha256": "1159884f76ca800396ffb500a8f16b93207c9250b7cfe5bb3161d482cc093d8a",
+      "note": "main() adds the Node-mode Git hook and fsmonitor overrides to process.env before any Git child; no presentation change."
+    }
+  ]
+}
