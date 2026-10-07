@@ -12,6 +12,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Sign out',
     'chat.displayName.editProfile': 'Edit profile',
     'chat.displayName.organization': 'Organization',
+    'chat.container.memberReadOnlyPromptBanner': 'Members can view this agent. Prompting needs isolation, #1442.',
   },
   de: {
     'chat.displayName.account': 'Konto',
@@ -26,6 +27,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Abmelden',
     'chat.displayName.editProfile': 'Profil bearbeiten',
     'chat.displayName.organization': 'Organisation',
+    'chat.container.memberReadOnlyPromptBanner': 'Mitglieder können diesen Agenten ansehen. Prompts erfordern Isolation, #1442.',
   },
   es: {
     'chat.displayName.account': 'Cuenta',
@@ -40,6 +42,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Cerrar sesión',
     'chat.displayName.editProfile': 'Editar perfil',
     'chat.displayName.organization': 'Organización',
+    'chat.container.memberReadOnlyPromptBanner': 'Los miembros pueden ver este agente. Enviarle instrucciones requiere aislamiento, #1442.',
   },
   fr: {
     'chat.displayName.account': 'Compte',
@@ -54,6 +57,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Se déconnecter',
     'chat.displayName.editProfile': 'Modifier le profil',
     'chat.displayName.organization': 'Organisation',
+    'chat.container.memberReadOnlyPromptBanner': 'Les membres peuvent consulter cet agent. L’envoi d’instructions nécessite une isolation, #1442.',
   },
   ja: {
     'chat.displayName.account': 'アカウント',
@@ -68,6 +72,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'ログアウト',
     'chat.displayName.editProfile': 'プロフィールを編集',
     'chat.displayName.organization': '組織',
+    'chat.container.memberReadOnlyPromptBanner': 'メンバーはこのエージェントを閲覧できます。プロンプトの送信には分離が必要です（#1442）。',
   },
   ko: {
     'chat.displayName.account': '계정',
@@ -82,6 +87,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': '로그아웃',
     'chat.displayName.editProfile': '프로필 편집',
     'chat.displayName.organization': '조직',
+    'chat.container.memberReadOnlyPromptBanner': '멤버는 이 에이전트를 볼 수 있습니다. 프롬프트를 보내려면 격리가 필요합니다(#1442).',
   },
   pl: {
     'chat.displayName.account': 'Konto',
@@ -96,6 +102,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Wyloguj się',
     'chat.displayName.editProfile': 'Edytuj profil',
     'chat.displayName.organization': 'Organizacja',
+    'chat.container.memberReadOnlyPromptBanner': 'Członkowie mogą przeglądać tego agenta. Wysyłanie poleceń wymaga izolacji, #1442.',
   },
   'pt-BR': {
     'chat.displayName.account': 'Conta',
@@ -110,6 +117,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Sair',
     'chat.displayName.editProfile': 'Editar perfil',
     'chat.displayName.organization': 'Organização',
+    'chat.container.memberReadOnlyPromptBanner': 'Membros podem ver este agente. Enviar prompts requer isolamento, #1442.',
   },
   tr: {
     'chat.displayName.account': 'Hesap',
@@ -124,6 +132,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Çıkış yap',
     'chat.displayName.editProfile': 'Profili düzenle',
     'chat.displayName.organization': 'Kuruluş',
+    'chat.container.memberReadOnlyPromptBanner': 'Üyeler bu ajanı görüntüleyebilir. İstem göndermek yalıtım gerektirir, #1442.',
   },
   uk: {
     'chat.displayName.account': 'Обліковий запис',
@@ -138,6 +147,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': 'Вийти',
     'chat.displayName.editProfile': 'Редагувати профіль',
     'chat.displayName.organization': 'Організація',
+    'chat.container.memberReadOnlyPromptBanner': 'Учасники можуть переглядати цього агента. Надсилання запитів потребує ізоляції, #1442.',
   },
   'zh-CN': {
     'chat.displayName.account': '账号',
@@ -152,6 +162,7 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': '退出登录',
     'chat.displayName.editProfile': '编辑个人资料',
     'chat.displayName.organization': '组织',
+    'chat.container.memberReadOnlyPromptBanner': '成员可以查看此智能体。发送提示需要隔离，#1442。',
   },
   'zh-TW': {
     'chat.displayName.account': '帳號',
@@ -166,5 +177,6 @@ export const humanAuthI18n = {
     'chat.displayName.signOut': '登出',
     'chat.displayName.editProfile': '編輯個人資料',
     'chat.displayName.organization': '組織',
+    'chat.container.memberReadOnlyPromptBanner': '成員可以檢視此代理。傳送提示需要隔離，#1442。',
   },
 };

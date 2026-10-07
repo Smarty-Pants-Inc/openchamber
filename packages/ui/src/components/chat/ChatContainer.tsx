@@ -77,6 +77,7 @@ import { useNativeResumeSupport } from './hooks/useNativeResumeSupport';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
 import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, isPiDisconnected, showsViewOnly, successorTarget } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
+import { useHumanAuth } from '@/lib/human-auth';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { WorkStatusPanel } from './work-status/WorkStatusPanel';
@@ -635,14 +636,14 @@ const HYDRATING_SKELETON_ITEMS: Array<{
     },
 ];
 
-const ReadOnlyPromptBanner: React.FC = () => {
+const ReadOnlyPromptBanner: React.FC<{ member?: boolean }> = ({ member = false }) => {
     const { t } = useI18n();
 
     return (
         <div className="w-full py-3">
             <div className="chat-input-column">
                 <div className="rounded-2xl border border-border/70 bg-[var(--surface-background)] px-4 py-3 text-center typography-ui-label text-muted-foreground">
-                    {t('chat.container.readOnlySubagentPromptBanner')}
+                    {t(member ? 'chat.container.memberReadOnlyPromptBanner' : 'chat.container.readOnlySubagentPromptBanner')}
                 </div>
             </div>
         </div>
@@ -1099,6 +1100,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
             {t('chat.container.returnToParent.label')}
         </Button>
     ) : null;
+    // Node members view shared agents read-only until isolation lands (smarty-code#1442); the server refuses prompts.
+    const memberAgentReadOnly = useHumanAuth((state) => state.agentReadOnly);
     const promptReadOnly = resolveChatPromptReadOnly(
         currentSession,
         embeddedAllowPrompting ?? allowPromptingSubagentSessions,
@@ -1766,8 +1769,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         resume={(endedSession || continueRecovery) && currentSessionId && effectiveSessionDirectory
                             ? { directory: effectiveSessionDirectory, sessionID: currentSessionId, available: continueAvailable,
                                 project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
-                ) : promptReadOnly ? (
-                    <ReadOnlyPromptBanner />
+                ) : promptReadOnly || memberAgentReadOnly ? (
+                    <ReadOnlyPromptBanner member={!promptReadOnly && memberAgentReadOnly} />
                 ) : (
                     <ChatInput
                         active={active}

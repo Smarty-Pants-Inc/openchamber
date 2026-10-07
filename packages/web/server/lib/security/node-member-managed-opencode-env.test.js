@@ -18,7 +18,7 @@ const launchEnvs = async (root, nodeId) => {
   chmodSync(fakeOpenCode, 0o755);
   // The login shell already carries a Git config entry that points hooks into the worktree.
   const shellSnapshot = { PATH: process.env.PATH, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath',
-    GIT_CONFIG_VALUE_0: '.husky', GIT_EXTERNAL_DIFF: '/shell/external-diff', GIT_SSH_COMMAND: '/shell/ssh' };
+    GIT_CONFIG_VALUE_0: '.husky' };
   for (const key of Object.keys(process.env)) {
     if (key.startsWith('GIT_CONFIG_') || key === 'SMARTY_CODE_NODE_ID') delete process.env[key];
   }
@@ -29,7 +29,7 @@ const launchEnvs = async (root, nodeId) => {
   const envRuntime = createOpenCodeEnvRuntime({ state: envState, normalizeDirectoryPath: value => value,
     readSettingsFromDiskMigrated: async () => ({}) });
   envRuntime.applyLoginShellEnvSnapshot(); // index.js module load
-  disableGitHooksInNodeMode(process.env, envRuntime.getLoginShellEnvSnapshot()); // index.js main()
+  disableGitHooksInNodeMode(process.env); // index.js main()
 
   const state = { openCodeWorkingDirectory: root, openCodeProcess: null, openCodePort: null, currentRestartPromise: null,
     isOpenCodeReady: false, isExternalOpenCode: false, isShuttingDown: false, expressApp: null, useWslForOpencode: false };
@@ -87,12 +87,9 @@ const withServerEnv = async (nodeId, check) => {
 it('Node mode: managed OpenCode launch and restart get the Git hook and fsmonitor overrides over the shell snapshot',
   async () => {
     await withServerEnv('fixture-node', (env, root) => {
-      const config = Array.from({ length: Number(env.GIT_CONFIG_COUNT) },
-        (_, index) => `${env[`GIT_CONFIG_KEY_${index}`]}=${env[`GIT_CONFIG_VALUE_${index}`]}`);
-      expect(config).toEqual(expect.arrayContaining(['core.hooksPath=/dev/null', 'core.fsmonitor=false']));
-      expect(config).not.toContain('core.hooksPath=.husky');
-      expect([env.GIT_CONFIG_NOSYSTEM, env.GIT_CONFIG_GLOBAL]).toEqual(['1', '/dev/null']);
-      expect([env.GIT_EXTERNAL_DIFF, env.GIT_SSH_COMMAND]).toEqual([undefined, undefined]);
+      expect(env.GIT_CONFIG_COUNT).toBe('3');
+      expect([env.GIT_CONFIG_KEY_1, env.GIT_CONFIG_VALUE_1]).toEqual(['core.hooksPath', '/dev/null']);
+      expect([env.GIT_CONFIG_KEY_2, env.GIT_CONFIG_VALUE_2]).toEqual(['core.fsmonitor', 'false']);
       expect(hookRuns(root, env)).toBe(false);
     });
   }, 30000);
@@ -100,7 +97,6 @@ it('Node mode: managed OpenCode launch and restart get the Git hook and fsmonito
 it('owner (no Node): managed OpenCode keeps the shell Git config and the repository hook runs', async () => {
   await withServerEnv(undefined, (env, root) => {
     expect(env.GIT_CONFIG_COUNT).toBe('1');
-    expect([env.GIT_EXTERNAL_DIFF, env.GIT_SSH_COMMAND]).toEqual(['/shell/external-diff', '/shell/ssh']);
     expect(hookRuns(root, env)).toBe(true);
   });
 }, 30000);

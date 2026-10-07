@@ -5,14 +5,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, expect, it } from 'vitest';
-import { disableGitHooksInNodeMode } from './node-member-execution.js';
+import { gitEnvForCaller, isolatedMemberGitEnv, runAsMember } from './node-member-execution.js';
 
 /** Real Git with an owner's global config and server env that name helper programs. In Node mode a member-initiated
- *  Git child must not run any of them; the owner (no Node) keeps them all. Each helper touches its marker. */
+ *  Git child must not run any of them; the owner's own Git (Node mode, outside a member request, or no Node) keeps
+ *  them all. Each helper touches its marker. The env comes from gitEnvForCaller, as the server's Git spawns do. */
 const roots = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+const savedNodeId = process.env.SMARTY_CODE_NODE_ID;
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  if (savedNodeId === undefined) delete process.env.SMARTY_CODE_NODE_ID; else process.env.SMARTY_CODE_NODE_ID = savedNodeId;
+});
 
-const fixture = (nodeId, { gitconfig = () => '', env: extraEnv = {} } = {}) => {
+const fixture = (caller, { gitconfig = () => '', env: extraEnv = {} } = {}) => {
   const root = mkdtempSync(join(tmpdir(), 'node-git-isolation-')), repo = join(root, 'repo');
   roots.push(root);
   const marker = name => join(root, `${name}-ran`);
@@ -22,20 +27,20 @@ const fixture = (nodeId, { gitconfig = () => '', env: extraEnv = {} } = {}) => {
     return file;
   };
   writeFileSync(join(root, '.gitconfig'), `[user]\n\tname = Owner\n\temail = owner@example.test\n${gitconfig(helper)}`);
-  const env = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
+  const serverEnv = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
     ...Object.fromEntries(Object.entries(extraEnv).map(([key, name]) => [key, helper(name)])) };
-  if (nodeId) env.SMARTY_CODE_NODE_ID = nodeId;
-  disableGitHooksInNodeMode(env);
+  if (caller === 'no Node') delete process.env.SMARTY_CODE_NODE_ID; else process.env.SMARTY_CODE_NODE_ID = 'fixture-node';
+  const env = caller === 'Node member' ? runAsMember(() => gitEnvForCaller(serverEnv)) : gitEnvForCaller(serverEnv);
   const git = (...args) => { try { return execFileSync('git', args, { cwd: repo, env, stdio: 'pipe' }).toString(); } catch { return null; } };
   mkdirSync(repo); git('init', '-q', '-b', 'main');
   writeFileSync(join(repo, 'a.txt'), '1\n'); git('add', '.'); git('commit', '-q', '-m', 'init');
   writeFileSync(join(repo, 'a.txt'), '2\n');
   return { root, repo, env, git, ran: name => existsSync(marker(name)) };
 };
-const modes = [['fixture-node', false], [undefined, true]];
+const modes = [['Node member', false], ['Node owner (no member request)', true], ['no Node', true]];
 
-for (const [nodeId, runs] of modes) {
-  const who = nodeId ? 'Node mode' : 'owner (no Node)';
+for (const [who, runs] of modes) {
+  const nodeId = who;
   it(`${who}: global diff.external ${runs ? 'runs' : 'does not run'} on git diff`, () => {
     const { git, ran } = fixture(nodeId, { gitconfig: helper => `[diff]\n\texternal = ${helper('external')}\n` });
     git('diff');
@@ -69,19 +74,28 @@ for (const [nodeId, runs] of modes) {
     } finally { server.close(); }
     expect(ran('credential')).toBe(runs);
   });
+
+  it(`${who}: a global LFS-style filter ${runs ? 'runs' : 'does not run'} on add and checkout`, () => {
+    const { repo, git, ran } = fixture(nodeId, { gitconfig: helper => `[filter "lfs"]\n\tclean = ${helper('clean')}\n`
+      + `\tsmudge = ${helper('smudge')}\n\trequired = false\n` });
+    writeFileSync(join(repo, '.gitattributes'), '*.bin filter=lfs\n'); writeFileSync(join(repo, 'a.bin'), 'x\n');
+    git('add', '.'); git('commit', '-q', '-m', 'lfs'); rmSync(join(repo, 'a.bin')); git('checkout', '--', 'a.bin');
+    expect([ran('clean'), ran('smudge')]).toEqual([runs, runs]);
+  });
 }
 
-it('Node mode: commits keep the owner identity (data only), and inherited GIT_CONFIG_* and GIT_CONFIG_PARAMETERS are dropped', () => {
-  const { git, env } = fixture('fixture-node');
+it('Node member: commits keep the owner identity (data only), and inherited GIT_CONFIG_* and GIT_CONFIG_PARAMETERS are dropped', () => {
+  const { git, env } = fixture('Node member');
   expect(git('commit', '-q', '-am', 'member')).not.toBeNull();
   expect(git('log', '-1', '--format=%an <%ae>').trim()).toBe('Owner <owner@example.test>');
   const inherited = { GIT_CONFIG_PARAMETERS: "'core.pager'='x'", GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'diff.external',
     GIT_CONFIG_VALUE_0: '/x', GIT_SSH_COMMAND: 'x', GIT_SSH: 'x', GIT_ASKPASS: 'x', SSH_ASKPASS: 'x', GIT_PROXY_COMMAND: 'x',
-    SMARTY_CODE_NODE_ID: 'fixture-node', HOME: env.HOME, PATH: env.PATH };
-  disableGitHooksInNodeMode(inherited);
-  expect(Object.keys(inherited).filter(key => /^(GIT_CONFIG_PARAMETERS|GIT_SSH|GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND)$/.test(key)))
+    HOME: env.HOME, PATH: env.PATH };
+  const isolated = isolatedMemberGitEnv(inherited);
+  expect(inherited.GIT_SSH).toBe('x'); // a new object; the server env is not changed
+  expect(Object.keys(isolated).filter(key => /^(GIT_CONFIG_PARAMETERS|GIT_SSH|GIT_SSH_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_PROXY_COMMAND)$/.test(key)))
     .toEqual([]);
-  expect(Object.entries(inherited).filter(([key, value]) => key.startsWith('GIT_CONFIG_KEY_') && value === 'diff.external'))
+  expect(Object.entries(isolated).filter(([key, value]) => key.startsWith('GIT_CONFIG_KEY_') && value === 'diff.external'))
     .toEqual([]);
-  expect([inherited.GIT_CONFIG_NOSYSTEM, inherited.GIT_CONFIG_GLOBAL]).toEqual(['1', '/dev/null']);
+  expect([isolated.GIT_CONFIG_NOSYSTEM, isolated.GIT_CONFIG_GLOBAL]).toEqual(['1', '/dev/null']);
 });

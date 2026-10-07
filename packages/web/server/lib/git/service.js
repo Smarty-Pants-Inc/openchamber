@@ -7,7 +7,8 @@ import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
-import { MEMBER_EXECUTION_REFUSED, memberExecutionRefused, withoutDiffHelpersInNodeMode } from '../security/node-member-execution.js';
+import { MEMBER_EXECUTION_REFUSED, gitEnvForCaller, memberExecutionRefused, memberInitiated, withoutDiffHelpersForMembers }
+  from '../security/node-member-execution.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -352,7 +353,8 @@ const buildGitEnv = async () => {
       env.SSH_AUTH_SOCK = resolved;
     }
   }
-  return env;
+  // Node mode: member-initiated Git gets no system or global config and no executable env (smarty-code#1356).
+  return gitEnvForCaller(env);
 };
 
 const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
@@ -382,11 +384,11 @@ const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
     binary,
     unsafe,
   });
-  // Node mode: every diff, log and show this service runs goes through raw or show (smarty-code#1356).
+  // Node mode: every diff, log and show this service runs goes through raw or show; member calls get the flags.
   if (memberExecutionRefused(process.env)) {
     const raw = git.raw.bind(git), show = git.show.bind(git);
-    git.raw = (args, ...rest) => raw(withoutDiffHelpersInNodeMode(args), ...rest);
-    git.show = (args, ...rest) => show(Array.isArray(args) ? withoutDiffHelpersInNodeMode(['show', ...args]).slice(1) : args, ...rest);
+    git.raw = (args, ...rest) => raw(withoutDiffHelpersForMembers(args), ...rest);
+    git.show = (args, ...rest) => show(Array.isArray(args) ? withoutDiffHelpersForMembers(['show', ...args]).slice(1) : args, ...rest);
   }
   return git;
 };
@@ -936,7 +938,7 @@ const isMissingDirectoryError = (error) => {
 
 const runGitCommand = async (cwd, args) => {
   try {
-    const { stdout, stderr } = await execFileAsync(getGitBinary(), withoutDiffHelpersInNodeMode(args), {
+    const { stdout, stderr } = await execFileAsync(getGitBinary(), withoutDiffHelpersForMembers(args), {
       cwd,
       env: await buildGitEnv(),
       windowsHide: true,
@@ -1718,8 +1720,8 @@ const runWorktreeStartCommand = async (directory, command) => {
   if (!text) {
     return { success: true };
   }
-  // Node mode: a start command (request or project setting) would run as the server account (smarty-code#1356).
-  if (memberExecutionRefused(process.env)) {
+  // Node mode: a member's start command (request or project setting) would run as the server account (smarty-code#1356).
+  if (memberInitiated()) {
     return { success: false, message: MEMBER_EXECUTION_REFUSED };
   }
 

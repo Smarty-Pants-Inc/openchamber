@@ -6,14 +6,20 @@
     {
       "path": "packages/web/server/index.js",
       "predecessorSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
-      "sha256": "c54563aafd7b1dd4bb1f9d2e3ad81d290939d6bb72a3d0f8ab249e29d8f2efb5",
-      "note": "main() isolates member-initiated Git from system and global config and executable env (and the cached login-shell snapshot) before any Git child; no presentation change."
+      "sha256": "1159884f76ca800396ffb500a8f16b93207c9250b7cfe5bb3161d482cc093d8a",
+      "note": "main() adds the Node-mode Git hook and fsmonitor overrides to process.env before any Git child; no presentation change."
     },
     {
       "path": "packages/web/server/lib/git/service.js",
       "predecessorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
-      "sha256": "e232439740d152f4af6b0610687fb1275603c46f9320ee017d08940459285971",
-      "note": "Node mode refuses worktree start commands and passes --no-ext-diff and --no-textconv on diff, log and show; no presentation change."
+      "sha256": "1420db8d7225840141cc5f361febd92b98e7dd76df27631bce7e00aca2bf9d44",
+      "note": "Node mode: member-initiated Git gets an isolated env and --no-ext-diff/--no-textconv, and a member's worktree start command is refused; no presentation change."
+    },
+    {
+      "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
+      "predecessorSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "sha256": "3ed147046a5285038d8f53d29bf772296a5713516ad2048cfd5d310acfdad15c",
+      "note": "Reads agentReadOnly from the session status so the chat hides the composer for Node members (smarty-code#1442); no presentation change."
     }
   ]
 }

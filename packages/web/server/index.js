@@ -1494,7 +1494,7 @@ async function main(options = {}) {
   if (responsePolicy !== undefined && !(responsePolicy instanceof Function)) {
     throw new TypeError('responsePolicy must be a function');
   }
-  disableGitHooksInNodeMode(process.env, getLoginShellEnvSnapshot()); // Before any Git child (smarty-code#1356).
+  disableGitHooksInNodeMode(process.env); // Before any Git child (smarty-code#1356).
   const humanAuth = await createConfiguredHumanAuth(process.env);
   try {
     return await startConfiguredWebUiServer(options, humanAuth, createResponsePolicyMiddleware(responsePolicy, humanAuth));

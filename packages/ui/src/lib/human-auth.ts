@@ -5,11 +5,12 @@ import { getRuntimeUrlResolver } from './runtime-url';
 import { browserDisplayName } from './messages/displayName';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from './runtime-switch';
 
-export const useHumanAuth = create<{ enabled: boolean }>(() => ({ enabled: false }));
+/** agentReadOnly: a Node member may view shared agents but not prompt them (smarty-code#1442); the server enforces it. */
+export const useHumanAuth = create<{ enabled: boolean; agentReadOnly: boolean }>(() => ({ enabled: false, agentReadOnly: false }));
 
-export function setHumanAuthEnabled(enabled: boolean) {
+export function setHumanAuthEnabled(enabled: boolean, agentReadOnly = false) {
   browserDisplayName.setHumanMode(enabled);
-  useHumanAuth.setState({ enabled });
+  useHumanAuth.setState({ enabled, agentReadOnly: enabled && agentReadOnly });
 }
 
 /** A client belongs to the currently selected runtime, never a cached previous host. */

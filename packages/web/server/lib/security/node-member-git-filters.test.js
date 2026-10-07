@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { disableGitHooksInNodeMode } from './node-member-execution.js';
+import { isolatedMemberGitEnv } from './node-member-execution.js';
 
 /** The owner's global Git config defines filter drivers (as git-lfs does); a member writes `.gitattributes` that
  *  selects them and stages or checks out a file. Each driver touches its marker if Git runs it. */
@@ -18,9 +18,8 @@ const driversRun = (nodeId) => {
     };
     writeFileSync(join(root, '.gitconfig'), `[filter "lfs-like"]\n\tclean = ${driver('clean')}\n\tsmudge = ${driver('smudge')}\n`
       + `[filter "dotted.name"]\n\tclean = ${driver('dotted')}\n`);
-    const env = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' };
-    if (nodeId) env.SMARTY_CODE_NODE_ID = nodeId;
-    disableGitHooksInNodeMode(env);
+    const serverEnv = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' };
+    const env = nodeId ? isolatedMemberGitEnv(serverEnv) : serverEnv; // a member's Git, or the owner's
     const git = (...args) => execFileSync('git', args, { cwd: repo, env, stdio: 'pipe' });
     mkdirSync(repo); git('init', '-q'); git('config', 'user.name', 'f'); git('config', 'user.email', 'f@example.test');
     writeFileSync(join(repo, '.gitattributes'), '*.txt filter=lfs-like\n*.md filter=dotted.name\n');
@@ -44,9 +43,8 @@ const diffMergeDriversRun = (nodeId) => {
     };
     writeFileSync(join(root, '.gitconfig'), `[diff "tx"]\n\ttextconv = ${driver('textconv')}\n`
       + `[diff "cx"]\n\tcommand = ${driver('command')}\n[merge "mx"]\n\tdriver = ${driver('merge')} %O %A %B\n`);
-    const env = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' };
-    if (nodeId) env.SMARTY_CODE_NODE_ID = nodeId;
-    disableGitHooksInNodeMode(env);
+    const serverEnv = { PATH: process.env.PATH, HOME: root, GIT_CONFIG_NOSYSTEM: '1' };
+    const env = nodeId ? isolatedMemberGitEnv(serverEnv) : serverEnv; // a member's Git, or the owner's
     const git = (...args) => { try { execFileSync('git', args, { cwd: repo, env, stdio: 'pipe' }); } catch { /* a refused driver fails the command */ } };
     mkdirSync(repo); git('init', '-q', '-b', 'main'); git('config', 'user.name', 'f'); git('config', 'user.email', 'f@example.test');
     writeFileSync(join(repo, '.gitattributes'), '*.t diff=tx\n*.c diff=cx\n*.m merge=mx\n');
@@ -61,18 +59,18 @@ const diffMergeDriversRun = (nodeId) => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 };
 
-it('Node mode: configured diff and merge drivers do not run for member-selected attributes', () => {
+it('Node member: configured diff and merge drivers do not run for member-selected attributes', () => {
   expect(diffMergeDriversRun('fixture-node')).toEqual([]);
 });
 
-it('owner (no Node): configured diff and merge drivers still run', () => {
+it('owner: configured diff and merge drivers still run', () => {
   expect(diffMergeDriversRun(undefined)).toEqual(['textconv', 'command', 'merge']);
 });
 
-it('Node mode: configured filter drivers do not run for member-selected attributes', () => {
+it('Node member: configured filter drivers do not run for member-selected attributes', () => {
   expect(driversRun('fixture-node')).toEqual([]);
 });
 
-it('owner (no Node): configured filter drivers still run', () => {
+it('owner: configured filter drivers still run', () => {
   expect(driversRun(undefined)).toEqual(['clean', 'smudge', 'dotted']);
 });

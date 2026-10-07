@@ -33,7 +33,7 @@ import {
 } from '@/lib/passkeys';
 
 const STATUS_CHECK_ENDPOINT = '/auth/session';
-const humanStatusSchema = z.object({ humanAuth: z.boolean().optional() });
+const humanStatusSchema = z.object({ humanAuth: z.boolean().optional(), agentReadOnly: z.boolean().optional() });
 // Transient-failure auto-retry for the initial session check. Over the relay the
 // very first /auth/session can race the tunnel's initial WebSocket attempt (a
 // failed attempt rejects requests queued on the channel even though the tunnel
@@ -477,7 +477,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
 
         if (response.ok) {
           const payload = humanStatusSchema.parse(JSON.parse(responseText));
-          setHumanAuthEnabled(payload.humanAuth === true);
+          setHumanAuthEnabled(payload.humanAuth === true, payload.agentReadOnly === true);
           resetTransientRetry();
           completeAuthentication();
           setIsTunnelLocked(false);

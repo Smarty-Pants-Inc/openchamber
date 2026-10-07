@@ -56,7 +56,7 @@ test('active member binds private forwarding without changing public actors or p
     identity.member.smartyId = 'forged';
     assert.deepEqual(f.human.actor(session, { forwarded: true }).member, member, 'actor callers cannot mutate admitted binding');
     const res = response(); await f.human.status(request(f.headers), res);
-    assert.deepEqual(res.result().body, { authenticated: true, humanAuth: true, user: display });
+    assert.deepEqual(res.result().body, { authenticated: true, humanAuth: true, agentReadOnly: true, user: display });
     const uiAuth = createUiAuth({ humanAuth: f.human });
     assert.deepEqual((await uiAuth.resolveAuthContext(request(f.headers))).user, display);
     const stream = new EventEmitter(); stream.destroy = () => stream.emit('close');

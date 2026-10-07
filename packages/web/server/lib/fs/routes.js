@@ -2,7 +2,8 @@ import { createRealpathCache } from '../path-realpath-cache.js';
 import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-catalog-guard.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
-import { GIT_METADATA_REFUSED, isGitMetadataPath, memberExecutionRefused, refuseMemberExecution } from '../security/node-member-execution.js';
+import { GIT_METADATA_REFUSED, gitEnvForCaller, isGitMetadataPath, memberExecutionRefused, refuseMemberExecution }
+  from '../security/node-member-execution.js';
 import { FILE_MIME_MAP, MAX_SERVE_BYTES, mintPreviewCapability, PREVIEW_CSP } from './preview-capability.js';
 import { appendContentSecurityPolicy, responsePolicyCacheControl } from '../http-response-policy.js';
 
@@ -956,11 +957,11 @@ export const registerFsRoutes = (app, dependencies) => {
           cwd: parentPath,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
+          env: gitEnvForCaller({
             ...process.env,
             PATH: buildAugmentedPath ? buildAugmentedPath(process.env.PATH || '') : process.env.PATH,
             GIT_TERMINAL_PROMPT: '0',
-          },
+          }),
         });
 
         let stdout = '';
