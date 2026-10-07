@@ -62,8 +62,8 @@ Ordinary sends then retain the loader's existing same-branch sendable-view behav
 verified move retains live editor input, the composer transfers pending Send recovery and its
 owned input copy to that same runtime/session's new directory. Adoption never replays a prompt.
 Unresolved Send outcomes fence that runtime/session across directory moves, independent of editor
-ownership. Explicit Send resumes only once every outcome is known; Stop stays available. The composer
-passes its late admission check through `sendMessage` to the existing SDK `beforeDispatch` callback.
+ownership. Explicit Send resumes only once every outcome is known; Stop stays available. The fence
+lives in the sync layer; see [Ordinary Send admission](#ordinary-send-admission).
 See the [composer contract](../components/chat/composer/DOCUMENTATION.md#ordering-rules-worth-knowing).
 
 One selected check shares its strict read and has a ten-second observation deadline. Runtime,
@@ -100,6 +100,7 @@ pane moves or the original Pi process.
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, one-shot draft-materialization transition identity, abort prompts, worktree metadata, SDK-facing action entrypoints | App UI state |
+| `session-send-state.ts` | Ordinary Send reservations: one unresolved Send per session, released only by a known outcome | One runtime; browser lifetime |
 | `useGlobalSessionsStore.ts` | Global active/archived entities plus root, parent/child, and directory indexes | All opened project/worktree session lists |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
@@ -330,6 +331,35 @@ are not input authority: accepted-view, native readiness and no-replay checks st
 apply independently. Directory aliases are normalized only for the native lookup;
 request payload bytes remain unchanged. Unsupported command/shell mutations and
 ordinary queue admission still fail through their existing gateway/capability gates.
+
+### Ordinary Send admission
+
+`session-send-state.ts` owns one reservation per runtime and session ID while an ordinary (Pi) Send is
+unresolved. It lives for the browser page, so composer remounts, view-only flips, owner moves and
+provider replacement do not clear it. The directory is not part of its key. There is no timeout,
+eviction, persistence or replay, and no cross-tab, reload or restart guarantee.
+
+`routeMessage` is the only place that takes and settles a reservation. It captures the send directory
+once (an omitted directory takes the client's current one) and passes it down, so admission and the
+SDK never read different directories. `isOrdinarySendTarget` (`selected-session-owner.ts`) decides
+ordinary ownership from selected-owner state, every child store's row for the session (not the
+deduplicated index), the global listing while no directory has a row yet, and a loader view accepted
+as ordinary history. A missing directory row is not evidence of a stock session, so a global-only
+owner is reserved before directory bootstrap. A live directory row outranks the global listing.
+
+An ordinary Send claims its reservation synchronously, before the first await. The route tells the
+SDK `ordinaryOwner`, so the prompt carries an accepted history view or is refused; it is never sent
+bare. The global listing's retained-unavailable or ended mark refuses the Send unless a current verified
+live owner outranks it. The final `beforeDispatch` checks the exact reservation, runtime scope and that
+mark after history, file and attribution preparation, for prompts and slash commands alike. Known
+acceptance or refusal releases the reservation at once; ambiguous transport failures and client-ID
+conflicts keep it. Release never sends.
+
+Stock sessions keep their concurrent prompts and take no reservation. A stock-classified Send refuses
+before its POST, with "This message was not sent", if the session turns ordinary or gains a reservation
+during preparation. The composer only reads `sessionSendState.isPending`; its local `SendRecovery`
+restores and cleans up input and grants no permission. The ordinary shell route relies on the
+gateway's capability gate.
 
 ### Stream recovery
 

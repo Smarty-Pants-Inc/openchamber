@@ -196,9 +196,12 @@ and the send path reading the same grammar.
   or reservation for the same runtime and session remains unresolved, explicit
   Send is blocked with "Waiting for your last message to be confirmed." This
   includes edited or unrelated input, same-ID retries and queued input. Owner
-  directory changes do not bypass the fence. Admission checks run before
-  preparation and again before dispatch, excluding only the current admitted
-  request from its own late check. Other sessions and Stop remain available.
+  directory changes, composer remounts and view-only flips do not bypass the
+  fence: it lives in `sync/session-send-state.ts`, not in the composer. The
+  composer reads it before and after preparation; the store route takes the
+  reservation and the SDK rechecks it before dispatch, excluding only the
+  current admitted request. Component-local `SendRecovery` only restores and
+  cleans up input. Other sessions and Stop remain available.
   Once every outcome is known, a deliberate new Send is allowed immediately.
   Neither the watchdog nor restored-part cleanup grants Send permission.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
