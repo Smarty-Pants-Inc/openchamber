@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { Button } from '@/components/ui/button';
@@ -630,7 +631,8 @@ export const LinearIssuesView: React.FC = () => {
     }
   }, [compactFilters, searchOpen]);
 
-  const worktreeToggle = (
+  // Worktree creation needs a runtime-local bridge; the server refuses it.
+  const worktreeToggle = canMutateWorktrees() ? (
     <div
       className="flex items-center gap-2 cursor-pointer"
       role="button"
@@ -662,7 +664,7 @@ export const LinearIssuesView: React.FC = () => {
       </button>
       <span className="typography-meta text-muted-foreground">{t('session.linearIssuePicker.actions.createInWorktree')}</span>
     </div>
-  );
+  ) : null;
 
   const renderIssueRow = (issue: LinearIssueSummary) => (
     <div

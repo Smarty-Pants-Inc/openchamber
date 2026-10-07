@@ -32,7 +32,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
-import { shouldAllowBrowserPanelCertificateError } from './browser-panel-security.mjs';
+import { shouldAllowBrowserPanelCertificateError, shouldBlockBrowserPanelRequest } from './browser-panel-security.mjs';
 import { attachRendererRecovery } from './renderer-recovery.mjs';
 import { mintOutsideFileGrant } from '@openchamber/web/server/lib/fs/routes.js';
 import { fetchUpdateNotes } from '@openchamber/web/server/lib/changelog/update-notes.js';
@@ -1217,6 +1217,31 @@ const hardenBrowserPanelSession = () => {
 
   // Serial, HID and USB device pickers.
   panelSession.setDevicePermissionHandler(() => false);
+
+  // A window on a remote OpenChamber host lets that host drive its browser panel,
+  // so that panel never reaches this machine's loopback or files (openchamber#554
+  // round 6). Every request is checked: the restored URL, typed and agent
+  // navigation, each redirect hop, popups loaded in place, history, subframes and
+  // subresources.
+  panelSession.webRequest.onBeforeRequest((details, callback) => {
+    const cancel = shouldBlockBrowserPanelRequest({
+      url: details.url,
+      embedderIsLocal: browserPanelEmbedderIsLocal(details.webContents),
+    });
+    if (cancel) log.info('[electron] browser panel refused a local address for a remote window');
+    callback({ cancel });
+  });
+};
+
+// True only when the request's panel sits in a window showing the local app.
+const browserPanelEmbedderIsLocal = (contents) => {
+  if (contents && !contents.isDestroyed()) {
+    const host = contents.hostWebContents;
+    return Boolean(host && !host.isDestroyed() && isLocalSender(host));
+  }
+  // ponytail: a request with no view (a service worker, a preconnect) cannot name its
+  // window. It counts as local only while no window shows a remote host.
+  return BrowserWindow.getAllWindows().every((window) => window.isDestroyed() || isLocalSender(window.webContents));
 };
 
 const registerPackagedUiProtocol = () => {
@@ -4728,7 +4753,6 @@ const buildMacMenu = () => {
         { label: 'New Window', accelerator: 'Cmd+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Cmd+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Cmd+Shift+N', click: () => dispatchAction('new-worktree-session') },
         // registerAccelerator:false → show the shortcut hint but let the
         // renderer own the (customizable) key binding, avoiding a double open.
         { label: 'New Mini Chat', accelerator: 'Cmd+Alt+N', registerAccelerator: false, click: () => dispatchOpenMiniChat() },
@@ -4827,7 +4851,6 @@ const buildAutoHiddenMenu = () => {
         { label: 'New Window', accelerator: 'Ctrl+Shift+Alt+N', click: () => void handleInvoke(null, 'desktop_new_window') },
         { type: 'separator' },
         { label: 'New Session', accelerator: 'Ctrl+N', click: () => dispatchAction('new-session') },
-        { label: 'New Worktree', accelerator: 'Ctrl+Shift+N', click: () => dispatchAction('new-worktree-session') },
         { type: 'separator' },
         { label: 'Add Workspace', click: () => dispatchAction('change-workspace') },
         { type: 'separator' },

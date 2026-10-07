@@ -2133,6 +2133,7 @@ export const dict: Record<I18nKey, string> = {
   'worktree.bootstrap.toast.failed': 'Konfiguracja drzewa pracy nie powiodła się',
   'worktree.bootstrap.toast.failedDescription': 'Drzewo pracy zostało utworzone, ale konfiguracja w tle nie została ukończona.',
   'worktree.bootstrap.toast.timeoutDescription': 'Drzewo pracy zostało utworzone, ale konfiguracja w tle przekroczyła limit czasu.',
+  'worktree.mutationUnavailable': 'Drzewa pracy można tworzyć i usuwać tylko w rozszerzeniu VS Code.',
   'gitView.gitmoji.empty': 'No gitmoji found',
   'gitView.gitmoji.searchPlaceholder': 'Search gitmoji...',
   'gitView.gitmoji.title': 'Insert gitmoji',

@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -221,7 +222,8 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
   const [worktreeBaseBranch, setWorktreeBaseBranch] = React.useState<string>('');
   const { isLoading: isLoadingWorktreeBaseBranches, isGitRepository } = useBranchOptions(selectedProjectDirectory);
   const wasIsolationDisabledByNonGitRef = React.useRef(false);
-  const canIsolateRuns = isGitRepository === true;
+  // Isolated runs create worktrees, which need a runtime-local bridge; the server refuses them.
+  const canIsolateRuns = isGitRepository === true && canMutateWorktrees();
   const effectiveIsolateRuns = canIsolateRuns && isolateRuns;
 
   React.useEffect(() => {
@@ -459,7 +461,7 @@ export const MultiRunLauncher: React.FC<MultiRunLauncherProps> = ({
                 />
                 <label className="mt-1.5 flex w-fit items-center gap-1.5 typography-micro text-muted-foreground">
                   <Checkbox
-                    checked={isolateRuns}
+                    checked={effectiveIsolateRuns}
                     onChange={setIsolateRuns}
                     disabled={!canIsolateRuns}
                     ariaLabel={t('multirun.launcher.isolateRuns.label')}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { RiCheckLine, RiDeleteBinLine, RiDragMove2Line, RiFolder6Line } from '@remixicon/react';
 import {
   DndContext,
@@ -57,7 +58,8 @@ const normalizePath = (value?: string | null): string =>
 
 const SortableWorktreeRow: React.FC<{
   worktree: WorktreeMetadata;
-  onDelete: () => void;
+  /** Omitted when this runtime cannot remove worktrees. */
+  onDelete?: () => void;
 }> = ({ worktree, onDelete }) => {
   const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: worktree.path });
@@ -87,15 +89,17 @@ const SortableWorktreeRow: React.FC<{
       </button>
       <Icon name="node-tree" className="size-4 shrink-0 text-muted-foreground" />
       <span className="block min-w-0 flex-1 truncate typography-ui-label text-foreground">{label}</span>
-      <button
-        type="button"
-        className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-        aria-label={t('mobile.projectEdit.deleteWorktreeAria', { label })}
-        onClick={onDelete}
-        style={{ touchAction: 'manipulation' }}
-      >
-        <RiDeleteBinLine className="size-4" />
-      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+          aria-label={t('mobile.projectEdit.deleteWorktreeAria', { label })}
+          onClick={onDelete}
+          style={{ touchAction: 'manipulation' }}
+        >
+          <RiDeleteBinLine className="size-4" />
+        </button>
+      ) : null}
     </div>
   );
 };
@@ -390,7 +394,8 @@ export const MobileProjectEditSurface: React.FC<MobileProjectEditSurfaceProps> =
                             <SortableWorktreeRow
                               key={worktree.path}
                               worktree={worktree}
-                              onDelete={() => setWorktreeToDelete(worktree)}
+                              // Worktree removal needs a runtime-local bridge; the server refuses it.
+                              onDelete={canMutateWorktrees() ? () => setWorktreeToDelete(worktree) : undefined}
                             />
                           ))}
                         </div>

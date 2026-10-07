@@ -37,6 +37,7 @@ import { toast } from '@/components/ui';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import type { Session } from '@opencode-ai/sdk/v2';
 import { createWorktreeSession } from '@/lib/worktreeSessionCreator';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo, shortcutRegistry } from '@/lib/shortcuts';
 import { showOpenCodeStatus } from '@/lib/openCodeStatus';
 import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isVSCodeRuntime, isWebRuntime } from '@/lib/desktop';
@@ -171,6 +172,7 @@ export const CommandPalette: React.FC = () => {
   // ---------------------------------------------------------------------------
   // Commands
   // ---------------------------------------------------------------------------
+  const worktreeMutationsAvailable = canMutateWorktrees();
   const commands = React.useMemo<CommandEntry[]>(() => {
     const list: CommandEntry[] = [
       {
@@ -184,7 +186,8 @@ export const CommandPalette: React.FC = () => {
           openNewSessionDraft();
         }),
       },
-      {
+      // Worktree creation needs a runtime-local bridge; the server refuses it.
+      ...(worktreeMutationsAvailable ? [{
         id: 'new-worktree',
         title: t('commandPalette.item.newWorktreeDraft'),
         icon: <Icon name="git-branch" className="mr-2 h-4 w-4" />,
@@ -193,7 +196,7 @@ export const CommandPalette: React.FC = () => {
         onSelect: run(() => {
           void createWorktreeSession();
         }),
-      },
+      }] : []),
       // A live managed catalog is the only project source (#126 item 8).
       ...(managedCatalog ? [] : [{
         id: 'add-project',
@@ -375,6 +378,7 @@ export const CommandPalette: React.FC = () => {
   }, [
     t,
     run,
+    worktreeMutationsAvailable,
     managedCatalog,
     isMobile,
         setSessionSwitcherOpen,

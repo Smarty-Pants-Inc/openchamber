@@ -1,6 +1,5 @@
 import express from 'express';
 import { createOpencodeClient } from '@opencode-ai/sdk/v2';
-import { createWorktree, getWorktreeBootstrapStatus } from '../git/index.js';
 import { expandSnippets } from '../opencode/snippets.js';
 import { expandCommandGoalObjective, parseScheduledCommandPrompt } from '../scheduled-tasks/runtime.js';
 import { buildGoalIntroText, createSessionGoal } from '../session-goal/create.js';
@@ -312,31 +311,6 @@ const resolveRequestedDirectory = async ({ payload, readSettingsFromDiskMigrated
 const PROMPT_LANDED_TIMEOUT_MS = 5_000;
 const PROMPT_LANDED_POLL_MS = 150;
 
-// createWorktree returns while the worktree is still being populated in the
-// background (git reset --hard after a --no-checkout add). Dispatching a
-// prompt into a half-populated directory makes opencode's run die with
-// UnknownError (agent and config files are not there yet), so wait until the
-// bootstrap reaches git-ready (population done) or fails before creating the
-// session and dispatching.
-const WORKTREE_BOOTSTRAP_TIMEOUT_MS = 60_000;
-const WORKTREE_BOOTSTRAP_POLL_MS = 150;
-
-const waitForWorktreeBootstrapReady = async ({ directory }) => {
-  const deadline = Date.now() + WORKTREE_BOOTSTRAP_TIMEOUT_MS;
-  for (;;) {
-    const status = await getWorktreeBootstrapStatus(directory);
-    if (status?.status === 'failed') {
-      throw new OpenChamberControlError(`Worktree bootstrap failed: ${status.error || 'unknown error'}`, 500);
-    }
-    const phase = status?.phase;
-    if (status?.status === 'ready' || phase === 'git-ready' || phase === 'setup-ready') return;
-    if (Date.now() >= deadline) {
-      throw new OpenChamberControlError('Timed out waiting for the worktree bootstrap', 500);
-    }
-    await new Promise((resolve) => setTimeout(resolve, WORKTREE_BOOTSTRAP_POLL_MS));
-  }
-};
-
 const latestUserMessageID = async ({ client, sessionID, directory }) => {
   let response;
   try {
@@ -369,19 +343,13 @@ const waitForPromptLanded = async ({ client, sessionID, directory, baselineUserM
   }
 };
 
-const resolveWorktreeInput = (payload) => {
-  if (!payload?.worktree || typeof payload.worktree !== 'object') return null;
-  const name = asNonEmptyString(payload.worktree.name);
-  if (!name) return null;
-  const branchName = asNonEmptyString(payload.worktree.branchName);
-  const startRef = asNonEmptyString(payload.worktree.startRef);
-  return {
-    mode: 'new',
-    name,
-    ...(branchName ? { branchName } : {}),
-    ...(startRef ? { startRef } : {}),
-    ...(typeof payload.setUpstream === 'boolean' ? { setUpstream: payload.setUpstream } : {}),
-  };
+// A worktree checkout runs the repository's hooks and filters with server authority, so a
+// session request may no longer create one (openchamber#554 round 6). Any `worktree` field
+// is refused before a session, worktree or goal side effect.
+const refuseWorktreeRequest = (payload) => {
+  if (payload?.worktree !== undefined && payload?.worktree !== null) {
+    throw new OpenChamberControlError('worktree is no longer supported', 400);
+  }
 };
 
 export const createOpenChamberSessionService = (dependencies) => {
@@ -672,6 +640,7 @@ export const createOpenChamberSessionService = (dependencies) => {
   };
 
   const create = async (payload = {}) => {
+    refuseWorktreeRequest(payload);
     const title = asNonEmptyString(payload.title);
     const prompt = asNonEmptyString(payload.prompt);
     const goalInput = resolveGoalInput(payload, prompt);
@@ -692,12 +661,7 @@ export const createOpenChamberSessionService = (dependencies) => {
       throw new OpenChamberControlError(resolvedDirectory.error, resolvedDirectory.status || 400);
     }
 
-    const worktreeInput = resolveWorktreeInput(payload);
-    let worktree = null;
-    let sessionDirectory = resolvedDirectory.directory;
-    if (payload?.worktree && !worktreeInput) {
-      throw new OpenChamberControlError('worktree.name is required when worktree is provided', 400);
-    }
+    const sessionDirectory = resolvedDirectory.directory;
 
     if (typeof waitForOpenCodeReady === 'function') await waitForOpenCodeReady(10_000, 250);
 
@@ -708,12 +672,6 @@ export const createOpenChamberSessionService = (dependencies) => {
         requestedAgent: agent,
         requestedVariant: variant,
       });
-    }
-
-    if (worktreeInput) {
-      worktree = await createWorktree(resolvedDirectory.directory, worktreeInput);
-      sessionDirectory = worktree.path;
-      await waitForWorktreeBootstrapReady({ directory: sessionDirectory });
     }
 
     const baseUrl = buildOpenCodeUrl('/', '').replace(/\/$/, '');
@@ -748,7 +706,6 @@ export const createOpenChamberSessionService = (dependencies) => {
       directory: sessionDirectory,
       ...(resolvedDirectory.projectId ? { projectId: resolvedDirectory.projectId } : {}),
       ...(title ? { title } : {}),
-      ...(worktree ? { worktree } : {}),
       ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
       ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
       ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),
@@ -765,7 +722,6 @@ export const createOpenChamberSessionService = (dependencies) => {
         directory: sessionDirectory,
         ...(resolvedDirectory.projectId ? { projectID: resolvedDirectory.projectId } : {}),
         ...(title ? { title } : {}),
-        ...(worktree ? { worktree } : {}),
         ...(prompt && dispatch.model ? { model: dispatch.model } : {}),
         ...(prompt && dispatch.agent ? { agent: dispatch.agent } : {}),
         ...(prompt && dispatch.variant ? { variant: dispatch.variant } : {}),

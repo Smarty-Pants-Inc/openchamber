@@ -1094,44 +1094,18 @@ describe('worktree requests carrying removed host-power inputs', () => {
       .rejects.toMatchObject(refusal(/ensureRemoteUrl/));
   });
 
-  const callWorktreeRoute = async (routePath, directory, body) => {
-    const routes = new Map();
-    registerGitRoutes({
-      get: (routeName, handler) => routes.set(`GET ${routeName}`, handler),
-      post: (routeName, handler) => routes.set(`POST ${routeName}`, handler),
-      put: (routeName, handler) => routes.set(`PUT ${routeName}`, handler),
-      delete: (routeName, handler) => routes.set(`DELETE ${routeName}`, handler),
-    });
-    const response = {
-      statusCode: 200,
-      body: null,
-      status(code) {
-        this.statusCode = code;
-        return this;
-      },
-      json(payload) {
-        this.body = payload;
-        return this;
-      },
-    };
-    await routes.get(`POST ${routePath}`)({ query: { directory }, body }, response);
-    return response;
-  };
-
-  it('the create and validate routes answer 400 with the refusal message', async () => {
-    if (!canRunGit()) return;
-
-    await withFixture(async (fixture) => {
-      for (const routePath of ['/api/git/worktrees', '/api/git/worktrees/validate']) {
-        for (const [, removed, message] of removedInputs) {
-          const response = await callWorktreeRoute(routePath, fixture.repository, { ...newWorktree, ...removed(fixture) });
-          expect(response.statusCode, `${routePath} ${message}`).toBe(400);
-          expect(response.body?.error).toMatch(message);
-        }
-      }
-      await fixture.assertUntouched();
-    });
-  }, 30_000);
+  it('registers no worktree write route; the read routes stay', () => {
+    const routes = new Set();
+    const record = (method) => (routeName) => routes.add(`${method} ${routeName}`);
+    registerGitRoutes({ get: record('GET'), post: record('POST'), put: record('PUT'), delete: record('DELETE') });
+    // openchamber#554 round 6: a browser may not create, validate, preview or remove a worktree.
+    for (const route of ['POST /api/git/worktrees', 'POST /api/git/worktrees/validate', 'POST /api/git/worktrees/preview', 'DELETE /api/git/worktrees']) {
+      expect(routes.has(route), route).toBe(false);
+    }
+    for (const route of ['GET /api/git/worktrees', 'GET /api/git/worktrees/bootstrap-status', 'GET /api/git/worktree-type']) {
+      expect(routes.has(route), route).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

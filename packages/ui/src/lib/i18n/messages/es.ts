@@ -1017,6 +1017,7 @@ export const dict: Record<I18nKey, string> = {
   "worktree.bootstrap.toast.failed": "Error al configurar el worktree",
   "worktree.bootstrap.toast.failedDescription": "El worktree se creó, pero la configuración en segundo plano no terminó.",
   "worktree.bootstrap.toast.timeoutDescription": "El worktree se creó, pero la configuración en segundo plano agotó el tiempo de espera.",
+  "worktree.mutationUnavailable": "Los worktrees solo se pueden crear y eliminar en la extensión de VS Code.",
   "gitView.gitmoji.empty": "No se encontraron gitmojis",
   "gitView.gitmoji.searchPlaceholder": "Buscar gitmojis...",
   "gitView.gitmoji.title": "Insertar gitmoji",

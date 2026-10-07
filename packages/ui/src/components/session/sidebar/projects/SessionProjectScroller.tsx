@@ -22,6 +22,7 @@ import type { ProjectSortOrder } from '@/stores/useSessionDisplayStore';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import { Icon } from '@/components/icon/Icon';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { canMutateWorktrees } from '@/lib/gitApi';
 
 type SessionProjectScrollerState = Pick<SessionGroupSectionProps,
   | 'editingId'
@@ -151,6 +152,8 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
   const { t } = useI18n();
   const { model, view, actions } = props;
   const isInlineEditing = model.state.editingId !== null;
+  // Worktree creation needs a runtime-local bridge; the server refuses it.
+  const worktreeMutationsAvailable = canMutateWorktrees();
   const enableStickyFade = view.isDesktopShellRuntime && view.stickyZoneHeaders && !model.singleProjectMode;
   const projectSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -346,10 +349,10 @@ function SessionProjectScrollerComponent(props: Props): React.ReactNode {
                       directoryOverride: project.normalizedPath,
                     });
                   }}
-                  onNewWorktreeSession={() => {
+                  onNewWorktreeSession={worktreeMutationsAvailable ? () => {
                     if (projectKey !== model.activeProjectId) actions.setActiveProjectIdOnly(projectKey);
                     actions.openNewWorktreeDialog();
-                  }}
+                  } : undefined}
                   onManageWorktrees={() => actions.openWorktreesPage(projectKey)}
                   onRenameStart={() => actions.openProjectEditDialog(projectKey)}
                   onClose={() => actions.removeProject(projectKey)}

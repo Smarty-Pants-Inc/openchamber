@@ -40,6 +40,9 @@ const ROUTES = [
   ['PUT', '/api/git/branches/rename'], ['DELETE', '/api/git/remote-branches'], ['POST', '/api/git/checkout'],
   ['POST', '/api/git/checkout-commit'], ['POST', '/api/git/cherry-pick'], ['POST', '/api/git/revert-commit'],
   ['POST', '/api/git/reset-to-commit'],
+  // Worktree writes run repository code (git hooks, filters) with server authority (#554 round 6 P1).
+  ['POST', '/api/git/worktrees/validate'], ['POST', '/api/git/worktrees/preview'],
+  ['POST', '/api/git/worktrees'], ['DELETE', '/api/git/worktrees'],
   ['GET', '/api/quota/credentials/exe-dev'], ['PUT', '/api/quota/credentials/exe-dev'],
   ['DELETE', '/api/quota/credentials/exe-dev'], ['POST', '/api/quota/credentials/exe-dev/validate'],
   ['POST', '/api/quota/credentials/cursor/import'], ['DELETE', '/api/provider/openai/auth'],
@@ -81,6 +84,11 @@ fs.writeFileSync(path.join(workdir, 'README.md'), 'fixture\n');
 git('add', 'README.md');
 git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-q', '-m', 'fixture');
 fs.writeFileSync(path.join(workdir, 'README.md'), 'fixture changed\n');
+// An executable post-checkout hook: any worktree checkout the server performs leaves its marker.
+const hookMarker = path.join(home, 'hook-marker');
+fs.writeFileSync(path.join(workdir, '.git', 'hooks', 'post-checkout'), '#!/bin/sh\ntouch "' + hookMarker + '"\n', { mode: 0o755 });
+const worktreeCount = () => execFileSync('git', ['-C', workdir, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home } })
+  .split('\n').filter(line => line.startsWith('worktree ')).length;
 Object.assign(process.env, {
   HOME: home, XDG_CONFIG_HOME: home + '/config', XDG_DATA_HOME: home + '/share', XDG_STATE_HOME: home + '/state', XDG_RUNTIME_DIR: home,
   OPENCHAMBER_DATA_DIR: home + '/data', OPENCHAMBER_RELAY_HOST: 'off', OPENCODE_SKIP_START: 'true',
@@ -184,6 +192,8 @@ try {
   firstUpgradeListener = runtime.httpServer.listeners('upgrade')[0]?.name || 'none';
   const appHeaders = auth => ({ Host: 'code.smartypants.ai', Origin: 'https://code.smartypants.ai', ...auth });
   const body = JSON.stringify({ commands: ['touch exec-marker'], cwd: workdir, directory: workdir, path: workdir });
+  const worktreeBody = JSON.stringify({ mode: 'new', worktreeName: 'probe-wt', branchName: 'probe-wt', directory: workdir });
+  const withDirectory = route => route.startsWith('/api/git/worktrees') ? route + '?directory=' + encodeURIComponent(workdir) : route;
   const index = await rawRequest(port, 'GET', '/', appHeaders({}));
   record({ label: 'control', method: 'GET', route: '/', status: index.status, indexServed: index.body.includes(INDEX_SENTINEL) });
   for (const [label, auth] of [['signed-out', {}], ['signed-in', signedIn]]) {
@@ -193,7 +203,8 @@ try {
     }
     for (const [method, route] of [...ROUTES, ...VARIANTS]) {
       if (!runtime.httpServer.listening) { record({ label, method, route, status: 'server-stopped' }); continue; }
-      const res = await rawRequest(port, method, route, appHeaders(auth), method === 'GET' || method === 'DELETE' ? null : body);
+      const requestBody = route.startsWith('/api/git/worktrees') ? worktreeBody : body;
+      const res = await rawRequest(port, method, withDirectory(route), appHeaders(auth), method === 'GET' || method === 'DELETE' ? null : requestBody);
       const leaked = res.body.includes(UPSTREAM_SENTINEL) || res.body.includes(INDEX_SENTINEL);
       record({ label, method, route, status: res.status, leaked, variant: !ROUTES.some(([, known]) => known === route), body: res.body.slice(0, 120) });
     }
@@ -210,10 +221,14 @@ try {
       record({ label, method: 'PREFLIGHT', requested: method, route, status: res.status, leaked: res.body.includes(UPSTREAM_SENTINEL) || res.body.includes(INDEX_SENTINEL) });
     }
     // Kept controls: the read-only git routes the Git view uses, their preflight, and the remaining sockets.
-    for (const route of ['/api/git/status', '/api/git/diff', '/api/git/log', '/api/git/branches']) {
+    for (const route of ['/api/git/status', '/api/git/diff', '/api/git/log', '/api/git/branches', '/api/git/worktrees', '/api/git/worktrees/bootstrap-status', '/api/git/worktree-type']) {
       const res = await rawRequest(port, 'GET', route + '?directory=' + encodeURIComponent(workdir) + '&path=README.md', appHeaders(auth));
       record({ label, method: 'KEPT', route, status: res.status, leaked: res.body.includes(UPSTREAM_SENTINEL) || res.body.includes(INDEX_SENTINEL) });
     }
+    // A session request may no longer create a worktree (openchamber#554 round 6): refused before any side effect.
+    const sessionWorktree = await rawRequest(port, 'POST', '/api/openchamber/sessions', appHeaders(auth),
+      JSON.stringify({ directory: workdir, worktree: { name: 'probe-session-wt' }, prompt: 'probe' }));
+    record({ label, method: 'SESSION-WORKTREE', route: '/api/openchamber/sessions', status: sessionWorktree.status, body: sessionWorktree.body.slice(0, 120) });
     const keptPreflight = await rawRequest(port, 'OPTIONS', '/api/git/branches', { ...appHeaders(auth), Origin: PROBE_ORIGIN_PACKAGED, 'Access-Control-Request-Method': 'GET' });
     record({ label, method: 'KEPT-PREFLIGHT', route: '/api/git/branches', status: keptPreflight.status });
     const control = await new Promise(resolve => {
@@ -229,11 +244,14 @@ try {
 } finally {
   const listening = Boolean(runtime?.httpServer?.listening);
   const execMarker = fs.existsSync(path.join(workdir, 'exec-marker'));
+  const hookRan = fs.existsSync(hookMarker);
+  let worktrees = -1;
+  try { worktrees = worktreeCount(); } catch { /* recorded as -1 */ }
   for (const socket of sockets) socket.destroy();
   try { await runtime?.stop({ exitProcess: false }); } catch { /* already stopped by a removed route */ }
   human?.dispose();
   upstream.closeAllConnections(); await new Promise(resolve => upstream.close(resolve));
   fs.rmSync(home, { recursive: true, force: true });
-  console.log('HOST_POWER_RECEIPT=' + JSON.stringify({ results, listening, execMarker, externalAttempts, upstreamRetired, firstUpgradeListener, registeredRetired }));
+  console.log('HOST_POWER_RECEIPT=' + JSON.stringify({ results, listening, execMarker, hookRan, worktrees, externalAttempts, upstreamRetired, firstUpgradeListener, registeredRetired }));
 }
 process.exit(0);

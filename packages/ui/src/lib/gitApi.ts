@@ -530,6 +530,26 @@ export async function listGitWorktrees(directory: string): Promise<import('./api
   return gitHttp.listGitWorktrees(directory);
 }
 
+/**
+ * Thrown when the active runtime has no local worktree bridge. Creating or
+ * removing a worktree runs repository code (hooks) with the host's authority,
+ * so the OpenChamber HTTP server refuses these mutations; only a runtime that
+ * owns a local bridge (VS Code) can perform them.
+ */
+export class WorktreeMutationUnavailableError extends Error {
+  override name = 'WorktreeMutationUnavailableError';
+
+  constructor(operation: 'validate' | 'preview' | 'create' | 'remove') {
+    super(`Worktree ${operation} is not available in this runtime`);
+  }
+}
+
+/** True only when the active runtime can create worktrees through its own local bridge. */
+export function canMutateWorktrees(): boolean {
+  const runtime = getRuntimeGit();
+  return Boolean(runtime?.worktree?.create || runtime?.createGitWorktree);
+}
+
 export async function validateGitWorktree(
   directory: string,
   payload: import('./api/types').CreateGitWorktreePayload
@@ -541,7 +561,7 @@ export async function validateGitWorktree(
   if (runtime?.validateGitWorktree) {
     return runtime.validateGitWorktree(directory, payload);
   }
-  return gitHttp.validateGitWorktree(directory, payload);
+  throw new WorktreeMutationUnavailableError('validate');
 }
 
 export async function getGitWorktreeBootstrapStatus(
@@ -568,7 +588,7 @@ export async function previewGitWorktree(
   if (runtime?.previewGitWorktree) {
     return runtime.previewGitWorktree(directory, payload);
   }
-  return gitHttp.previewGitWorktree(directory, payload);
+  throw new WorktreeMutationUnavailableError('preview');
 }
 
 export async function createGitWorktree(
@@ -582,7 +602,7 @@ export async function createGitWorktree(
   if (runtime?.createGitWorktree) {
     return runtime.createGitWorktree(directory, payload);
   }
-  return gitHttp.createGitWorktree(directory, payload);
+  throw new WorktreeMutationUnavailableError('create');
 }
 
 export async function deleteGitWorktree(
@@ -596,7 +616,7 @@ export async function deleteGitWorktree(
   if (runtime?.deleteGitWorktree) {
     return runtime.deleteGitWorktree(directory, payload);
   }
-  return gitHttp.deleteGitWorktree(directory, payload);
+  throw new WorktreeMutationUnavailableError('remove');
 }
 
 export const git = {

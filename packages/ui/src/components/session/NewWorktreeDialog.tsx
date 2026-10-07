@@ -35,6 +35,7 @@ import * as sessionActions from '@/sync/session-actions';
 import { buildLinkedIssue, buildLinkedLinearIssue } from '@/lib/linkedIssues';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { validateWorktreeCreate } from '@/lib/worktrees/worktreeManager';
+import { WorktreeMutationUnavailableError } from '@/lib/gitApi';
 import { createWorktreeWithDefaults } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { getWorktreeSetupWaitEnabled } from '@/lib/openchamberConfig';
@@ -1041,7 +1042,9 @@ export function NewWorktreeDialog({
         onWorktreeCreated?.(metadata.path);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : t('session.newWorktree.error.createWorktreeFailed');
+      const message = error instanceof WorktreeMutationUnavailableError
+        ? t('worktree.mutationUnavailable')
+        : error instanceof Error ? error.message : t('session.newWorktree.error.createWorktreeFailed');
       toast.error(t('session.newWorktree.error.createWorktreeFailed'), { description: message });
     } finally {
       setIsCreating(false);

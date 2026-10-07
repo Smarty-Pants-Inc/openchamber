@@ -11,7 +11,7 @@ import { beforeAll, test } from 'vitest';
 // forwarded request with a success sentinel. Every removed host-power route must
 // be refused by OpenChamber itself: never forwarded, never the index, and its
 // upgrade refused and closed by the server (a client deadline fails).
-const CANONICAL = 62;
+const CANONICAL = 66;
 const VARIANTS = 8;
 let receipt;
 beforeAll(async () => {
@@ -43,6 +43,9 @@ beforeAll(async () => {
 test('the server survives every removed route, runs no command and makes no external request', () => {
   assert.equal(receipt.listening, true);
   assert.equal(receipt.execMarker, false);
+  // No worktree was created, so the repository's post-checkout hook never ran.
+  assert.equal(receipt.hookRan, false);
+  assert.equal(receipt.worktrees, 1);
   assert.equal(receipt.externalAttempts, 0);
 });
 
@@ -63,7 +66,7 @@ test('controls prove served-app index mode and a valid human session', () => {
 
 for (const label of ['signed-in', 'signed-out']) {
   const rows = kind => receipt.results.filter(row => row.label === label && kind(row));
-  const isHttp = row => !['WS', 'PREFLIGHT', 'KEPT', 'KEPT-PREFLIGHT', 'CONTROL', 'CONTROL-WS', 'CONTROL-VOICE'].includes(row.method);
+  const isHttp = row => !['WS', 'PREFLIGHT', 'KEPT', 'KEPT-PREFLIGHT', 'SESSION-WORKTREE', 'CONTROL', 'CONTROL-WS', 'CONTROL-VOICE'].includes(row.method);
 
   test(label + ': every removed HTTP route is refused locally', () => {
     const http = rows(isHttp);
@@ -96,13 +99,16 @@ for (const label of ['signed-in', 'signed-out']) {
 
   test(label + ': the read-only git routes, their preflight and the remaining sockets keep working', () => {
     const kept = rows(row => row.method === 'KEPT');
-    assert.equal(kept.length, 4);
+    assert.equal(kept.length, 7);
     for (const row of kept) {
       assert.equal(row.leaked, false, row.route);
       if (label === 'signed-out') assert.equal(row.status, 401, row.route);
       else assert.equal(row.status, 200, row.route);
     }
     assert.equal(rows(row => row.method === 'KEPT-PREFLIGHT')[0]?.status, 204);
+    // A session create carrying a worktree is refused (401 signed out, 400 signed in), never run.
+    const sessionWorktree = rows(row => row.method === 'SESSION-WORKTREE')[0];
+    assert.equal(sessionWorktree?.status, label === 'signed-in' ? 400 : 401, sessionWorktree?.body);
     assert.equal(rows(row => row.method === 'CONTROL-WS')[0]?.status, label === 'signed-in' ? 101 : 401);
     // The voice owner still answers its own socket (parameter validation first, as before), not the refusal.
     const voice = rows(row => row.method === 'CONTROL-VOICE')[0];

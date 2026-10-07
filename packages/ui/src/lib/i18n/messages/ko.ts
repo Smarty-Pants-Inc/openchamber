@@ -1017,6 +1017,7 @@ export const dict: Record<I18nKey, string> = {
   'worktree.bootstrap.toast.failed': '워크트리 설정 실패',
   'worktree.bootstrap.toast.failedDescription': '워크트리는 생성되었지만 백그라운드 설정이 완료되지 않았습니다.',
   'worktree.bootstrap.toast.timeoutDescription': '워크트리는 생성되었지만 백그라운드 설정 시간이 초과되었습니다.',
+  'worktree.mutationUnavailable': '워크트리는 VS Code 확장에서만 만들고 제거할 수 있습니다.',
   'gitView.gitmoji.empty': 'gitmoji 없음',
   'gitView.gitmoji.searchPlaceholder': 'gitmoji 검색…',
   'gitView.gitmoji.title': 'gitmoji 삽입',

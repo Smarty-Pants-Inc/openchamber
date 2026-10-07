@@ -32,6 +32,9 @@ const RETIRED_NAMESPACES = [
   { segments: ['api', 'git', 'identities'], methods: WRITE_METHODS },
   { segments: ['api', 'git', 'branches'], methods: WRITE_METHODS },
   { segments: ['api', 'git', 'remotes'], methods: WRITE_METHODS },
+  // Worktree create, validate, preview and remove: a checkout runs the repository's hooks and
+  // filters with server authority (openchamber#554 round 6). The list and bootstrap-status GETs stay.
+  { segments: ['api', 'git', 'worktrees'], methods: WRITE_METHODS },
   // Provider keys.
   { segments: ['api', 'quota', 'credentials'], methods: ALL_METHODS },
   { segments: ['api', 'provider', '*', 'auth'], methods: ALL_METHODS },

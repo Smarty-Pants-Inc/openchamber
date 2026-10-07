@@ -1,4 +1,5 @@
 import React from 'react';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { CodeMirrorEditor } from '@/components/ui/CodeMirrorEditor';
 import { PreviewToggleButton } from './PreviewToggleButton';
@@ -233,6 +234,8 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
     },
     [currentProjectRef, gitDirectories, savedPlanProjectRef],
   );
+  // Worktree creation needs a runtime-local bridge; the server refuses it.
+  const worktreeMutationsAvailable = canMutateWorktrees();
   const [pendingPlanSend, setPendingPlanSend] = React.useState<PendingPlanSend | null>(null);
   const [isPlanSendSubmitting, setIsPlanSendSubmitting] = React.useState(false);
 
@@ -928,12 +931,14 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
                 >
                   {t('planView.actions.sendToNewSession')}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setPendingPlanSend({ action: 'improve', target: 'worktree' })}
-                  disabled={!canCreateWorktree}
-                >
-                  {t('planView.actions.sendToNewWorktreeSession')}
-                </DropdownMenuItem>
+                {worktreeMutationsAvailable ? (
+                  <DropdownMenuItem
+                    onClick={() => setPendingPlanSend({ action: 'improve', target: 'worktree' })}
+                    disabled={!canCreateWorktree}
+                  >
+                    {t('planView.actions.sendToNewWorktreeSession')}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
             <DropdownMenu>
@@ -960,12 +965,14 @@ export const PlanView: React.FC<PlanViewProps> = ({ targetPath = null, savedProj
                 >
                   {t('planView.actions.sendToNewSession')}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setPendingPlanSend({ action: 'implement', target: 'worktree' })}
-                  disabled={!canCreateWorktree}
-                >
-                  {t('planView.actions.sendToNewWorktreeSession')}
-                </DropdownMenuItem>
+                {worktreeMutationsAvailable ? (
+                  <DropdownMenuItem
+                    onClick={() => setPendingPlanSend({ action: 'implement', target: 'worktree' })}
+                    disabled={!canCreateWorktree}
+                  >
+                    {t('planView.actions.sendToNewWorktreeSession')}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
             <PreviewToggleButton

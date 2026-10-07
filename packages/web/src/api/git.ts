@@ -17,9 +17,7 @@ export const createWebGitAPI = (): GitAPI => ({
   getGitUnpushedBranchCounts: gitApiHttp.getGitUnpushedBranchCounts,
   generatePullRequestDescription: gitApiHttp.generatePullRequestDescription,
   listGitWorktrees: gitApiHttp.listGitWorktrees,
-  validateGitWorktree: gitApiHttp.validateGitWorktree,
-  createGitWorktree: gitApiHttp.createGitWorktree,
-  deleteGitWorktree: gitApiHttp.deleteGitWorktree,
+  // Worktree create/validate/preview/remove are not served to a browser (openchamber#554 round 6).
   validateWorktreeDirectory: gitApiHttp.validateWorktreeDirectory,
   canonicalizeWorktreeState: gitApiHttp.canonicalizeWorktreeState,
   listGitStashes: gitApiHttp.listGitStashes,
@@ -35,10 +33,6 @@ export const createWebGitAPI = (): GitAPI => ({
   getConflictDetails: gitApiHttp.getConflictDetails,
   worktree: {
     list: gitApiHttp.listGitWorktrees,
-    validate: gitApiHttp.validateGitWorktree,
     bootstrapStatus: gitApiHttp.getGitWorktreeBootstrapStatus,
-    preview: gitApiHttp.previewGitWorktree,
-    create: gitApiHttp.createGitWorktree,
-    remove: gitApiHttp.deleteGitWorktree,
   },
 });

@@ -41,6 +41,9 @@ const HOST_POWER_RETIRED = [
   ['POST', '/api/git/stage'], ['POST', '/api/git/stash/pop'], ['POST', '/api/git/commit'], ['POST', '/api/git/push'],
   ['POST', '/api/git/branches'], ['DELETE', '/api/git/branches'], ['PUT', '/api/git/branches/rename'],
   ['DELETE', '/api/git/remotes'], ['DELETE', '/api/git/remote-branches'], ['POST', '/api/git/reset-to-commit'],
+  // Worktree writes (openchamber#554 round 6), including spellings.
+  ['POST', '/api/git/worktrees'], ['DELETE', '/api/git/worktrees'], ['POST', '/api/git/worktrees/validate'],
+  ['POST', '/api/git/worktrees/preview'], ['POST', '/API/Git/Worktrees'], ['POST', '/api/git/%77orktrees/'],
   ['GET', '/api/quota/credentials/exe-dev'], ['POST', '/api/quota/credentials/cursor/import'],
   ['DELETE', '/api/provider/openai/auth'],
   // The engine's credential API (SDK auth.set / auth.remove).
@@ -54,7 +57,8 @@ const HOST_POWER_RETIRED = [
 const HOST_POWER_KEPT = [
   ['GET', '/api/git/status'], ['GET', '/api/git/diff'], ['GET', '/api/git/log'], ['GET', '/api/git/branches'],
   ['GET', '/api/git/identities'], ['GET', '/api/git/remotes'], ['GET', '/api/git/stashes'], ['POST', '/api/git/commit-summaries'],
-  ['GET', '/api/git/commit-files'], ['POST', '/api/git/worktrees'], ['DELETE', '/api/git/worktrees'], ['HEAD', '/api/git/branches'],
+  ['GET', '/api/git/commit-files'], ['GET', '/api/git/worktrees'], ['GET', '/api/git/worktrees/bootstrap-status'],
+  ['GET', '/api/git/worktree-type'], ['POST', '/api/git/worktree-type'], ['HEAD', '/api/git/branches'],
   ['GET', '/api/fs/read'], ['POST', '/api/fs/upload'], ['GET', '/api/fs/execs'], ['POST', '/api/system/dev-shutdown'], ['GET', '/api/system/info'],
   ['GET', '/api/openchamber/models-metadata'], ['GET', '/api/openchamber/tunnels'], ['GET', '/api/quota/providers'], ['GET', '/api/quota/exe-dev'],
   ['PUT', '/api/provider'], ['GET', '/api/provider/openai/source'], ['GET', '/api/provider/auth'], ['POST', '/api/provider/openai/oauth/callback'],

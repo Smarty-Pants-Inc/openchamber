@@ -10,7 +10,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextStore } from '@/stores/contextStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
+import { canMutateWorktrees, checkIsGitRepository, previewGitWorktree } from '@/lib/gitApi';
+import { formatMessage, useI18nStore } from '@/lib/i18n';
 import { generateBranchName } from '@/lib/git/branchNameGenerator';
 import { parseModelIdentifier } from '@/lib/modelIdentifier';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
@@ -29,6 +30,16 @@ import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { normalizePath } from '@/lib/pathNormalization';
 import { resolveProjectForDirectory } from '@/lib/projectResolution';
 import { PRODUCT_NAME } from '@/lib/brand.generated';
+
+/**
+ * Tell the user that this runtime cannot create or remove worktrees. The
+ * OpenChamber server refuses worktree mutations; only a runtime with a local
+ * bridge (VS Code) performs them, so entry points that cannot be hidden report
+ * this instead of failing with a transport error.
+ */
+const notifyWorktreeMutationUnavailable = (): void => {
+  toast.error(formatMessage(useI18nStore.getState().dictionary, 'worktree.mutationUnavailable'));
+};
 
 const waitForWorktreeBootstrapIfEnabled = async (project: ProjectRef, directory: string): Promise<void> => {
   if (await getWorktreeSetupWaitEnabled(project)) {
@@ -184,6 +195,11 @@ const createInstantWorktreeDraft = async (options?: {
     return null;
   }
 
+  if (!canMutateWorktrees()) {
+    notifyWorktreeMutationUnavailable();
+    return null;
+  }
+
   const activeProject = useProjectsStore.getState().getActiveProject();
   if (!activeProject?.path) {
     toast.error('No active project', {
@@ -326,6 +342,11 @@ export async function createWorktreeSessionForNewBranch(
   }
 ): Promise<{ id: string; branch: string; path: string } | null> {
   if (isCreatingWorktreeSession) {
+    return null;
+  }
+
+  if (!canMutateWorktrees()) {
+    notifyWorktreeMutationUnavailable();
     return null;
   }
 

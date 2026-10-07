@@ -60,9 +60,9 @@ both settings are `false`.
 - The tool description frames intent: created sessions and scheduled tasks are
   user-facing work the user follows up with, never a channel for the agent to
   delegate parts of its own current task.
-- Optional behavior switches (`worktree`, `goal`, `agent`, `variant`, `wait`)
+- Optional behavior switches (`goal`, `agent`, `variant`, `wait`)
   state their default and an explicit "only when the user asks" rule so agents
-  do not invent worktrees, goal mode, or waits the user never requested.
+  do not invent goal mode, or waits the user never requested.
 - Detailed combination rules are enforced by the shared control service and
   returned as actionable usage errors only after an invalid call. Per-action
   examples and a repeated per-action parameter schema are intentionally omitted.
@@ -75,7 +75,8 @@ both settings are `false`.
   the materialized plugin.
 - Inputs map to a fixed action and parameter allowlist. There is no arbitrary
   CLI, shell, route, or URL forwarding.
-- Session/worktree deletion and project-path registration are not exposed.
+- Worktree creation, session/worktree deletion and project-path registration are not
+  exposed (worktree creation: openchamber#554 round 6).
 - An aborted tool request propagates an abort signal into the shared service.
 
 ## Result contract

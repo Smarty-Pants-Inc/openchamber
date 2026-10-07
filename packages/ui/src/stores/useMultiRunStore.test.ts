@@ -69,6 +69,8 @@ mock.module('@/lib/opencode/client', () => ({
 
 mock.module('@/lib/gitApi', () => ({
   checkIsGitRepository: mock(() => Promise.resolve(isGitRepository)),
+  // A runtime with a local worktree bridge (VS Code); the web runtime has none.
+  canMutateWorktrees: () => true,
 }));
 
 mock.module('@/lib/worktrees/worktreeCreate', () => ({

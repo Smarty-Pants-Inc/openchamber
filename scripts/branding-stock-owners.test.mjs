@@ -155,7 +155,7 @@ test('foundation copy binds only the eleven locale outputs and preserves earlier
   assert.deepEqual(overlay.files.filter(entry => entry.foundationCopySha256).map(entry => entry.path), locales);
   for (const file of locales) {
     const entry = overlays.get(file);
-    assert.equal(entry.terminalRemovalSha256 ?? entry.inboxStepsSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
+    assert.equal(entry.hostPowerRemovalSha256 ?? entry.terminalRemovalSha256 ?? entry.inboxStepsSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
     assert.notEqual(entry.foundationCopySha256, entry.nativeCreationSha256, file);
   }
 });
@@ -244,13 +244,15 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
   const prefix = 'smarty-code#1398 slice 2: host-power route removal: ';
   const coverage = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   const layer = overlay.files.filter(entry => 'hostPowerRemovalSha256' in entry);
-  assert.equal(layer.length, 25);
+  assert.equal(layer.length, 38);
   assert.equal(sha256(JSON.stringify(layer.map(entry => [entry.path, entry.hostPowerRemovalBaseSha256, entry.hostPowerRemovalSha256]))),
-    'bdf0f2fedc7d424d0b43592f04021c20d036df08cab5ca1b83ff8243db5b12ff');
+    '1fae3d231534483d047987f55a84e153831f2f8d75661102c54a4dfbda84970f');
   // Existing overlaps keep every earlier field; the layer records the exact predecessor bytes and its successor.
   const extended = layer.filter(entry => !entry.hostPowerRemovalAdded);
   assert.deepEqual(extended.map(entry => entry.path), [
     'packages/web/server/index.js', 'packages/web/server/lib/opencode/routes.js',
+    // openchamber#554 round 6: one added worktree.mutationUnavailable key per locale.
+    ...attributionPaths.filter(file => file.includes('/i18n/messages/')),
     'packages/ui/src/sync/session-ui-store.ts',
     'packages/web/server/lib/notifications/apns-runtime.js', 'packages/web/server/lib/opencode/core-routes.js',
     'packages/web/server/lib/opencode/core-routes.test.js', 'packages/ui/src/components/layout/Header.tsx',
@@ -267,7 +269,7 @@ test('the host-power removal layer binds smarty-code#1398 slice 2 over every cha
   }
   // Donor outputs outside the earlier overlay are added once, retaining the original donor hash.
   const added = layer.filter(entry => entry.hostPowerRemovalAdded);
-  assert.equal(added.length, 16);
+  assert.equal(added.length, 18);
   for (const entry of added) {
     const donor = coverage.get(entry.path);
     assert.ok(donor, entry.path);
@@ -416,6 +418,16 @@ test('stock owners retain behavior except explicitly reviewed overlay and owned 
       source = source.replace(normalize[0], normalize[1]);
     }
     const changed = overlays.get(file);
+    if (changed?.hostPowerRemovalAdded) {
+      // openchamber#554 round 6 changed this stock owner's behavior on purpose. Parity held for the predecessor
+      // (the donor output); the owned label is still present once, and the successor is bound by exact hash.
+      assert.equal(file, 'packages/web/server/lib/openchamber-sessions/routes.js');
+      assert.equal(changed.brandingSha256, json('branding/coverage.json').files.find(entry => entry.path === file).outputSha256, file);
+      assert.equal(changed.hostPowerRemovalBaseSha256, changed.brandingSha256, file);
+      assert.equal(sha256(read(file)), changed.hostPowerRemovalSha256, file);
+      assert.equal(changed.combinedSha256, changed.hostPowerRemovalSha256, file);
+      continue;
+    }
     if (changed) {
       assert.equal(normalize.length, 0, file);
       assert.equal(changed.terminalRemovalSha256 ?? changed.inboxStepsSha256 ?? changed.statusUnavailableSha256 ?? changed.inboxStreamSha256 ?? changed.fleetListSha256 ?? changed.herdrListSha256 ?? changed.catalogReloadSha256 ?? changed.sessionVoiceSha256 ?? changed.persistedTargetSha256 ?? changed.restorationSha256 ?? changed.coldDraftSha256 ?? changed.managedDraftSha256 ?? changed.catalogFixtureSha256 ?? changed.managedCatalogSha256 ?? changed.humanAuthUiProofSha256 ?? changed.humanAuthSha256 ?? changed.ordinarySelectionSha256 ?? changed.foundationCopySha256 ?? changed.nativeLifetimeSha256 ?? changed.nativeCompletionSha256 ?? changed.nativeLifecycleSha256 ?? changed.nativeCreationSha256 ?? changed.behaviorSha256, changed.combinedSha256, file);

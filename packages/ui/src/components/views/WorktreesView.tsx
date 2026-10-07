@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { useUIStore } from '@/stores/useUIStore';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { WorktreeSectionContent } from '@/components/sections/openchamber/WorktreeSectionContent';
@@ -22,7 +23,8 @@ export function WorktreesView(): React.ReactNode {
     <div className="absolute inset-0 z-10 flex flex-col bg-background">
       <div className="flex-1 overflow-y-auto px-6 py-4">
         <div className="mx-auto w-full max-w-4xl space-y-4">
-          <div className="flex items-center">
+          {/* Worktree creation needs a runtime-local bridge; the server refuses it. */}
+          {canMutateWorktrees() ? <div className="flex items-center">
             <Button
               size="sm"
               onClick={() => {
@@ -33,7 +35,7 @@ export function WorktreesView(): React.ReactNode {
               <Icon name="node-tree" className="mr-1 h-3.5 w-3.5" />
               {t('sessions.sidebar.project.actions.newWorktree')}
             </Button>
-          </div>
+          </div> : null}
           <WorktreeSectionContent projectRef={{ id: project.id, path: project.path }} sections="list-only" />
         </div>
       </div>

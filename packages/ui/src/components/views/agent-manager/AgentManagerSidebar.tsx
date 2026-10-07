@@ -1,4 +1,5 @@
 import { rankByQuery } from '@/lib/search/fuzzySearch';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import React from 'react';
 import { toast } from '@/components/ui';
 import { Input } from '@/components/ui/input';
@@ -58,7 +59,8 @@ const AgentGroupItem: React.FC<AgentGroupItemProps> = ({ group, isSelected, isBu
     if (isDeleting) return;
     setIsDeleting(true);
     toast.info(t('agentManager.sidebar.toast.deletingGroup', { group: group.name }));
-    const { failedIds, failedWorktreePaths } = await deleteGroupSessions(group.sessions, { removeWorktrees: true });
+    // Worktree removal needs a runtime-local bridge; elsewhere the sessions go and the worktrees stay.
+    const { failedIds, failedWorktreePaths } = await deleteGroupSessions(group.sessions, { removeWorktrees: canMutateWorktrees() });
     if (failedIds.length === 0 && failedWorktreePaths.length === 0) {
       toast.success(t('agentManager.sidebar.toast.deletedGroup', { group: group.name }));
     } else {

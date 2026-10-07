@@ -18,6 +18,7 @@ import type { Session } from '@opencode-ai/sdk/v2';
 import type { WorktreeMetadata } from '@/types/worktree';
 import { getWorktreeStatus } from '@/lib/worktrees/worktreeStatus';
 import { getWorktreeDisplayName, removeProjectWorktree } from '@/lib/worktrees/worktreeManager';
+import { canMutateWorktrees } from '@/lib/gitApi';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import * as sessionActions from '@/sync/session-actions';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -187,9 +188,15 @@ export const SessionDialogs: React.FC = () => {
                 void deleteSessionsWithoutDialog(payload);
                 return;
             }
+            // Worktree removal needs a runtime-local bridge; the server refuses it.
+            // Refuse before the dialog so no session is archived for a removal that cannot happen.
+            if (payload.mode === 'worktree' && !canMutateWorktrees()) {
+                toast.error(t('worktree.mutationUnavailable'));
+                return;
+            }
             openDeleteDialog(payload);
         });
-    }, [openDeleteDialog, showDeletionDialog, deleteSessionsWithoutDialog]);
+    }, [openDeleteDialog, showDeletionDialog, deleteSessionsWithoutDialog, t]);
 
     React.useEffect(() => {
         return sessionEvents.onDirectoryRequest(() => {

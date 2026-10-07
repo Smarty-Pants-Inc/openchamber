@@ -9,7 +9,7 @@ import type { ProjectRef } from '@/lib/worktrees/worktreeManager';
 import { createWorktreeWithDefaults, resolveRootTrackingRemote } from '@/lib/worktrees/worktreeCreate';
 import { waitForWorktreeBootstrap } from '@/lib/worktrees/worktreeBootstrap';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
-import { checkIsGitRepository } from '@/lib/gitApi';
+import { canMutateWorktrees, checkIsGitRepository } from '@/lib/gitApi';
 import { useDirectoryStore } from './useDirectoryStore';
 import { useProjectsStore } from './useProjectsStore';
 import { useSnippetsStore } from './useSnippetsStore';
@@ -152,7 +152,8 @@ export const useMultiRunStore = create<MultiRunStore>()(
           const directory = project.path;
 
           const isGit = await checkIsGitRepository(directory);
-          const shouldIsolateRuns = isGit && params.isolateRuns !== false;
+          // Isolated runs create worktrees, which need a runtime-local bridge; the server refuses them.
+          const shouldIsolateRuns = isGit && params.isolateRuns !== false && canMutateWorktrees();
 
           const groupSlug = toGitSafeSlug(groupName);
           const rootBranch = shouldIsolateRuns ? await getRootBranch(directory) : undefined;
