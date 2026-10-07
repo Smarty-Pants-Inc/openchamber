@@ -4,14 +4,26 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "041b2cd0374e3375d665440e57411196e9209374",
+  "sourceTree": "a1747651dedb500b91fe912fe81a32ff1a142351",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
   "scope": [
     {
       "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.coSteer.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.dueRecovery.test.tsx"
+    },
+    {
+      "status": "M",
       "path": "packages/ui/src/components/chat/ChatInput.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md"
     },
     {
       "status": "M",
@@ -30,6 +42,34 @@
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerRecovery.test.tsx"
     },
     {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/ordinaryBootstrapAdmission.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/i18n/messages/send-pending.i18n.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/openOrdinaryState.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/opencode/client.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/sendRecovery.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/stores/useProjectsStore.ts"
+    },
+    {
       "status": "M",
       "path": "packages/ui/src/sync/DOCUMENTATION.md"
     },
@@ -38,12 +78,32 @@
       "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts"
     },
     {
+      "status": "M",
+      "path": "packages/ui/src/sync/event-pipeline.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/native-draft-recovery.test.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/ordinary-admission-sources.test.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-catalog-feedback.test.tsx"
+    },
+    {
       "status": "A",
       "path": "packages/ui/src/sync/selected-owner-cold-ended.test.tsx"
     },
     {
       "status": "A",
       "path": "packages/ui/src/sync/selected-owner-cold-provider.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-equal-observation.test.tsx"
     },
     {
       "status": "A",
@@ -58,8 +118,16 @@
       "path": "packages/ui/src/sync/selected-owner-react-fixture.tsx"
     },
     {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-routing.test.ts"
+    },
+    {
       "status": "A",
       "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-transport-recovery.test.tsx"
     },
     {
       "status": "M",
@@ -70,25 +138,78 @@
       "path": "packages/ui/src/sync/selected-session-owner.ts"
     },
     {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission-route.test.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission.test.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission.ts"
+    },
+    {
       "status": "M",
       "path": "packages/ui/src/sync/session-actions.ts"
     },
     {
       "status": "M",
       "path": "packages/ui/src/sync/session-ui-store.ts"
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/sync-refs.ts"
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/transport-ready.ts"
     }
   ],
   "files": [
     {
       "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.coSteer.test.tsx",
+      "predecessorBlob": "a951906af4de6b3af81c4f6638086c4d4f2219e0",
+      "blob": "c59dbdcab0aaf2cbbc6e7a0e0374b2aa487f7f82",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "873e6840da280b691c5e97bed17220f77883e048d62182b75f404284ed3214ea",
+      "sha256": "5eafd17a4c1eae3519bb444502dd782b0437828335696155e4741812e21b66c8",
+      "note": "Align co-steer recovery cases with one Send at a time per session."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/ChatInput.dueRecovery.test.tsx",
+      "predecessorBlob": "bcf6de087c8740ee0d72e5ef9c8e9ca4fabadb30",
+      "blob": "b77aa594115b9c2ab0541948ad248d23da7ead84",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "c92fa717c84ad04f1643eafa6533a5a8197509cf7cf5f51fa05d3e466eeebc8b",
+      "sha256": "19a055d136895ff005816e16db478360d2e00519227aa4da88bf6959f88930a1",
+      "note": "Align due-recovery cases with one Send at a time per session."
+    },
+    {
+      "status": "M",
       "path": "packages/ui/src/components/chat/ChatInput.tsx",
       "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895",
-      "blob": "ac840de0783c05a0bd8eedf695d66d20b1ae251c",
+      "blob": "0245be064d671ee491fcca3ac4e9e15248e3e23b",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "8607f70bbfa988cb95d564210332b5a2a0f54c8b6ba837e72683ad9306aed9a0",
-      "note": "Connect verified owner draft transfer and capture submission write authority for recovery and accepted cleanup."
+      "sha256": "e71ff3a2a4737d91eb1be2d8d4166f28e3bbcf6d9de408820e2fd5d35f812f8f",
+      "note": "Read Send admission from the sync layer and resend an unresolved message only with its original client ID."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/components/chat/composer/DOCUMENTATION.md",
+      "predecessorBlob": "90fc706a4d564a5a1303ab5ca5572516e85bd405",
+      "blob": "e6452e2721d3a532d9484a550112e2f3d02e3a07",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "03c380abadf5d90fc32e7f894a36612d1e0f4ea83e9d2e0f56135c047213389d",
+      "sha256": "28b136cfb9e653c9c99fa5775f0e1e8ae6e4e7403a7ea59976ddd21fe55a7927",
+      "note": "Document sync-owned Send admission and same-ID retry for the composer."
     },
     {
       "status": "M",
@@ -116,12 +237,12 @@
       "status": "A",
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/observedOwnerHistoryRecovery.test.tsx",
       "predecessorBlob": null,
-      "blob": "61b0f5cfd806fc8fb175f64b5c0041ac33b63301",
+      "blob": "75e68f5ece19a93d87dc3df6af5b84e09280d6e6",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "9a6e837c1abb1218f9acb8e9259f7221a74bc10b97d6351910e5bde36fbbd73e",
-      "note": "Exercise actual composer Send after quiet transport recovery with retained history and unchanged connection."
+      "sha256": "c301e403105ce3d7bf58d56cfb877f21e5f7a6a597dc7f74eefb51b61ea96d0f",
+      "note": "Exercise mounted Send after quiet transport recovery and the bounded recheck budget with Send fenced."
     },
     {
       "status": "A",
@@ -135,26 +256,147 @@
       "note": "Add failed send and late accepted cleanup regressions for protected and ordinary drafts; no historical predecessor."
     },
     {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/ordinaryBootstrapAdmission.test.tsx",
+      "predecessorBlob": null,
+      "blob": "877bce71412eda941494da16ad55fc8767c830eb",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "f885d961520c48398bc678754f1c8192317b6b04115cdd1e3dbc6cb3f563af7e",
+      "note": "Mounted regression: a global-only ordinary owner reserves before directory bootstrap and across remount."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx",
+      "predecessorBlob": null,
+      "blob": "9e9b87f79985eb116964db782ff1b00968ba39cf",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "64b3300b37ed34577411e8f06e77ee9f89482552c5ad24742429ccf8e74b80d5",
+      "note": "Mounted regression: an ambiguous Send admits its same-ID retry, which settles the outcome and frees the session."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/i18n/messages/send-pending.i18n.ts",
+      "predecessorBlob": "b4c0e24cbfc6be4f610b6eb8463aa28716637ec2",
+      "blob": "98dddb5102a16c8b590d9f30405f38221dc2c2b0",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "d04be9f1bbc45074632468f67295764c891bc3a3977489942382b30a11d3287e",
+      "sha256": "76d2e6e44ac430661e27079120a304e33f896572e032e37af87f28dd0eda92a8",
+      "note": "Translate the wait reason for an unresolved Send in all twelve locales."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/openOrdinaryState.ts",
+      "predecessorBlob": "eb3fc8ea696da0e362027f47df8def908943ab9f",
+      "blob": "10c29379df6e9d1fa62246790c92e0eb61e619ef",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "668bb56e1b66a925e12b46e67ddf3643dad830888f6cd58b0cd8d012aa7645fa",
+      "sha256": "aa75dc5a2295ba45155e8acdaae3dcec1ebbf6f8e3a82409f9024cb93a43f6bd",
+      "note": "One ordinary classification and model source for the composer, the Send route and its final dispatch checks."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/opencode/client.ts",
+      "predecessorBlob": "31cac0fbd07bbda7e8fc3f6ee453debd0d23502a",
+      "blob": "f38c5c705e85f38c41704219d81b8a3be219e478",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "7b4e033afb0b9bade634184cad7e517fedec14f7998550604ac5e4c119706ce8",
+      "sha256": "a1038049a47661e0136c039bb0a86027d5488adcbb9fe8ef2a3a1704627bb135",
+      "note": "Carry route-admitted ordinary ownership into history loading and give commands and shell the final admission check."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/lib/sendRecovery.ts",
+      "predecessorBlob": "49dcb5175e4bf1ae173d0997ec6eecc39cf16a0e",
+      "blob": "2d1c4fc7f73550ac226c3a2c9bbc06c83a6f0bae",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "52951b3496998d573a7b319a76632aafb895c9d13d4ae6a281935fb0fa78da42",
+      "sha256": "29a9e5449d39916e3e1539ab11862922936bcab8f948cb546d540c3bb14a4b54",
+      "note": "Let a retry of a send left unresolved elsewhere keep its original client ID."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/stores/useProjectsStore.ts",
+      "predecessorBlob": "c71b12389407d2892392b785479937c10bd3439b",
+      "blob": "c566b7b1228bc9e00325374819337959475efaaa",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "6a7acd43d59360f7603249b5d2864929be7235dba7707da50755d2670633f653",
+      "sha256": "14793555872f97204370510b4ed24ee0365412cf8bdabebb6e2f8f288ff9d98d",
+      "note": "Keep managedRows identity when a catalog refresh republishes unchanged rows (smarty-code#1392)."
+    },
+    {
       "status": "M",
       "path": "packages/ui/src/sync/DOCUMENTATION.md",
       "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf",
-      "blob": "f9a707f24cc7e1242589b283d0f0871ba6a5d214",
+      "blob": "26914ba53c851fdb45e0c37070f8fe86cf490e5f",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
-      "sha256": "1f66bf19b0351e94b6232f19b6e38b4cf4711df84050f8864d3a057d8cfc8e13",
-      "note": "Document bounded quiet history recovery for an established live owner."
+      "sha256": "78891aa4f3e5c65ea3ecb418a215efa1a288b36ec3852da634cd8d80911dc499",
+      "note": "Document bounded owner recovery, catalog feedback, and ordinary Send admission with its single model source."
     },
     {
       "status": "M",
       "path": "packages/ui/src/sync/__tests__/issue-2039.test.ts",
       "predecessorBlob": "e36c09042954387cf3948994463f2755fc46fd74",
-      "blob": "374c93c4ec31a25075aa7a6ca03e6a17eb8de130",
+      "blob": "95814db6d18fae63492d9d29e242030e08fa52e8",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "8e3f78cc062ced51015dd3f310fc9c8bbbd40cc8f822ded2a37d55c2a0fa90c6",
-      "sha256": "8c341c7ec6e506b2db5241f88e9c1b816f494de3533942cdec59ba429dca68ab",
-      "note": "Keep legacy draft fixture exports compatible with the provider-scoped owner imports and reject unexpected owner adoption."
+      "sha256": "17cd3c3e2b16f6d37307840a7ae0908eb729e62e5ee026c862f1d9f99b96aeff",
+      "note": "Keep the legacy draft fixture mock complete for Send admission imports."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/event-pipeline.ts",
+      "predecessorBlob": "eb206bb51f2703249dcc19958253ae4098b5cf5e",
+      "blob": "98fafcc5269bfda396d7b9261fa071d6300a294b",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "9d87b5ab85a813addcbecbddbddf58bbdfd4aa6fa647871b6aee694e306eb916",
+      "sha256": "ef83bf30af29b49210456961d528e48dcb8f9dfeaa7e33fe07018e91796b2a22",
+      "note": "Emit the transport-readiness signal on every connect and on a WS to SSE transport switch."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/native-draft-recovery.test.ts",
+      "predecessorBlob": "a219bc427d2a5cda78b0efef2181edf064b224e0",
+      "blob": "2ffd237630c50019afd3bb7a55ff28c2e739dd34",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "e2b1e45f9545f5d1ce5ca32bbfc5f2ac50afc92cc6da7d809f071b65996b2e2d",
+      "sha256": "01d766508848b102fa44669fde509ce30b7a8680c3d13b57f7df37e03427539a",
+      "note": "Account for the ordinary session Send lock held alongside the native request lock."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/ordinary-admission-sources.test.ts",
+      "predecessorBlob": null,
+      "blob": "2fa82c70331ef839a9e8183a79a1c4c9ddd28284",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "13e1c1c3d6da563ab8c6ea0c16084d81904b06ae663fba7505307de2e5232d02",
+      "note": "Route regressions for every ordinary classification source, directory capture, command and shell dispatch, and availability."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-catalog-feedback.test.tsx",
+      "predecessorBlob": null,
+      "blob": "8fd5d21807059a4da787ad5dd0afc7c17f633cc0",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "98e864f942116a8c87e3d630b1c8228f86488e4245ca389860c6057849e4faee",
+      "note": "Unchanged catalog republication after a 503 does not retrigger the owner check (smarty-code#1392)."
     },
     {
       "status": "A",
@@ -180,6 +422,17 @@
     },
     {
       "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-equal-observation.test.tsx",
+      "predecessorBlob": null,
+      "blob": "b3111a24dc245359f772f14382072c1b47e1b853",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "3976ceedbb21c0e5bcf9ad8f7926c551f1eea4e197024fd3f1a967b529efbd1d",
+      "note": "A same-ID time-only update during a held check gets one bounded replacement check (smarty-code#1414)."
+    },
+    {
+      "status": "A",
       "path": "packages/ui/src/sync/selected-owner-history-recovery.test.tsx",
       "predecessorBlob": null,
       "blob": "c509804b547c055827a36451a08ac7db281839ed",
@@ -193,12 +446,12 @@
       "status": "M",
       "path": "packages/ui/src/sync/selected-owner-operation.ts",
       "predecessorBlob": "472264eda3936d8e0429c3e74ec05a4185fb3daf",
-      "blob": "14cb04e9ac9ecbb348e64606bb51a593e8956edd",
+      "blob": "a38fc7cac23d1a309c71fadc9155b9626ea5238b",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "0148bc55c040385b3da4ba15bf687f0c653ba730e4669de5d91bd7c2a70b3f8c",
-      "sha256": "b2c566553fac8f53aed34c46a051a993380512b13da799b4d2148de7f5884b9e",
-      "note": "Bind owner checks to captured provider child stores and refuse adoption after provider replacement."
+      "sha256": "9abff557c27ed9476b58eb5c822cdd705cc774dd56eeb17327c6719e0b64e56b",
+      "note": "Own the transport-readiness signal and one bounded replacement for an equal same-ID observation."
     },
     {
       "status": "M",
@@ -212,6 +465,17 @@
       "note": "Mount owner probes inside the native sync runtime context with fixture-owned child stores and loader."
     },
     {
+      "status": "M",
+      "path": "packages/ui/src/sync/selected-owner-routing.test.ts",
+      "predecessorBlob": "d7ce9462edeeb7fe9cf078662e71b3d9f1f3e766",
+      "blob": "447cfcbd21a66ae4db9f1c09c7a2bf7c54c510b9",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "453b3f0e85d0749b1d533e2fe7390440a36a264373aa09e721df1c9e3dca7864",
+      "sha256": "45f9894c78c505395b7f40a7d0a6400750b006a923b568d41bc98d29a3992077",
+      "note": "Check that a generation change during preparation refuses at the route model check."
+    },
+    {
       "status": "A",
       "path": "packages/ui/src/sync/selected-owner-title-recovery.test.tsx",
       "predecessorBlob": null,
@@ -221,6 +485,17 @@
       "predecessorSha256": null,
       "sha256": "00898eb97ec7554d68fde44380b2e556b8cda21a0887f018afdb24b084134738",
       "note": "Add title invalidation and fresh detail success or 503 recovery regressions; no historical predecessor."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/selected-owner-transport-recovery.test.tsx",
+      "predecessorBlob": null,
+      "blob": "77175d4a31f05f35ab0fa9dfe35195752bcf0802",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "f7c15c4386540b0632dbaf4835d22130322644a1b6d47f1fcdc036c5a3b12507",
+      "note": "Transport-readiness signal and bounded recheck budget recover an unknown owner without polling."
     },
     {
       "status": "M",
@@ -237,12 +512,45 @@
       "status": "M",
       "path": "packages/ui/src/sync/selected-session-owner.ts",
       "predecessorBlob": "ce7cbb896495c684366f2142d63683500ce9d88f",
-      "blob": "709c8b02da1a415fd96da3386afae87839f3f3c3",
+      "blob": "c848fb1fc633f79e5d3b7c8a73bca792a76da64f",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "221b108f351debd719658dae76ebcd16084e06b140e28abfe5bcc5dc36712ec0",
-      "sha256": "d959164c33d77e1ea8795bbf54fa6956cccce2b7e6b5132e99e013cfaea9c7be",
-      "note": "Bound a replacement check for unusable established live history without requiring reconnect or catalog change."
+      "sha256": "edc7afcd54340b664c98c50ebc99d3871be098f978ad4c0e1653a66d76e4127b",
+      "note": "Recover an unknown owner on transport readiness or a bounded recheck budget, mutated only in committed effects."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission-route.test.ts",
+      "predecessorBlob": null,
+      "blob": "4f8c1c6b7026f342d150afb1164a1956c7b3430c",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "09450a635211017eff212cc9986ffe1909051306ffbc2afab0f81d3422e91f45",
+      "note": "Route regressions: atomic admission, same-ID retry release, native model pin and revalidation, loader-only refusal, stock concurrency."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission.test.ts",
+      "predecessorBlob": null,
+      "blob": "eb393e7e95098824ddf77f51e4f5acf3dbdb0ba3",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "c7affc8951be56acbe8f3a1aef611395d278d77faba70c875158e0fd8740cb43",
+      "note": "Cover admission, same-ID retry after an ambiguous outcome, known release, cross-tab lock and marker, and runtime isolation."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/send-admission.ts",
+      "predecessorBlob": null,
+      "blob": "17da44f86522eac6bc1fd893bb92151fe418953c",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "f02c70b28395173a53550f96a4b6dbc8e1504129b0d02dabc8118eb12fcc71c2",
+      "note": "Admit one ordinary Send per runtime and session across tabs: page claim, Web Lock, unresolved marker and same-ID retry."
     },
     {
       "status": "M",
@@ -259,13 +567,35 @@
       "status": "M",
       "path": "packages/ui/src/sync/session-ui-store.ts",
       "predecessorBlob": "3d7cee981131ddb9010b022d9e69609b8e9e4d94",
-      "blob": "4ab9448c657bba62da474acf28afb7025b6bd3e4",
+      "blob": "27041aa60fd0efd7506ea22b830b3de80983d642",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "01275f06e310e110e13b1b03a08042fbbfe6796efe0eecfea1f8ae5688618093",
-      "sha256": "085cc4e5f2efe83c67ef6dd1fb287e812e4516e8fec2983877c9ef21fa93e868",
-      "note": "Arm and consume only the selected verified same-session draft transfer under runtime and reveal revision fences."
+      "sha256": "49794447dc6cb249ba762c916920b8ceb9b39dd931bd343c4e55a5693dc95bed",
+      "note": "Route ordinary Sends through cross-tab admission with the pinned native model rechecked before every request."
+    },
+    {
+      "status": "M",
+      "path": "packages/ui/src/sync/sync-refs.ts",
+      "predecessorBlob": "ccc236f22d0f8943a4e26997868346cc208fcc2d",
+      "blob": "06e4001ce1eff89350d9e82f61f3be4cb6d6ea59",
+      "predecessorMode": "100644",
+      "mode": "100644",
+      "predecessorSha256": "2b5ed4f8ed58d8b3ce80104ddd4806da03e83dbe41d6d5cfefd843701cfb50c6",
+      "sha256": "14fa547ed238bd0dfd8d2b0616d8a9457a06c0b6b171caaa0cc5fefd1d528918",
+      "note": "Read every child store row for one session, so a duplicate cannot mask another directory row."
+    },
+    {
+      "status": "A",
+      "path": "packages/ui/src/sync/transport-ready.ts",
+      "predecessorBlob": null,
+      "blob": "b041096401e9328f7c474ca6f156d4ac179e97f3",
+      "predecessorMode": null,
+      "mode": "100644",
+      "predecessorSha256": null,
+      "sha256": "252bc599588a40bd533e6c15e8216dfdd5d25896d229271d80935af9883527f2",
+      "note": "The event pipeline transport-readiness signal: reconnect or transport switch, no data."
     }
   ],
-  "note": "Parent-native export of the frozen PR549 #1378 repair: 17 UI files, 10 modified and 7 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
+  "note": "Parent-native export of the #1378 repair and the smarty-code#1427 Send admission lane: 39 UI files, 22 modified and 17 added. sourceTree is the packages/ui Git subtree, excluding branding and scripts. Blob IDs and byte SHA256 are separate. Source inventory only; final native subtree binding, review, CI, full UI and same-Pi browser proof remain parent-owned gates."
 }
