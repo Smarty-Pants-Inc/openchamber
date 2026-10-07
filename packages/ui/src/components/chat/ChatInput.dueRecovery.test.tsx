@@ -64,18 +64,21 @@ const show = async (c: NonNullable<typeof mounted>, id: string) => {
   await act(async () => { c.rerender(); await sleep(0); });
 };
 
-test('two held sends to S due while T is shown: back on S, the composer and the saved draft hold both, in order', async () => {
+// smarty-code#1378 session fence: a second Send to S waits while the first is unconfirmed, so its text stays as S's
+// unsent draft. Due while T is shown, the first comes back after that draft, in the composer and in S's saved draft.
+test('a second Send to S waits while the first is held; due while T is shown, back on S both texts are kept', async () => {
   const { c, held } = await heldSession();
   await c.replace('first held text'); await c.submit(); await until(() => c.prompts().length === 1);
-  await c.replace('second held text'); await c.submit(); await until(() => c.prompts().length === 2);
-  expect(c.text()).toBe('');
+  await c.replace('second held text'); await c.submit(); await act(async () => { await sleep(100); });
+  expect(c.prompts()).toHaveLength(1);
+  expect(c.text()).toBe('second held text');
   await show(c, other.id);
-  await act(async () => { await sleep(1_900); }); // Both come due while T is shown.
-  expect(c.text()).toBe('');
+  await act(async () => { await sleep(1_900); }); // The first comes due while T is shown.
   await show(c, session.id);
   await until(() => c.text().includes('first held text') && c.text().includes('second held text'));
-  expect(c.text().indexOf('first held text')).toBeLessThan(c.text().indexOf('second held text'));
+  expect(c.text().indexOf('second held text')).toBeLessThan(c.text().indexOf('first held text'));
   await until(() => savedS().includes('first held text') && savedS().includes('second held text'));
+  expect(c.prompts()).toHaveLength(1);
   // Refused after it came back: the text is still there (review step 4).
   await act(async () => { held.resolve(Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 })); await sleep(20); });
   expect(c.text()).toContain('first held text');
@@ -113,14 +116,15 @@ test('a held send plus a newer draft typed in S before leaving: back on S, both 
   await until(() => savedS().includes('a newer draft') && savedS().includes('the held text'));
 }, 30_000);
 
-// smarty-code#962 (2): two given-back texts joined in S's composer; the first is accepted late. Only its own copy goes:
-// the second stays, in the composer and in S's saved draft (never a double send of the first).
-test('two due texts joined, the first accepted late: only the second remains in the composer and the saved draft', async () => {
+// smarty-code#962 (2), under the session fence: a given-back text joined with S's unsent draft; the first is accepted
+// late. Only its own copy goes: the unsent text stays, in the composer and in S's saved draft (never a double send).
+test('a due text joined with an unsent draft, accepted late: only the unsent text remains in the composer and the saved draft', async () => {
   const { c } = await heldSession();
-  const replies = [deferred<Response>(), deferred<Response>()]; let n = 0;
+  const replies = [deferred<Response>()]; let n = 0;
   c.handlers.prompt = async () => replies[n++].promise;
   await c.replace('first held text'); await c.submit(); await until(() => c.prompts().length === 1);
-  await c.replace('second held text'); await c.submit(); await until(() => c.prompts().length === 2);
+  await c.replace('second held text'); await c.submit(); await act(async () => { await sleep(100); });
+  expect(c.prompts()).toHaveLength(1);
   await show(c, other.id);
   await act(async () => { await sleep(1_900); });
   await show(c, session.id);
@@ -177,35 +181,36 @@ test('a newer draft holding the same text: the late acceptance removes the joine
   await until(() => savedS().trim() === 'first held text\n\nunsent continuation');
 }, 30_000);
 
-test('two joined texts both accepted in one tick, with a newer draft: only the newer draft remains', async () => {
+test('a joined text accepted late, with a newer draft: only the newer draft remains', async () => {
   const { c } = await heldSession();
-  const replies = await dueWhileAway(c, ['first held text', 'second held text'], 'a newer draft');
-  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  const replies = await dueWhileAway(c, ['first held text'], 'a newer draft');
+  await act(async () => { replies[0].resolve(accept()); await sleep(100); });
   await until(() => c.text().trim() === 'a newer draft');
   await until(() => savedS().trim() === 'a newer draft');
 }, 30_000);
 
-test('two joined texts both accepted in one tick: the composer and the saved draft are empty', async () => {
+test('a given-back text accepted late with nothing else typed: the composer and the saved draft are empty', async () => {
   const { c } = await heldSession();
-  const replies = await dueWhileAway(c, ['first held text', 'second held text']);
-  await act(async () => { replies[0].resolve(accept()); replies[1].resolve(accept()); await sleep(100); });
+  const replies = await dueWhileAway(c, ['first held text']);
+  await act(async () => { replies[0].resolve(accept()); await sleep(100); });
   await until(() => c.text().trim() === '');
   await until(() => savedS().trim() === '');
 }, 30_000);
 
-// smarty-code#962 review r2 1: a submitted text ending in newlines, joined intact, still goes on its late acceptance.
+// smarty-code#962 review r2 1: a submitted text ending in newlines, joined intact beside an unsent draft, still goes on
+// its late acceptance.
 for (const tail of ['\n', '\n\n']) {
   const first = `first held text${tail}`;
   test(`a joined text ending in ${tail.length} newline(s), accepted late while shown: only the other remains`, async () => {
     const { c } = await heldSession();
-    const replies = await dueWhileAway(c, [first, 'second held text']);
+    const replies = await dueWhileAway(c, [first], 'second held text');
     await act(async () => { replies[0].resolve(accept()); await sleep(100); });
     await until(() => c.text().trim() === 'second held text');
     await until(() => savedS().trim() === 'second held text');
   }, 30_000);
   test(`a joined text ending in ${tail.length} newline(s), accepted late off-screen: only the other remains`, async () => {
     const { c } = await heldSession();
-    const replies = await dueWhileAway(c, [first, 'second held text']);
+    const replies = await dueWhileAway(c, [first], 'second held text');
     await show(c, other.id);
     await act(async () => { replies[0].resolve(accept()); await sleep(100); });
     expect(savedS().trim()).toBe('second held text');

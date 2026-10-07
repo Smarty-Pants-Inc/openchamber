@@ -143,7 +143,8 @@ test('a failed send from idle keeps a busy status the server sent meanwhile', as
 // smarty-code#827 (slice 1 on 3.48): a steer's composer emptied at Send, the send then stalled, and nothing was ever sent.
 // The composer still clears at Send (the next message is typed clean: kept there, a steer typed during a 10 s admission
 // merged into it), and the text is never lost: a failure brings it back, and so does a send left unanswered
-// (sendUnconfirmed.ms), with a line; a late delivery clears that copy; sent again unedited, it reuses the first client ID.
+// (sendUnconfirmed.ms), with a line; a late delivery clears that copy. While any Send to the session is unconfirmed,
+// another explicit Send waits (smarty-code#1378 session fence): nothing more is posted until the outcome is known.
 const { sendUnconfirmed } = await import('@/lib/sendUnconfirmed');
 const shortWatchdog = () => { const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 300; return () => { sendUnconfirmed.ms = was; }; };
 const until = async (ok: () => boolean, ms = 20_000) => { for (const end = Date.now() + ms; !ok() && Date.now() < end; ) await act(async () => { await sleep(25); }); expect(ok()).toBe(true); };
@@ -189,29 +190,40 @@ test('a refusal after the text came back does not bring it back twice', async ()
   } finally { restore(); }
 });
 
-test('the restored text sent again UNEDITED reuses the first client ID (a late acceptance + the re-send are one message)', async () => {
+const waitingToasts = (info: { mock: { calls: unknown[][] } }, from: number) =>
+  info.mock.calls.slice(from).map(call => String(call[0])).filter(text => text === 'Waiting for your last message to be confirmed.');
+const refused = () => Response.json({ name: 'APIError', data: { message: 'Nothing was sent.', isRetryable: false } }, { status: 409 });
+
+test('the restored text sent again UNEDITED while the first is unconfirmed is not posted; a late acceptance clears it', async () => {
   const restore = shortWatchdog();
+  const info = spyOn(toast, 'info').mockImplementation(() => 'test-toast');
   try {
     const first = deferred<Response>();
-    let n = 0;
-    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : Response.json({ name: 'APIError',
-      data: { message: 'Client message ID already exists or a submission is pending', isRetryable: false } }, { status: 409 })));
+    const { c } = await ordinaryWorking(() => first.promise);
     await c.submit(); await until(() => c.text() === 'steer this');
-    await c.submit(); await until(() => c.prompts().length === 2);
-    const [a, b] = await idsOf(c);
-    expect(b).toBe(a);
+    const before = info.mock.calls.length;
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(c.prompts()).toHaveLength(1);
+    expect(waitingToasts(info, before)).toHaveLength(1);
+    expect(c.text()).toBe('steer this');
     await act(async () => { first.resolve(steered()); await sleep(10); }); // The first is accepted late.
     await until(() => c.text() === '');
-  } finally { restore(); }
+    expect(c.prompts()).toHaveLength(1);
+  } finally { info.mockRestore(); restore(); }
 });
 
-test('the restored text EDITED before sending again is a new message (a new client ID)', async () => {
+test('the restored text EDITED waits for the first outcome, then goes as a new message (a new client ID)', async () => {
   const restore = shortWatchdog();
   try {
     const first = deferred<Response>();
     let n = 0;
     const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
     await c.submit(); await until(() => c.text() === 'steer this');
+    await c.replace('steer this, edited');
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(c.prompts()).toHaveLength(1);
+    expect(c.text()).toBe('steer this, edited');
+    await act(async () => { first.resolve(refused()); await sleep(20); }); // Known: nothing was sent.
     await c.replace('steer this, edited');
     await c.submit(); await until(() => c.prompts().length === 2);
     const [a, b] = await idsOf(c);
@@ -233,9 +245,10 @@ test('the same text typed again while its send is pending is not posted twice', 
   } finally { restore(); }
 });
 
-// openchamber#375 review round 2 (P1 1): two overlapping sends. B succeeding must not disarm A's recovery.
-test('two overlapping sends: A never answered, B delivered; A\'s text still comes back', async () => {
-  const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 4_000; // B goes well inside A's window, even under load.
+// openchamber#375 review round 2 (P1 1), under the session fence: B waits while A is unanswered, and A's recovery
+// still gives A's text back next to B's unsent text.
+test('two overlapping sends: A never answered, B waits unsent; A\'s text still comes back beside B\'s', async () => {
+  const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 1_500;
   const restore = () => { sendUnconfirmed.ms = was; };
   try {
     const first = deferred<Response>();
@@ -243,9 +256,12 @@ test('two overlapping sends: A never answered, B delivered; A\'s text still come
     const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
     await c.submit(); await until(() => c.prompts().length === 1);
     await c.replace('a second, different steer');
-    await c.submit(); await until(() => c.prompts().length === 2);
-    expect(c.text()).toBe(''); // B went; A is still unanswered and its text not back yet.
-    await until(() => c.text().includes('steer this')); // A's watchdog was not disarmed by B.
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(c.prompts()).toHaveLength(1);
+    expect(c.text()).toBe('a second, different steer'); // B stays in the composer, unsent.
+    await until(() => c.text().includes('steer this')); // A's watchdog still gives A back.
+    expect(c.text()).toContain('a second, different steer');
+    expect(c.prompts()).toHaveLength(1);
   } finally { restore(); }
 });
 
@@ -296,21 +312,25 @@ test('due while another session is shown: only its own saved draft gets it; it c
   } finally { restore(); }
 });
 
-// smarty-code#962 (3): the first POST accepted, then the re-send's reservation conflict: the message went, so no
-// "Still sending" line.
-test('first attempt accepted, then the re-send gets a 409 conflict: no Still sending toast', async () => {
+// smarty-code#962 (3), under the session fence: the given-back text cannot be re-sent while the first is unconfirmed.
+// Once the first is accepted late, its copy goes, there is no "Still sending" line, and the next Send is a new message.
+test('first attempt accepted late after its text came back: no Still sending toast, and the next Send is a new message', async () => {
   const restore = shortWatchdog();
   const info = spyOn(toast, 'info').mockImplementation(() => 'test-toast');
+  const error = spyOn(toast, 'error').mockImplementation(() => 'test-toast');
   try {
-    const first = deferred<Response>(); const second = deferred<Response>();
+    const first = deferred<Response>();
     let n = 0;
-    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : second.promise));
+    const { c } = await ordinaryWorking(() => (n++ === 0 ? first.promise : steered()));
     await c.submit(); await until(() => c.text() === 'steer this');
-    await c.submit(); await until(() => c.prompts().length === 2);
+    const before = [info.mock.calls.length, error.mock.calls.length];
     await act(async () => { first.resolve(steered()); await sleep(20); });
-    const before = info.mock.calls.length;
-    await act(async () => { second.resolve(Response.json({ name: 'APIError',
-      data: { message: 'Client message ID already exists or a submission is pending', isRetryable: false } }, { status: 409 })); await sleep(50); });
-    expect(info.mock.calls.slice(before).map(call => String(call[0])).filter(text => text.includes('Still sending'))).toEqual([]);
-  } finally { info.mockRestore(); restore(); }
+    await until(() => c.text() === '');
+    const lines = [...info.mock.calls.slice(before[0]), ...error.mock.calls.slice(before[1])].map(call => String(call[0]));
+    expect(lines.filter(text => text.includes('Still sending'))).toEqual([]);
+    await c.replace('a later steer');
+    await c.submit(); await until(() => c.prompts().length === 2);
+    const [a, b] = await idsOf(c);
+    expect(b).not.toBe(a);
+  } finally { error.mockRestore(); info.mockRestore(); restore(); }
 });
