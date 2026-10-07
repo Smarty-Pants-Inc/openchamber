@@ -215,6 +215,20 @@ test('3: Send again holds the same 120,000-byte limit; an over-limit failed entr
   await unmount();
 });
 
+test('3: a 4xx refusal with NO message still counts as refused: the text comes back and the next send uses a new client ID (#567 r4)', async () => {
+  sendResult = async () => { throw new SmartiesRequestError(413); };
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(box); await settle();
+  expect(box.value).toBe('Ship it');
+  expect(button(host, 'Send again')).toBeUndefined();
+  sendResult = async () => undefined;
+  await pressEnter(box); await settle();
+  expect(sent[1]!.clientId).not.toBe(sent[0]!.clientId);
+  await unmount();
+});
+
 test('3: a refused send that waits beside the box (new text was typed) retries under a NEW client ID (#567 review)', async () => {
   let refuse!: (error: Error) => void;
   sendResult = () => new Promise<void>((_, reject) => { refuse = reject; });

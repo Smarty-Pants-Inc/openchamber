@@ -67,3 +67,19 @@ test('a huge or never-ending refusal body is read only up to 4 KB, then cancelle
   expect(cancelled).toBe(true);
   expect(pulled).toBeLessThan(10);
 });
+
+test('a refusal body that stalls gives up after the timeout, and one oversized chunk is cut to the limit (#567 r4)', async () => {
+  let cancelled = false;
+  const stalls = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new TextEncoder().encode('Message is too long')); },
+    pull() { return new Promise<void>(() => undefined); }, // never yields again
+    cancel() { cancelled = true; },
+  });
+  const started = Date.now();
+  const error = await sendSmartyMessage('paul', 'x', 'msg_5', fake(() => new Response(stalls, { status: 413, headers: { 'content-type': 'text/plain' } }))).catch(e => e);
+  expect(error).toMatchObject({ status: 413, serverMessage: undefined });
+  expect(Date.now() - started).toBeLessThan(6000);
+  expect(cancelled).toBe(true);
+  const huge = new Response(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('y'.repeat(1_000_000))); c.close(); } }), { status: 413, headers: { 'content-type': 'text/plain' } });
+  expect(await sendSmartyMessage('paul', 'x', 'msg_6', fake(() => huge)).catch(e => e)).toMatchObject({ status: 413, serverMessage: undefined });
+}, 15_000);

@@ -29,22 +29,26 @@ const parseJson = (text: string) => { try { return JSON.parse(text); } catch { r
 const refusalSchema = z.object({ error: z.string().optional(), message: z.string().optional(), data: z.object({ message: z.string().optional() }).optional() });
 /** A refusal's message: a JSON `error` or `message`, or a short plain-text body. Never an HTML error page. */
 /** At most `limit` bytes of a body, then the rest is cancelled: a huge or endless error body can't hold the page (#567 security). */
-async function boundedText(response: Response, limit: number): Promise<string> {
+async function boundedText(response: Response, limit: number, timeoutMs = 3000): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return '';
-  const chunks: Uint8Array[] = [];
-  let size = 0;
+  const all = new Uint8Array(limit);
+  let at = 0, timer: ReturnType<typeof setTimeout> | undefined;
+  // A stalled body gives up after timeoutMs; each chunk keeps only the bytes still within the limit (#567 r4).
+  const stalled = new Promise<'stalled'>(resolve => { timer = setTimeout(() => resolve('stalled'), timeoutMs); });
   try {
-    while (size < limit) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value); size += value.byteLength;
+    while (at < limit) {
+      const next = await Promise.race([reader.read(), stalled]);
+      if (next === 'stalled') return '';
+      if (next.done) break;
+      const part = next.value.subarray(0, limit - at);
+      all.set(part, at); at += part.length;
     }
-  } catch { return ''; } finally { void reader.cancel().catch(() => undefined); }
-  const all = new Uint8Array(Math.min(size, limit));
-  let at = 0;
-  for (const chunk of chunks) { const part = chunk.subarray(0, all.length - at); all.set(part, at); at += part.length; if (at >= all.length) break; }
-  return new TextDecoder().decode(all);
+  } catch { return ''; } finally {
+    clearTimeout(timer);
+    await reader.cancel().catch(() => undefined);
+  }
+  return new TextDecoder().decode(all.subarray(0, at));
 }
 async function refusalMessage(response: Response): Promise<string | undefined> {
   const type = response.headers.get('content-type') ?? '';

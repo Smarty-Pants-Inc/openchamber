@@ -263,7 +263,8 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
       const said = error instanceof SmartiesRequestError ? error.serverMessage : undefined;
       // Only a 4xx is a definite refusal (the gateway checked and did not accept). A 5xx, even with a message, may have
       // been accepted, so it keeps its client ID and waits for Send again, letting the gateway dedupe (#567 review r3).
-      const refused = said !== undefined && error instanceof SmartiesRequestError && error.status < 500;
+      // Refused is decided by status alone (a 4xx was checked and not accepted); the message is only for display (#567 r4).
+      const refused = error instanceof SmartiesRequestError && error.status >= 400 && error.status < 500;
       if (said) setNotice({ kind: 'refused', text: said });
       if (refused && !readDraftAt(key)) store.setDraftAt(key, message.text);
       // A refused send was never accepted: its retry is a NEW message, with a fresh client ID and a fresh 24 h window.
