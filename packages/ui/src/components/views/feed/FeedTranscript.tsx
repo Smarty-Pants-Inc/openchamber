@@ -23,6 +23,8 @@ const PINNED_SLACK = 48;
 /** The backfill's divider block ("Earlier conversation with your Smarty"), drawn as a divider, not a message. */
 const DIVIDER = /^[\s\-—–*_#=]*earlier conversation with your smarty[\s\-—–*_#=.:]*$/i;
 const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
+/** The owner's own line: "you", as the backfill writes it, or the owner's id. */
+export const isOwnerLine = (block: Pick<SmartyBlock, 'author'>, owner: string) => block.author === 'you' || block.author === owner;
 
 /**
  * `smartyName` names the Smarty's own blocks (author "org"). The owner's own lines (author "you", as the backfill
@@ -32,8 +34,8 @@ const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
 export type BlockText = React.ComponentType<{ content: string }>;
 
 /** `earlier`: the "Show earlier" control, when older blocks exist. */
-export function FeedTranscript({ blocks, smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
-  blocks: readonly SmartyBlock[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
+export function FeedTranscript({ blocks, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
+  blocks: readonly SmartyBlock[]; pending?: readonly { clientId: string; text: string }[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
   earlier?: { state: 'idle' | 'loading' | 'failed'; show: () => void } | null;
 }): React.ReactNode {
   const { t } = useI18n();
@@ -48,8 +50,8 @@ export function FeedTranscript({ blocks, smartyName, owner, ownerName, me, Text 
     if (pinned.current) element.scrollTop = element.scrollHeight;
     else if (before.current.oldest !== oldest?.id) element.scrollTop += element.scrollHeight - before.current.height;
     before.current = { height: element.scrollHeight, oldest: oldest?.id };
-  }, [blocks.length, newest?.id, oldest?.id]);
-  const byOwner = (author: string) => author === 'you' || author === owner;
+  }, [blocks.length, newest?.id, oldest?.id, pending.length]);
+  const byOwner = (author: string) => isOwnerLine({ author }, owner);
   const authorName = (author: string) => {
     if (author === 'org') return smartyName;
     if (byOwner(author)) return owner === me ? t('feed.you') : ownerName;
@@ -84,6 +86,14 @@ export function FeedTranscript({ blocks, smartyName, owner, ownerName, me, Text 
               : <Text content={block.text} />}
           </li>
         ))}
+        {pending.map(item => (
+          <li key={item.clientId} data-feed-entry="owner" data-feed-pending className="chat-message-column flex min-w-0 flex-col items-end gap-1">
+            <div className="flex items-baseline gap-2 typography-ui-label">
+              <span className="font-semibold text-foreground">{owner === me ? t('feed.you') : ownerName}</span>
+              <span className="text-muted-foreground">{t('feed.reply.sending')}</span>
+            </div>
+            <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2 opacity-80"><Text content={item.text} /></div>
+          </li>))}
       </ol>
     </div>
   );

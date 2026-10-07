@@ -14,8 +14,9 @@ import { useInboxStore } from '@/lib/smartyInbox';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
-import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, readDraftAt, useFeedStore, type FailedSend } from './feedStore';
+import { FeedNotice, FeedTranscript, isOwnerLine, type BlockText } from './FeedTranscript';
+import { draftKey, ensureSmartiesLoaded, readDraftAt, useFeedStore, type FailedSend, type PendingSend } from './feedStore';
+import { dismissInitialLoading } from './initialLoading';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
@@ -53,6 +54,10 @@ export const FIRST_PAGE = 50, EARLIER_PAGE = 100;
  * begins in the feed file, for the next older page; undefined when the server cannot page back.
  */
 type ReadyFeed = { state: 'ready'; blocks: SmartyBlock[]; shown: number; offset: number; start?: number };
+const NO_PENDING: readonly PendingSend[] = [];
+const NO_BLOCKS: readonly SmartyBlock[] = [];
+const sameText = (a: string, b: string) => a.trim() === b.trim();
+
 type FeedState = { state: 'loading' } | { state: 'failed' } | ReadyFeed;
 export type EarlierState = 'idle' | 'loading' | 'failed';
 
@@ -139,6 +144,17 @@ function SmartyPage({ smarty, all, me, compact, services }: {
   const [inboxShown, setInboxShown] = React.useState(!compact);
   const inboxButton = React.useRef<HTMLButtonElement | null>(null);
   const inboxLabel = t('feed.inbox.toggle', { count: openCount });
+  // A sent message shows at once as the owner's line until the feed's own block for it arrives (same text, not in the
+  // feed when it was sent); then the feed's block replaces it.
+  const key = draftKey(smarty.id);
+  const pending = useFeedStore(state => state.pendingSends[key] ?? NO_PENDING);
+  const blocks = feed.state === 'ready' ? feed.blocks : NO_BLOCKS;
+  const echoed = React.useMemo(() => pending.filter(item => blocks.some(block => isOwnerLine(block, smarty.id)
+    && sameText(block.text, item.text) && !item.known.includes(block.id))).map(item => item.clientId), [blocks, pending, smarty.id]);
+  React.useEffect(() => { if (echoed.length) useFeedStore.getState().removePendingSends(key, echoed); }, [echoed, key]);
+  const knownOwnerLines = (text: string) => blocks.filter(block => isOwnerLine(block, smarty.id) && sameText(block.text, text)).map(block => block.id);
+  // The page is painted from real data: lift the app's loading splash now, not when the old view's bootstrap ends.
+  React.useEffect(() => { if (feed.state !== 'loading') dismissInitialLoading(); }, [feed.state]);
   // The first paint waits for the first feed answer (a short wait on an empty page), so nothing jumps when it comes.
   if (feed.state === 'loading') return <div className="h-full bg-background" />;
 
@@ -172,8 +188,9 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {feed.state === 'failed'
             ? <FeedNotice alert action={<Button size="sm" variant="outline" onClick={retry}>{t('feed.retry')}</Button>}>{t('feed.historyFailed')}</FeedNotice>
-            : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
-          {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} send={stableServices.send} /> : null}
+            : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} pending={pending.filter(item => !echoed.includes(item.clientId))}
+                smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
+          {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
         </section>
         {!compact && ownInbox && inboxShown ? (
           <aside className="w-1/3 min-w-[320px] min-h-0 shrink-0 border-l border-border bg-background">{inbox}</aside>) : null}
@@ -200,7 +217,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
 const RETRY_ID_MS = 9 * 60_000;
 const NO_FAILED: readonly FailedSend[] = [];
 
-function FeedMessageBox({ smarty, send }: { smarty: Smarty; send: FeedServices['send'] }): React.ReactNode {
+function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
   const { t } = useI18n();
   // The draft key (runtime and Smarty) is fixed per send: a late answer touches only this key's failed list.
   const key = draftKey(smarty.id);
@@ -211,8 +228,12 @@ function FeedMessageBox({ smarty, send }: { smarty: Smarty; send: FeedServices['
 
   const deliver = (message: FailedSend) => {
     setSending(n => n + 1);
-    send(smarty.id, message.text, message.clientId).then(() => undefined, () => { useFeedStore.getState().addFailedSend(key, message); })
-      .finally(() => setSending(n => n - 1));
+    useFeedStore.getState().addPendingSend(key, { ...message, known: knownOwnerLines(message.text) });
+    send(smarty.id, message.text, message.clientId).then(() => undefined, () => {
+      const store = useFeedStore.getState();
+      store.removePendingSends(key, [message.clientId]);
+      store.addFailedSend(key, message);
+    }).finally(() => setSending(n => n - 1));
   };
   const submit = () => {
     const text = readDraftAt(key);

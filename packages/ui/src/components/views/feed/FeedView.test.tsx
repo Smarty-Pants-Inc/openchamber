@@ -79,7 +79,7 @@ const button = (host: Element, text: string) => Array.from(host.querySelectorAll
 
 beforeEach(async () => {
   localStorage.clear();
-  useFeedStore.setState({ view: 'smarty', selectedId: null, pageOpen: true, smarties: { state: 'loading' }, drafts: {}, failedSends: {} });
+  useFeedStore.setState({ view: 'smarty', selectedId: null, pageOpen: true, smarties: { state: 'loading' }, drafts: {}, failedSends: {}, pendingSends: {} });
   await ensureSmartiesLoaded(async () => paul, true);
   useInboxStore.setState({ available: true, openCount: 1 });
   feedGate = Promise.resolve(); sendResult = async () => undefined; sent.length = 0;
@@ -405,4 +405,54 @@ test('the backfill format: "you" lines are the owner’s (right-aligned, named),
   const own = await mount(<FeedView onClose={() => undefined} services={backfill} />);
   expect(Array.from(own.host.querySelectorAll('[data-feed-entry="owner"] span.font-semibold')).map(e => e.textContent)).toEqual(['You', 'You']);
   await own.unmount();
+});
+
+test('a sent message shows at once as the owner’s line, marked as sending, and stays until the feed’s own block replaces it', async () => {
+  let handlers: Parameters<FeedServices['openStream']>[1] | null = null;
+  const live: Partial<FeedServices> = { ...services, openStream: (_id, h) => { handlers = h; return { close: () => undefined }; },
+    // An earlier identical line is already in the feed: it is not this send's echo.
+    loadFeed: async (_id, query) => query?.after !== undefined ? { blocks: [], offset: 120 }
+      : { blocks: [...paulFeed.blocks, { id: 'old-ok', author: 'you', at: '11:57 PM ET', text: 'ok' }], offset: 120 } };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={live} />);
+  const box = host.querySelector('textarea')!;
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'ok'); });
+  await pressEnter(box); await settle();
+  const pendingLine = () => host.querySelector('[data-feed-pending]');
+  expect(pendingLine()?.textContent).toContain('Sending…');
+  expect(pendingLine()?.textContent).toContain('ok');
+  expect(pendingLine()?.className).toContain('items-end');
+  // Accepted (202): it stays, still marked, while the feed has not echoed it.
+  await settle();
+  expect(pendingLine()).not.toBeNull();
+  // Another person's line with the same text is not the echo.
+  await act(async () => { handlers!.onBlocks({ blocks: [{ id: 'k9', author: 'org', at: '12:00 AM ET', text: 'ok' }], offset: 130 }); });
+  expect(pendingLine()).not.toBeNull();
+  // The gateway's '@@ you' line arrives on the stream: it replaces the pending line.
+  await act(async () => { handlers!.onBlocks({ blocks: [{ id: 'echo', author: 'you', at: '12:01 AM ET', text: 'ok' }], offset: 140 }); }); await settle();
+  expect(pendingLine()).toBeNull();
+  expect(Array.from(host.querySelectorAll('[data-feed-entry="owner"]')).map(e => e.querySelector('p')?.textContent)).toEqual(['Hi', 'ok', 'ok']);
+  await unmount();
+});
+
+test('a failed send leaves the transcript (it waits beside the box with Send again), never as a sending line', async () => {
+  sendResult = async () => { throw new Error('502'); };
+  const { host, unmount } = await mount(view());
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(host.querySelector('textarea')!); await settle();
+  expect(host.querySelector('[data-feed-pending]')).toBeNull();
+  expect(button(host, 'Send again')).toBeDefined();
+  await unmount();
+});
+
+test('the Smarty view lifts the app’s loading splash once it has painted from its feed', async () => {
+  const splash = document.createElement('div'); splash.id = 'initial-loading'; document.body.appendChild(splash);
+  let open: () => void = () => undefined;
+  feedGate = new Promise(resolve => { open = resolve; });
+  const { unmount } = await mount(view());
+  expect(splash.classList.contains('fade-out')).toBe(false);
+  await act(async () => { open(); }); await settle();
+  expect(splash.classList.contains('fade-out')).toBe(true);
+  await act(async () => { await new Promise(r => setTimeout(r, 350)); });
+  expect(document.getElementById('initial-loading')).toBeNull();
+  await unmount();
 });

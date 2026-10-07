@@ -24,6 +24,11 @@ type FeedStore = {
    */
   failedSends: Readonly<Record<string, readonly FailedSend[]>>;
   /**
+   * Sent messages shown at once as the owner's lines, marked as sending, per draft key. Each stays until the feed's own
+   * block for it arrives (the owner's line with the same text that was not in the feed at send time), or until it fails.
+   */
+  pendingSends: Readonly<Record<string, readonly PendingSend[]>>;
+  /**
    * Opens the Smarty view. Closing requests (`false`) are ignored: the app's automatic closes (a session restored on
    * load, a draft opening) must not leave the Smarty view. Only `showClassic` (the bottom button) leaves it.
    */
@@ -34,8 +39,12 @@ type FeedStore = {
   setDraftAt: (key: string, text: string) => void;
   addFailedSend: (key: string, failed: FailedSend) => void;
   removeFailedSend: (key: string, clientId: string) => void;
+  addPendingSend: (key: string, pending: PendingSend) => void;
+  removePendingSends: (key: string, clientIds: readonly string[]) => void;
 };
 export type FailedSend = { text: string; clientId: string; at: number };
+/** `known`: ids of the owner's blocks with this text already in the feed when it was sent (they are not its echo). */
+export type PendingSend = FailedSend & { known: readonly string[] };
 
 const isPageOpen = (view: View, smarties: SmartiesState) => view === 'smarty' && smarties.state !== 'unavailable';
 export const draftKey = (smartyId: string) => `${getRuntimeKey()}\u0000${smartyId}`;
@@ -44,7 +53,7 @@ export const useFeedStore = create<FeedStore>(set => {
   const smarties: SmartiesState = { state: 'loading' };
   const toView = (view: View) => set(state => ({ view, pageOpen: isPageOpen(view, state.smarties) }));
   return {
-    view: 'smarty', smarties, selectedId: null, pageOpen: isPageOpen('smarty', smarties), drafts: {}, failedSends: {},
+    view: 'smarty', smarties, selectedId: null, pageOpen: isPageOpen('smarty', smarties), drafts: {}, failedSends: {}, pendingSends: {},
     setPageOpen: open => { if (open) toView('smarty'); },
     showClassic: () => toView('classic'),
     selectSmarty: id => set(state => ({ view: 'smarty', selectedId: id, pageOpen: isPageOpen('smarty', state.smarties) })),
@@ -57,6 +66,8 @@ export const useFeedStore = create<FeedStore>(set => {
     setDraftAt: (key, text) => set(state => ({ drafts: { ...state.drafts, [key]: text } })),
     addFailedSend: (key, failed) => set(state => ({ failedSends: { ...state.failedSends, [key]: [...(state.failedSends[key] ?? []), failed] } })),
     removeFailedSend: (key, clientId) => set(state => ({ failedSends: { ...state.failedSends, [key]: (state.failedSends[key] ?? []).filter(item => item.clientId !== clientId) } })),
+    addPendingSend: (key, pending) => set(state => ({ pendingSends: { ...state.pendingSends, [key]: [...(state.pendingSends[key] ?? []), pending] } })),
+    removePendingSends: (key, clientIds) => set(state => ({ pendingSends: { ...state.pendingSends, [key]: (state.pendingSends[key] ?? []).filter(item => !clientIds.includes(item.clientId)) } })),
   };
 });
 
