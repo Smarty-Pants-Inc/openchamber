@@ -676,6 +676,7 @@ test('the shared worktree root binds its exact fix commit as a new overlay entry
   assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/git/service.js']);
   for (const entry of added) {
     assert.equal(entry.worktreeRootSha256, entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+    // Later successor ledgers (Node member execution, smarty-code#1356) bind the current output.
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256));
   }
 });

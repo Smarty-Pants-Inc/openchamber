@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
+import { MEMBER_EXECUTION_REFUSED, memberExecutionRefused } from '../security/node-member-execution.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -1709,6 +1710,10 @@ const runWorktreeStartCommand = async (directory, command) => {
   const text = String(command || '').trim();
   if (!text) {
     return { success: true };
+  }
+  // Node mode: a start command (request or project setting) would run as the server account (smarty-code#1356).
+  if (memberExecutionRefused(process.env)) {
+    return { success: false, message: MEMBER_EXECUTION_REFUSED };
   }
 
   if (process.platform === 'win32') {
