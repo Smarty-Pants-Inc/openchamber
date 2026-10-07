@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { useI18n } from '@/lib/i18n';
+import { ClassicViewToggle } from '@/components/views/feed/FeedNav';
 
 type Props = {
   onOpenSettings: () => void;
@@ -30,7 +31,10 @@ export function SidebarFooter({
   }
 
   return (
-    <div className="flex shrink-0 items-center justify-start gap-1 px-2.5 py-2">
+    <div className="shrink-0 px-2.5 pt-2">
+    {/* smarty-code#1407: the one button to the old Smarty Code view and back, at the bottom of the nav. */}
+    <ClassicViewToggle />
+    <div className="flex items-center justify-start gap-1 py-2">
       {showRuntimeButtons ? (
         <>
           <Tooltip>
@@ -70,6 +74,7 @@ export function SidebarFooter({
           {t('sessions.sidebar.footer.actions.update')}
         </Button>
       ) : null}
+    </div>
     </div>
   );
 }
