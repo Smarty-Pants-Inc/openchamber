@@ -151,19 +151,23 @@ runs last, after either historical mapping.
 
 `selected-owner-repair-overlay.json` records the frozen successor of base
 `11796181f2f7341730e3a467b347bdd0470b0642`. Its `sourceTreePath` is `packages/ui`,
-and `sourceTree` is native Git subtree `b75c9daee4571c94d7aedfc6233737889187611f`.
+and `sourceTree` is native Git subtree `4111c0d420eaba8f05de32be3bf57d023ed46242`.
 This is a UI tree, not a commit, full repository tree or qualified release pin.
 Branding, scripts and this README are outside that subtree, so UI and provenance
 can land in one combined patch without a future commit or self-reference.
 
-The round-4/session-confirmation parent-exported scope contains 21 paths,
-14 modified and 7 added. It includes bounded quiet-history recovery, pending
-submission transfer, collision-aware recovery buckets and a session confirmation
-fence. Explicit Send waits while any outcome for the same runtime and session is
-unresolved, even after owner moves, input edits or restored-part cleanup. This
-also blocks unrelated text and same-ID retries until every outcome is known.
-Stop and other sessions remain available. The existing dispatch callback carries
-the check through SDK preparation, and all twelve locales explain the wait.
+The round-4, session-confirmation and smarty-code#1427 parent-exported scope
+contains 29 paths, 18 modified and 11 added. It includes bounded quiet-history
+recovery, pending submission transfer, collision-aware recovery buckets and a
+session confirmation fence. Explicit Send waits while any outcome for the same
+runtime and session is unresolved, even after owner moves, input edits,
+restored-part cleanup or composer remounts. This also blocks unrelated text and
+same-ID retries until every outcome is known. Stop and other sessions remain
+available, and all twelve locales explain the wait. The fence lives in
+`sync/session-send-state.ts`, not the composer. The store route takes it before
+any await and the SDK rechecks it before dispatch. Ordinary ownership comes
+from every bootstrap source, including a global-only row before directory
+bootstrap, and an ordinary prompt carries an accepted history view or is refused.
 This inventory does not qualify native admission of requests already dispatched
 before a collision or replace real original-Pi browser evidence. Each row keeps native SHA1 blob IDs, file modes,
 separate byte SHA256 hashes and its repair disposition. Modified rows name their actual base bytes even outside
@@ -173,7 +177,7 @@ never historical stock or branding parity. The old 19-file table and complete
 and raw byte digest is `25d8427a`; the older 48-entry unwind stays unchanged.
 
 The repair test fixes metadata and all rows from independent parent-native
-exports, then hashes all 21 current files. It needs no old or unreachable Git
+exports, then hashes all 29 current files. It needs no old or unreachable Git
 objects. Run it explicitly with
 `node --test scripts/branding-selected-owner-repair.test.mjs`.
 The isolated root runner discovers it, but `test:brand` does not list it.
