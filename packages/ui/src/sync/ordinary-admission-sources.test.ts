@@ -5,6 +5,8 @@ import { routeMessage } from './session-ui-store';
 import { sessionSendState } from './session-send-state';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useConfigStore } from '@/stores/useConfigStore';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { opencodeClient } from '@/lib/opencode/client';
 
 // smarty-code#1427 round 2, from the independent audit of 71aa1b3e. Every ordinary prompt that leaves the page
 // holds a session reservation and carries an accepted history view, whichever source first said "ordinary".
@@ -109,3 +111,89 @@ test('genuine stock sessions keep concurrent prompts with no reservation', async
     expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
   } finally { run.held.resolve(new Response(null, { status: 204 })); await run.first; f.dispose(); }
 });
+
+// smarty-code#1427 round 3, from the independent audit of 85c63ee1.
+const retainedRow = { ...session, nativeRuntime: 'ordinary' as const,
+  ordinary: { generation: null, sequence: 0, model: null, thinkingLevel: null }, smartyRetainedUnavailable: true };
+const endedRow = { ...ordinaryRow, herdrState: 'ended', herdrPaneLive: false };
+const fileInput = { type: 'file' as const, mime: 'text/plain', filename: 'probe.txt', url: 'data:text/plain;base64,WA==' };
+
+// Holds the SDK's file preparation until the test releases it.
+function holdFilePreparation() {
+  const started = deferred<void>(), release = deferred<void>();
+  Reflect.set(opencodeClient, 'toNormalizedFilePartInput', async () => {
+    started.resolve(); await release.promise;
+    return { type: 'file', mime: fileInput.mime, filename: fileInput.filename, url: fileInput.url };
+  });
+  return { started, release, restore: () => { release.resolve(); Reflect.deleteProperty(opencodeClient, 'toNormalizedFilePartInput'); } };
+}
+const posted = (f: Fixture, suffix: string) => f.requests.filter(request => request.method === 'POST' && new URL(request.url).pathname.endsWith(suffix));
+
+// R4C-1427-DIRECTORY-FALLBACK-KEY-MISMATCH-01 (in-flight directory change)
+test('an omitted directory is captured once: a later client directory change cannot misdirect the final check', async () => {
+  const f = nativeDraftFixture(), hold = holdFilePreparation();
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [] });
+  useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+  const route = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, content: 'Omitted directory',
+    providerID: 'p', modelID: 'm', files: [fileInput] }).then(() => 'sent', () => 'refused');
+  try {
+    await hold.started.promise;
+    await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' }); // A turns ordinary.
+    opencodeClient.setDirectory(B);
+    hold.release.resolve();
+    expect(await route).toBe('refused');
+    expect(f.prompts()).toHaveLength(0);
+    expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+  } finally { hold.restore(); await route; opencodeClient.setDirectory(A); f.dispose(); }
+});
+
+// R4C-1427-ADMISSION-DISPATCH-RACE-01 (slash commands)
+test('a stock-classified command refuses before its POST when the session turns ordinary during file preparation', async () => {
+  const f = nativeDraftFixture(), hold = holdFilePreparation();
+  // SAFETY: the child store accepts the fixture's minimal command record; only its name is read here.
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...session, directory: A }], command: [{ name: 'probe' }] as never });
+  useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+  const route = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content: '/probe',
+    providerID: 'p', modelID: 'm', files: [fileInput] }).then(() => 'sent', () => 'refused');
+  try {
+    await hold.started.promise;
+    f.children.getChild(A)!.setState({ session: [{ ...ordinaryRow, directory: A }] });
+    hold.release.resolve();
+    expect(await route).toBe('refused');
+    expect(posted(f, '/command')).toHaveLength(0);
+  } finally { hold.restore(); await route; f.dispose(); }
+});
+
+// R4C-1427-GLOBAL-ROW-FRESHNESS-01
+test('a live stock directory row outranks a stale global ordinary row', async () => {
+  const f = nativeDraftFixture();
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...session, directory: A }] });
+  useGlobalSessionsStore.getState().applySnapshot([ordinaryRow], []);
+  f.handlers.history = async () => Response.json([]);
+  try {
+    const outcome = await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A,
+      content: 'Stock session', providerID: 'p', modelID: 'm' }).then(() => 'sent', () => 'refused');
+    expect(outcome).toBe('sent');
+    expect(f.prompts()).toHaveLength(1);
+    expect(view(f.prompts()[0])).toBeNull();
+    expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+  } finally { f.dispose(); }
+});
+
+// R4C-1427-UNADMITTED-ORDINARY-AVAILABILITY-BYPASS-01
+for (const [label, row] of [['retained-unavailable', retainedRow], ['ended', endedRow]] as const) {
+  test(`a global-only ${label} owner refuses before POST even without catalog admission`, async () => {
+    const f = nativeDraftFixture();
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [] });
+    useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+    useGlobalSessionsStore.getState().applySnapshot([row], []);
+    await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    try {
+      const outcome = await routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A,
+        content: 'Must not send', providerID: 'p', modelID: 'm' }).then(() => 'sent', () => 'refused');
+      expect(outcome).toBe('refused');
+      expect(f.prompts()).toHaveLength(0);
+      expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+    } finally { f.dispose(); }
+  });
+}

@@ -1371,6 +1371,8 @@ class OpencodeService {
     files?: Array<FileInputLite>;
     messageId?: string;
     directory?: string | null;
+    /** The caller's final admission check, after file preparation and immediately before the command POST. */
+    beforeDispatch?: () => void;
   }): Promise<string> {
     this.assertRuntimeUnchanged(params.runtimeKey);
     const scope = captureRuntimeRequestScope();
@@ -1387,6 +1389,8 @@ class OpencodeService {
     }
 
     this.assertRuntimeUnchanged(params.runtimeKey);
+    assertRuntimeRequestScope(scope);
+    params.beforeDispatch?.();
     assertRuntimeRequestScope(scope);
 
     const response = await client.session.command({

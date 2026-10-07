@@ -24,6 +24,7 @@ import { sessionSendState } from './session-send-state'
 import { isAmbiguousSendFailure } from './send-failure-classification'
 import { isClientIdConflict } from '@/lib/sendRecovery'
 import { formatMessage, useI18nStore } from '@/lib/i18n'
+import { isGloballyUnavailable } from '@/lib/openOrdinaryState'
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view'
 import { useConfigStore } from "@/stores/useConfigStore"
@@ -188,9 +189,11 @@ export async function routeMessage(params: RouteMessageParams): Promise<'command
   // Stock sends retain their established concurrency. Ordinary ownership comes from every authoritative
   // observation, including a global row or accepted loader view before directory bootstrap (smarty-code#1427).
   // A held ordinary reservation remains authoritative even if a replacement provider has not indexed its row yet.
-  // Classify against the directory the SDK will send to: an omitted directory falls back to the client's.
-  const sendDirectory = () => normalizePath(params.directory) ?? normalizePath(opencodeClient.getDirectory()) ?? undefined
-  const ordinaryOwner = () => isOrdinarySendTarget(runtimeKey, params.sessionId, sendDirectory())
+  // Capture the directory this send goes to once: an omitted directory takes the client's now, and the same value
+  // is passed down so admission and the SDK never read different directories (smarty-code#1427).
+  const directory = normalizePath(params.directory) ?? normalizePath(opencodeClient.getDirectory()) ?? undefined
+  params = { ...params, directory }
+  const ordinaryOwner = () => isOrdinarySendTarget(runtimeKey, params.sessionId, directory)
   if (!ordinaryOwner() && !sessionSendState.isPending(runtimeKey, params.sessionId)) {
     // A stock send stays stock only while nothing says otherwise. If an ordinary observation or another Send's
     // reservation arrives during preparation, refuse before any POST rather than send without admission.
@@ -227,6 +230,10 @@ async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch
   const requestDirectory = params.directory ?? undefined
   const selectedOrdinary = () => readRouteOrdinary(params)
   const ordinary = selectedOrdinary()
+  // An owner admitted from the global listing alone still honours that listing's unavailable or ended mark.
+  if (ordinaryOwner && !ordinary && isGloballyUnavailable(useGlobalSessionsStore.getState().entityById.get(params.sessionId))) {
+    throw new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
+  }
   if (ordinary) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
     const unavailable = () => new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
@@ -304,6 +311,8 @@ async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch
             files: params.files,
             messageId: messageID,
             directory: requestDirectory,
+            // The same final admission check as a prompt: no command POST after the session turns ordinary.
+            beforeDispatch: () => { params.beforeDispatch?.(); onPromptDispatch() },
           }).then(() => {}),
         })
         return 'command'

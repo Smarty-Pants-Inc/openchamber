@@ -96,15 +96,17 @@ export function selectedOwnerOrdinaryState(sessionID: string, directory: string 
  * observation counts: selected-owner state, a directory or other sync row, the global listing, or a loader view
  * accepted as ordinary history. The directory bootstrap can lag the global listing and loader, so a missing
  * directory row is not evidence of a stock session, and neither is a stock row in one directory while another
- * directory's row says ordinary. Only stock sessions, with no such observation, keep their concurrent prompts.
+ * directory's row says ordinary. The global listing speaks only while no directory has a row for the session:
+ * a live directory row outranks a possibly stale global row. Only stock sessions keep their concurrent prompts.
  * `directory` must be the directory the request is sent to. This classifies admission only; it never chooses a
  * model or route.
  */
 export function isOrdinarySendTarget(runtimeKey: string, sessionID: string, directory: string | undefined): boolean {
   if (selectedOwnerOrdinaryState(sessionID, directory)) return true;
   const ordinary = (row: Session | undefined) => row?.id === sessionID && readOrdinaryModel(row) !== undefined;
-  if (getSyncSessionRows(sessionID).some(ordinary)
-    || ordinary(useGlobalSessionsStore.getState().entityById.get(sessionID))) return true;
+  const rows = getSyncSessionRows(sessionID);
+  if (rows.some(ordinary)) return true;
+  if (rows.length === 0 && ordinary(useGlobalSessionsStore.getState().entityById.get(sessionID))) return true;
   const loader = getImperativeSessionMessageLoader(), target = { sessionID, directory: directory ?? '' };
   return Boolean(loader && (loader.isOrdinary(target, runtimeKey) || loader.getSendableOrdinaryView(target, runtimeKey)));
 }
