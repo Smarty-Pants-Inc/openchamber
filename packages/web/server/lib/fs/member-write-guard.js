@@ -31,9 +31,12 @@ export const inGitDirectory = async (target, { fsPromises, path, git = 'git' }) 
   // account still counts: a user's safe.bareRepository or safe.directory must not hide it from this check.
   const args = ['-c', 'safe.bareRepository=all', '-c', 'safe.directory=*', 'rev-parse', '--absolute-git-dir'];
   const gitDir = await new Promise((resolve) => execFile(git, args,
-    { cwd: directory, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout).trim())));
-  if (!gitDir) return false;
-  const real = await fsPromises.realpath(gitDir).catch(() => gitDir);
+    { cwd: directory, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout))));
+  if (gitDir === null) return false;
+  // Only the line delimiter is removed: a Git directory name may itself end in whitespace. Unparseable output
+  // counts as Git metadata (fail closed).
+  if (!gitDir.endsWith('\n') || !path.isAbsolute(gitDir.slice(0, -1))) return true;
+  const real = await fsPromises.realpath(gitDir.slice(0, -1)).catch(() => gitDir.slice(0, -1));
   return isWithin(target, real, path);
 };
 

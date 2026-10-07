@@ -975,10 +975,23 @@ export const registerFsRoutes = (app, dependencies) => {
           throw error;
         }
       }
+      // Node mode: Git clones into a destination created here and pinned by descriptor, never into a child path a
+      // concurrent checkout could have turned into a link after the existence check.
+      let pinnedDestination = null;
+      if (gitMetadataWritesRefused) {
+        pinnedDestination = await fsPromises.mkdir(parent.at(directoryName))
+          .then(() => openDirectory(resolvedDestination, { fsPromises, path }))
+          .catch(async (error) => { await parent.close(); throw error; });
+        if (!pinnedDestination) {
+          await parent.close();
+          return pathChanged(res);
+        }
+        gitArgs[gitArgs.length - 1] = '.';
+      }
 
       const output = await new Promise((resolve, reject) => {
         const child = spawn(resolveGitBinaryForSpawn(), gitArgs, {
-          cwd: parent.path,
+          cwd: (pinnedDestination ?? parent).path,
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: gitEnvForCaller({
@@ -1002,7 +1015,11 @@ export const registerFsRoutes = (app, dependencies) => {
           const message = combined || `git clone failed with exit code ${code}`;
           reject(new Error(message));
         });
-      }).finally(() => parent.close());
+      }).catch(async (error) => {
+        // Only the empty directory created above; rmdir neither follows a link nor removes content.
+        if (pinnedDestination) await fsPromises.rmdir(parent.at(directoryName)).catch(() => {});
+        throw error;
+      }).finally(() => Promise.all([parent.close(), pinnedDestination?.close()]));
 
       if (identity?.userName && identity?.userEmail) {
         try {

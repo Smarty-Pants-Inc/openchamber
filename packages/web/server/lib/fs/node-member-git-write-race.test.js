@@ -20,7 +20,9 @@ const onDisk = (env, hook = () => {}) => {
   const routes = new Map();
   const spawn = vi.fn((_command, args, options) => {
     hook('spawn', [args, options]);
-    mkdirSync(path.join(options.cwd, args.at(-1))); // What `git clone` creates.
+    // What `git clone` does: create the destination (an existing empty directory is accepted) and write into it.
+    mkdirSync(path.join(options.cwd, args.at(-1)), { recursive: true });
+    writeFileSync(path.join(options.cwd, args.at(-1), 'HEAD'), 'ref: refs/heads/main\n');
     const child = new EventEmitter();
     child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
     queueMicrotask(() => child.emit('close', 0, null));
@@ -77,6 +79,24 @@ for (const [route, trigger, body, req] of races) {
   });
 }
 
+it('Node member clone: a destination swapped to a Git metadata link after the existence check is not cloned into', async () => {
+  let swapped = false;
+  const { root, call, cleanup } = onDisk(NODE, (name) => {
+    if (name !== 'spawn' || swapped) return;
+    swapped = true;
+    const destination = path.join(root, 'repo', 'src', 'app');
+    if (existsSync(destination)) renameSync(destination, `${destination}-moved`);
+    symlinkSync(path.join(root, 'repo', '.git', 'empty'), destination);
+  });
+  try {
+    mkdirSync(path.join(root, 'repo', 'src'), { recursive: true });
+    mkdirSync(path.join(root, 'repo', '.git', 'empty'), { recursive: true });
+    await call('clone', { remoteUrl: 'https://example.test/app.git', destinationPath: 'repo/src/' }).catch(() => null);
+    expect(swapped).toBe(true);
+    expect(readdirSync(path.join(root, 'repo', '.git', 'empty'))).toEqual([]);
+  } finally { cleanup(); }
+});
+
 /** P2 (alternate Git directory): a `gitdir:` file or a bare repository puts Git metadata at a path with no `.git`
  *  component. The guard resolves the Git directory as Git does. */
 const withRepos = (env) => {
@@ -84,12 +104,14 @@ const withRepos = (env) => {
   const git = (...args) => execFileSync('git', args, { cwd: disk.root, stdio: 'pipe' });
   git('init', '-q', '--separate-git-dir', path.join(disk.root, 'repo', 'meta'), path.join(disk.root, 'repo'));
   git('init', '-q', '--bare', path.join(disk.root, 'bare.git'));
+  git('init', '-q', '--bare', path.join(disk.root, 'spaced ')); // A Git directory whose name ends in whitespace.
   return disk;
 };
 const alternates = [
   ['write', { path: 'repo/meta/hooks/pre-commit', content: '#!/bin/sh\n' }, 'repo/meta/hooks/pre-commit'],
   ['write', { path: 'repo/meta/config', content: '[core]\n\tfsmonitor = ./x\n' }, null],
   ['write', { path: 'bare.git/hooks/pre-commit', content: '#!/bin/sh\n' }, 'bare.git/hooks/pre-commit'],
+  ['write', { path: 'spaced /hooks/pre-commit', content: '#!/bin/sh\n' }, 'spaced /hooks/pre-commit'],
   ['upload', null, 'repo/meta/hooks/post-checkout'],
   ['mkdir', { path: 'repo/meta/hooks/new' }, 'repo/meta/hooks/new'],
   ['delete', { path: 'repo/meta/HEAD' }, null],

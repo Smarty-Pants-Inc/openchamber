@@ -66,7 +66,7 @@ const cloneOnDisk = async (env, layout) => {
     layout?.(root);
     const routes = new Map();
     const spawn = vi.fn((_command, _args, options) => {
-      options.realCwd = realpathSync(options.cwd); // Node mode runs Git in the pinned directory (/proc/self/fd/N).
+      options.realCwd = realpathSync(options.cwd); // Node mode runs Git in the pinned destination (/proc/self/fd/N).
       const child = new EventEmitter();
       child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
       queueMicrotask(() => child.emit('close', 0, null));
@@ -102,15 +102,15 @@ for (const [name, layout, body] of cloneCases) {
   });
 }
 
-it('Node member clone into an ordinary directory runs Git in the canonical parent', async () => {
+it('Node member clone into an ordinary directory runs Git in the pinned canonical destination', async () => {
   const { root, spawn, call: clone } = await cloneOnDisk({ PATH: '/usr/bin', SMARTY_CODE_NODE_ID: 'fixture-node' },
     r => { mkdirSync(path.join(r, 'work')); symlinkSync(path.join(r, 'work'), path.join(r, 'link')); });
   try {
     const res = await clone({ remoteUrl: 'https://example.test/app.git', destinationPath: 'link/' });
     expect(res.statusCode).toBe(200);
     const [, args, options] = spawn.mock.calls[0];
-    expect(args.slice(-1)).toEqual(['app']);
-    expect(options.realCwd).toBe(await fsPromises.realpath(path.join(root, 'work')));
+    expect(args.slice(-1)).toEqual(['.']);
+    expect(options.realCwd).toBe(path.join(await fsPromises.realpath(path.join(root, 'work')), 'app'));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
