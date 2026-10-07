@@ -31,6 +31,20 @@ export const inboxItemState = (item: InboxItem, now = Date.now()): InboxState =>
 export const sortInboxItems = (items: InboxItem[]) => [...items].sort((a, b) =>
   Number(b.priority === 'p0') - Number(a.priority === 'p0') || b.created.localeCompare(a.created));
 
+/**
+ * One item per id (smarty-code#1407: a list that carried an item twice showed two cards with one id). A repeated id is an
+ * upsert: the newest version (by `updated`) takes the place of the first. Every list (each tab and the badge's all-state
+ * read) passes through here, so the view, the badge and Steps all hold one item per id.
+ */
+const uniqueById = (items: InboxItem[]): InboxItem[] => {
+  const byId = new Map<string, InboxItem>();
+  for (const item of items) {
+    const known = byId.get(item.id);
+    if (!known || Date.parse(item.updated) >= Date.parse(known.updated)) byId.set(item.id, item);
+  }
+  return [...byId.values()];
+};
+
 /** Only http(s) links become anchors; anything else is shown as text. */
 export const safeLink = (url: string) => { try { return ['https:', 'http:'].includes(new URL(url).protocol) ? url : null; } catch { return null; } };
 
@@ -61,7 +75,7 @@ export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = ru
       invalidStepGroups.push(JSON.stringify([person, claim.data.source.split(':')[2] ?? '']));
     }
   }
-  const result = { available: true, items: sortInboxItems(items) };
+  const result = { available: true, items: sortInboxItems(uniqueById(items)) };
   return state === 'all' ? { ...result, capabilities: body.capabilities ?? { guardedReopen: false }, invalidStepGroups } : result;
 }
 

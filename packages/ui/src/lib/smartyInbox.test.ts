@@ -6,6 +6,15 @@ const item = (over: Partial<InboxItem>): InboxItem => ({ id: 'a', to: 'paul', ti
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('smarty-code#701 inbox data', () => {
+  test('a list that carries an id twice (a replayed or re-sent item) yields one item per id: the newest version, at its first place', async () => {
+    const older = item({ id: 'dup', title: 'Old title', updated: '2026-10-07T09:00:00.000Z' });
+    const newer = item({ id: 'dup', title: 'New title', updated: '2026-10-07T10:00:00.000Z' });
+    const other = item({ id: 'other', created: '2026-09-27T00:00:00.000Z' });
+    const result = await loadInbox('open', async () => json({ person: 'paul', items: [older, other, newer] }));
+    expect(result.items.map(i => [i.id, i.title])).toEqual([['dup', 'New title'], ['other', 'T']]);
+    const all = await loadInbox('all', async () => json({ person: 'paul', items: [newer, older, other] }));
+    expect(all.items.map(i => [i.id, i.title])).toEqual([['dup', 'New title'], ['other', 'T']]);
+  });
   test('P0 items first, then the newest', () => {
     const items = [item({ id: 'old' }), item({ id: 'p0', priority: 'p0', created: '2026-09-27T00:00:00.000Z' }),
       item({ id: 'new', created: '2026-09-28T12:00:00.000Z' })];
