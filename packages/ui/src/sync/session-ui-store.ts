@@ -14,7 +14,7 @@
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
-import { isOrdinarySendTarget, isSelectedOwnerCurrent, selectedOwnerOrdinaryState } from "./selected-session-owner"
+import { isOrdinarySendTarget, isSelectedOwnerCurrent, readSelectedSessionOwner, selectedOwnerOrdinaryState } from "./selected-session-owner"
 import type { Session, Part, TextPart } from "@opencode-ai/sdk/v2/client"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
@@ -230,9 +230,18 @@ async function dispatchRouteMessage(params: RouteMessageParams, onPromptDispatch
   const requestDirectory = params.directory ?? undefined
   const selectedOrdinary = () => readRouteOrdinary(params)
   const ordinary = selectedOrdinary()
-  // An owner admitted from the global listing alone still honours that listing's unavailable or ended mark.
-  if (ordinaryOwner && !ordinary && isGloballyUnavailable(useGlobalSessionsStore.getState().entityById.get(params.sessionId))) {
-    throw new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
+  // The global listing's unavailable or ended mark overrides an older directory row (openOrdinaryState). Only a
+  // current verified live owner outranks it. Checked now and again in the final dispatch check, after preparation.
+  if (ordinaryOwner) {
+    const assertAvailable = () => {
+      if (readSelectedSessionOwner(params.sessionId, requestDirectory)?.status !== 'live'
+        && isGloballyUnavailable(useGlobalSessionsStore.getState().entityById.get(params.sessionId))) {
+        throw new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
+      }
+    }
+    assertAvailable()
+    const beforeDispatch = params.beforeDispatch
+    params = { ...params, beforeDispatch: () => { beforeDispatch?.(); assertAvailable() } }
   }
   if (ordinary) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')

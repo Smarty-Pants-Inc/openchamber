@@ -197,3 +197,57 @@ for (const [label, row] of [['retained-unavailable', retainedRow], ['ended', end
     } finally { f.dispose(); }
   });
 }
+
+// smarty-code#1427 round 4, from the independent audit of f09188d8: the global unavailable or ended mark overrides a
+// directory row, and it is checked again after preparation.
+for (const [label, globalRow] of [['retained-unavailable', retainedRow], ['ended', endedRow]] as const) {
+  test(`a directory ordinary row does not bypass a global ${label} mark without catalog admission`, async () => {
+    const f = nativeDraftFixture(), hold = holdFilePreparation();
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, directory: A }] });
+    useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+    useGlobalSessionsStore.getState().applySnapshot([globalRow], []);
+    await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    const route = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content: 'Must not send',
+      providerID: 'p', modelID: 'm', files: [fileInput] }).then(() => 'sent', () => 'refused');
+    try {
+      hold.release.resolve();
+      expect(await route).toBe('refused');
+      expect(f.prompts()).toHaveLength(0);
+      expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+    } finally { hold.restore(); await route; f.dispose(); }
+  });
+}
+
+test('an owner whose global row turns ended during file preparation refuses before POST', async () => {
+  const f = nativeDraftFixture(), hold = holdFilePreparation();
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [] });
+  useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+  useGlobalSessionsStore.getState().applySnapshot([ordinaryRow], []);
+  await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+  const route = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content: 'Must not send',
+    providerID: 'p', modelID: 'm', files: [fileInput] }).then(() => 'sent', () => 'refused');
+  try {
+    await hold.started.promise;
+    useGlobalSessionsStore.getState().applySnapshot([endedRow], []);
+    hold.release.resolve();
+    expect(await route).toBe('refused');
+    expect(f.prompts()).toHaveLength(0);
+    expect(sessionSendState.isPending(f.runtimeA, session.id)).toBe(false);
+  } finally { hold.restore(); await route; f.dispose(); }
+});
+
+test('a live ordinary owner with no unavailable mark still sends after file preparation', async () => {
+  const f = nativeDraftFixture(), hold = holdFilePreparation();
+  f.children.ensureChild(A, { bootstrap: false }).setState({ session: [{ ...ordinaryRow, directory: A }] });
+  useProjectsStore.setState({ managedCatalogAdmitted: false, managedCatalogStatus: 'stock' });
+  useGlobalSessionsStore.getState().applySnapshot([ordinaryRow], []);
+  await f.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+  const route = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory: A, content: 'Sends',
+    providerID: 'p', modelID: 'm', files: [fileInput] }).then(() => 'sent', () => 'refused');
+  try {
+    hold.release.resolve();
+    expect(await route).toBe('sent');
+    expect(f.prompts()).toHaveLength(1);
+    expect(view(f.prompts()[0])).not.toBeNull();
+  } finally { hold.restore(); await route; f.dispose(); }
+});
