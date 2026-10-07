@@ -30,15 +30,15 @@
       "behaviorSha256": "1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f",
       "humanAuthUiProofSource": "0d0f988aa98c345bf2bfc79d0c9b4e753347d744",
       "humanAuthUiProofSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
-      "combinedSha256": "09f18219e82207cd297ae950c18f4b9293cbb475b0082ab26083e240f36b15e3",
+      "combinedSha256": "7b358cf46885aa7d8987cf15b73cfa3c7262b45b61cf9e02c455fea90faabb74",
       "preForgeRunnerCombinedSha256": "14526c052328cedc9a6e68c3b96c158a2c5f8f4dc12597396ba7891e0b0d69eb",
       "forgeRunnerBaseSha256": "b1a9b7c0c4743c1af912dd1ca505b4c4e9c73bcc1ef41e985512f4a436c4c71a",
       "forgeRunnerSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
       "behaviorSource": "94dd8952fb23d3e2aac8a2533cccef5dde443960",
       "reason": "Full-PR Knip/Oxlint reporting with independent exact-head disposition; reuse unchanged-head checks on Ready, retaining opened/synchronize/reopened and genuine speculative checks. Jobs, runner and protected queue unchanged.",
       "preArtifactRetentionCombinedSha256": "674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297",
-      "artifactRetentionSha256": "09f18219e82207cd297ae950c18f4b9293cbb475b0082ab26083e240f36b15e3",
-      "artifactRetentionNote": "smarty-dev#1246: oc-auth-ui UI proof retention-days 14 -> 7 (Actions storage over the included 50 GB); no other byte changed."
+      "artifactRetentionSha256": "7b358cf46885aa7d8987cf15b73cfa3c7262b45b61cf9e02c455fea90faabb74",
+      "artifactRetentionNote": "smarty-dev#1246: oc-auth-ui per-run UI proof and fixture build retention-days 14 -> 3 (Actions storage over the included 50 GB; no workflow downloads the artifact); no other byte changed."
     },
     {
       "path": "packages/ui/src/sync/session-actions.test.ts",

@@ -219,7 +219,7 @@ test('smarty-dev#1246 artifact retention binds exactly the oc-review successor',
     ['.github/workflows/oc-review.yml']);
   const entry = overlays.get('.github/workflows/oc-review.yml');
   assert.equal(entry.preArtifactRetentionCombinedSha256, '674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297');
-  assert.equal(entry.artifactRetentionSha256, '09f18219e82207cd297ae950c18f4b9293cbb475b0082ab26083e240f36b15e3');
+  assert.equal(entry.artifactRetentionSha256, '7b358cf46885aa7d8987cf15b73cfa3c7262b45b61cf9e02c455fea90faabb74');
   assert.equal(entry.combinedSha256, entry.artifactRetentionSha256);
   assert.equal(sha256(read(entry.path)), entry.artifactRetentionSha256);
 });
