@@ -11,7 +11,7 @@ import { createHumanConnectionLifetime } from './human-connection.js';
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
   env = process.env }) {
-  const admits = createHumanAudience(allowedDomains);
+  const admits = createHumanAudience(allowedDomains, { allowedEmailsFile: env.SMARTY_HUMAN_AUTH_ALLOWED_EMAILS_FILE });
   const members = createHumanMemberBinding(env);
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
@@ -100,7 +100,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       return session;
     } catch { return null; } // Lookup failure is a refusal, never an admitted or guessed member.
   };
-  connections = createHumanConnectionLifetime({ resolve, members, adapter });
+  connections = createHumanConnectionLifetime({ resolve, members, adapter, admits });
   const actor = (session, { forwarded = false } = {}) => {
     const identity = {
       version: 1, issuer: baseURL, subject: session.user.id,

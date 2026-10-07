@@ -117,6 +117,18 @@ grant access. Keep the existing Cloudflare edge policy. Stable identity uses the
 opaque library user ID scoped by issuer, not a mutable email/name. Account linking,
 password authentication and email changes are disabled in human mode.
 
+Optional members list (smarty-code#1391): `SMARTY_HUMAN_AUTH_ALLOWED_EMAILS_FILE`
+names an absolute path to `{"emails": ["person@domain", ...]}`. When set, a
+verified email must be in an allowed domain **and** listed (case-insensitive exact
+match); a relative or empty path fails startup. The same `admits` check runs at
+sign-in, session creation, every `resolve`, `authorizeUiSession`, and the
+connection sweep, so removing a person refuses their next request and closes their
+open streams within about a second, with no restart. The file must be a regular
+0600 file owned by the service user (no symlink) in a directory not writable by
+others; it is re-read when its inode, size, mtime or ctime changes. A missing,
+unsafe or invalid file admits nobody, logged once per problem without list
+contents. Unset keeps the domain-only rule.
+
 The proxy strips forged actor headers and human-auth cookies and injects only the
 resolved server actor for the private Code gateway. Other backend authorization
 retains its existing meaning; never accept a device bearer as a human identity.

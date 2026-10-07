@@ -35,7 +35,7 @@ function googleFixture(human) {
   const state = { claims: null };
   const enc = value => Buffer.from(JSON.stringify(value)).toString('base64url');
   vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
-    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    const url = new URL(input instanceof Request ? input.url : input);
     if (url.href === 'https://www.googleapis.com/oauth2/v3/certs') return Response.json({ keys: [jwk] });
     assert.equal(url.href, 'https://oauth2.googleapis.com/token', 'unexpected outbound fixture request');
     const now = Math.floor(Date.now() / 1000);

@@ -3,7 +3,7 @@ const sameMember = (left, right) => left === null && right === null || Boolean(l
   && left.smartyId === right.smartyId && left.googleSubject === right.googleSubject);
 
 /** Owns admitted HTTP responses and raw upgrade sockets, never native session lifetime. */
-export function createHumanConnectionLifetime({ resolve, members, adapter }) {
+export function createHumanConnectionLifetime({ resolve, members, adapter, admits }) {
   const sessions = new Map();
   let watcher = null, sweeping = false, disposed = false;
   const stopWatcher = () => { clearInterval(watcher); watcher = null; };
@@ -18,10 +18,12 @@ export function createHumanConnectionLifetime({ resolve, members, adapter }) {
       const currentMembers = new Map();
       for (const entries of [...sessions.values()]) {
         for (const entry of [...entries]) {
-          if (!currentMembers.has(entry.userId)) {
+          if (members.required && !currentMembers.has(entry.userId)) {
             currentMembers.set(entry.userId, members.lookup(adapter, entry.userId).catch(() => null));
           }
-          if (!sameMember(entry.member, await currentMembers.get(entry.userId))) entry.close();
+          // smarty-code#1391: a person removed from the members list loses open streams too, not only new requests.
+          if (admits?.revocable && !admits(entry.user)) { entry.close(); continue; }
+          if (members.required && !sameMember(entry.member, await currentMembers.get(entry.userId))) entry.close();
         }
       }
     } finally { sweeping = false; }
@@ -53,7 +55,7 @@ export function createHumanConnectionLifetime({ resolve, members, adapter }) {
       }
       return current;
     };
-    const entry = { member, userId, close };
+    const entry = { member, userId, user: { email: session.user.email, emailVerified: session.user.emailVerified }, close };
     let admitted = false;
     try {
       entries.add(entry);
@@ -61,7 +63,7 @@ export function createHumanConnectionLifetime({ resolve, members, adapter }) {
       const remaining = new Date(session.session.expiresAt).getTime() - Date.now();
       if (remaining <= 0) { closeSession(id); return null; }
       timer = setTimeout(close, Math.min(remaining, 2_147_483_647)); timer.unref?.();
-      if (members.required && !watcher) { watcher = setInterval(() => { void sweep(); }, 1000); watcher.unref?.(); }
+      if ((members.required || admits?.revocable) && !watcher) { watcher = setInterval(() => { void sweep(); }, 1000); watcher.unref?.(); }
       // Register before rechecking: deletion or a membership change cannot leave an untracked stream.
       const current = await recheck();
       if (!current) return null;

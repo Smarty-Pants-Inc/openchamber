@@ -20,7 +20,7 @@ export async function createConfiguredHumanAuth(env) {
   const path = env.OPENCHAMBER_HUMAN_AUTH_DB;
   if (!isAbsolute(path)) throw new Error('Human authentication database path must be absolute');
   const allowedDomains = env.SMARTY_HUMAN_AUTH_ALLOWED_DOMAINS.split(',').map(value => value.trim());
-  createHumanAudience(allowedDomains);
+  createHumanAudience(allowedDomains, { allowedEmailsFile: env.SMARTY_HUMAN_AUTH_ALLOWED_EMAILS_FILE, log: () => {} });
   const parent = dirname(path);
   await mkdir(parent, { recursive: true, mode: 0o700 });
   const directory = await lstat(parent);
