@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "d4c1c252541796f96a6bb1e30b01bd15847c876b",
+  "sourceTree": "51452d750884ab6e6005a6ef31366bf6d18ab93c",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -209,11 +209,11 @@
       "status": "M",
       "path": "packages/ui/src/components/chat/ChatInput.tsx",
       "predecessorBlob": "45915224a1e1faddf0ebf9941cf1424244125895",
-      "blob": "af325436b209fca4a94028f5cfe562830fa970ca",
+      "blob": "ae9045145fed5a5bb30354446641e08e4af53ec0",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "a0a4f0ba205211310b14c7896be2753120b467b86cfa8fbcab5d5922257fae51",
-      "sha256": "e47c747de3767294dc6c85bdfd475fbb092388e31a6031d5bc891de813ff4314",
+      "sha256": "c7257ac7ee877c8345cb4d63c31d3b01d466d22ab00a40181b06fd6920b5d091",
       "note": "Read Send admission from the sync layer and resend an unresolved message only with its original client ID."
     },
     {
@@ -286,11 +286,11 @@
       "status": "A",
       "path": "packages/ui/src/components/chat/composer/submit/__tests__/sendAdmissionRetry.test.tsx",
       "predecessorBlob": null,
-      "blob": "f060b4863f7e9892d0000092e286da29055b9fe3",
+      "blob": "f4741840227b99f9f03059f2496419ac13aff586",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "19c143a735da5a3a6afb8c36705a6e9748992fce645fda5c4c70bb9670cb75f4",
+      "sha256": "38e599cd04223cd57cceb32ffd292e2338376740362efddb1f5424a60dc95d67",
       "note": "Mounted regression: an ambiguous Send admits its same-ID retry, which settles the outcome and frees the session."
     },
     {
@@ -583,22 +583,22 @@
       "status": "A",
       "path": "packages/ui/src/sync/send-admission.test.ts",
       "predecessorBlob": null,
-      "blob": "71120a90d453a554449d308c43546cd17f3d8ce1",
+      "blob": "a6fed21df2dedd9c645ec8dacc855378e7c187ef",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "88130b3a1435681e257dc38c89ffdb7e1b757e7a7091234c48bdc29454a7697e",
+      "sha256": "3479aaa37b8b319c19a1cd915fd48294b07d336cbc8b23e9473aeec94e583d66",
       "note": "Cover admission, same-ID retry after an ambiguous outcome, known release, cross-tab lock and marker, and runtime isolation."
     },
     {
       "status": "A",
       "path": "packages/ui/src/sync/send-admission.ts",
       "predecessorBlob": null,
-      "blob": "5844dc9d06684e2978d8dde9aefa3b2146201f4b",
+      "blob": "6034c4028dc96235e5aba6dae43672c28aca4e8d",
       "predecessorMode": null,
       "mode": "100644",
       "predecessorSha256": null,
-      "sha256": "819f1d4e6dcf14d88afec668d179fbc20ca8a87ab00e72d136a08658d75b433f",
+      "sha256": "bfda56d1105055b19dc6def948f812488fed938f701e1af0554a41c5eae482d0",
       "note": "Admit one ordinary Send per runtime and session across tabs: page claim, Web Lock, unresolved marker and same-ID retry."
     },
     {
