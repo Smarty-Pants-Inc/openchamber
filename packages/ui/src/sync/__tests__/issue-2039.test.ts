@@ -280,9 +280,12 @@ mock.module("../sync-refs", () => ({
   },
 }))
 
+let issue2039MessageIds = 0
 mock.module("../session-actions", () => ({
   createNativeSession: () => { throw new Error("Unexpected native creation in legacy draft fixture") },
   adoptObservedSessionOwner: () => { throw new Error("Unexpected ordinary owner adoption in legacy draft fixture") },
+  // Ordinary Send admission imports the real client-ID generator; these stock drafts only need unique IDs.
+  ascendingId: (prefix: string) => `${prefix}_issue_2039_${++issue2039MessageIds}`,
   // Mirrors the real action's authoritative steps: the created session becomes
   // current under the directory the server confirmed, and that directory enters
   // the routing index. Everything these tests assert about routing depends on
