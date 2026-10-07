@@ -37,3 +37,49 @@ test('the feed reads the last blocks, or those after an offset; a send posts tex
   expect(calls.at(-1)).toMatchObject({ url: '/api/me/smarties/paul/messages', init: { method: 'POST', body: JSON.stringify({ text: 'Ship it', clientId: 'msg_1' }) } });
   expect(sendSmartyMessage('kate', 'x', 'msg_2', fake(() => json(JSON.stringify({}), 502)))).rejects.toBeInstanceOf(SmartiesRequestError);
 });
+
+test('a refused send carries the gateway’s plain message: JSON error or message, or plain text; never an HTML page', async () => {
+  const refusal = async (response: Response) => {
+    try { await sendSmartyMessage('paul', 'x', 'msg_3', fake(() => response)); } catch (error) { return error; }
+    throw new Error('expected a refusal');
+  };
+  const tooLong = 'Message is too long (max 120 KB).';
+  const fromError = await refusal(json(JSON.stringify({ error: tooLong }), 413));
+  expect(fromError).toBeInstanceOf(SmartiesRequestError);
+  expect(fromError).toMatchObject({ status: 413, serverMessage: tooLong });
+  expect(await refusal(json(JSON.stringify({ message: tooLong }), 413))).toMatchObject({ serverMessage: tooLong });
+  // The gateway's real shape (errorResponse): {name, data: {message}}.
+  expect(await refusal(json(JSON.stringify({ name: 'APIError', data: { message: tooLong, isRetryable: false } }), 413))).toMatchObject({ serverMessage: tooLong });
+  expect(await refusal(new Response(`${tooLong}\n`, { status: 413, headers: { 'content-type': 'text/plain' } }))).toMatchObject({ serverMessage: tooLong });
+  expect(await refusal(new Response('<html><body>Bad gateway</body></html>', { status: 502, headers: { 'content-type': 'text/html' } }))).toMatchObject({ status: 502, serverMessage: undefined });
+  expect(await refusal(json(JSON.stringify({}), 500))).toMatchObject({ serverMessage: undefined });
+});
+
+test('a huge or never-ending refusal body is read only up to 4 KB, then cancelled (#567 security)', async () => {
+  let pulled = 0, cancelled = false;
+  const endless = new ReadableStream<Uint8Array>({
+    pull(controller) { pulled += 1; controller.enqueue(new TextEncoder().encode('x'.repeat(1024))); },
+    cancel() { cancelled = true; },
+  });
+  const error = await sendSmartyMessage('paul', 'x', 'msg_4', fake(() => new Response(endless, { status: 413, headers: { 'content-type': 'text/plain' } }))).catch(e => e);
+  expect(error).toBeInstanceOf(SmartiesRequestError);
+  expect(error).toMatchObject({ status: 413, serverMessage: undefined }); // over 500 characters: no message shown
+  expect(cancelled).toBe(true);
+  expect(pulled).toBeLessThan(10);
+});
+
+test('a refusal body that stalls gives up after the timeout, and one oversized chunk is cut to the limit (#567 r4)', async () => {
+  let cancelled = false;
+  const stalls = new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(new TextEncoder().encode('Message is too long')); },
+    pull() { return new Promise<void>(() => undefined); }, // never yields again
+    cancel() { cancelled = true; },
+  });
+  const started = Date.now();
+  const error = await sendSmartyMessage('paul', 'x', 'msg_5', fake(() => new Response(stalls, { status: 413, headers: { 'content-type': 'text/plain' } }))).catch(e => e);
+  expect(error).toMatchObject({ status: 413, serverMessage: undefined });
+  expect(Date.now() - started).toBeLessThan(6000);
+  expect(cancelled).toBe(true);
+  const huge = new Response(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('y'.repeat(1_000_000))); c.close(); } }), { status: 413, headers: { 'content-type': 'text/plain' } });
+  expect(await sendSmartyMessage('paul', 'x', 'msg_6', fake(() => huge)).catch(e => e)).toMatchObject({ status: 413, serverMessage: undefined });
+}, 15_000);

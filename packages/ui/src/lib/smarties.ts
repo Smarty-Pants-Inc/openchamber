@@ -20,7 +20,42 @@ export type SmartiesResult = { state: 'ready'; me: string; smarties: Smarty[] } 
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 export class SmartiesRequestError extends Error {
-  constructor(readonly status: number) { super(`Smarties request failed (${status})`); }
+  /** `serverMessage`: the gateway's own plain words for a refusal (a 413 "Message is too long…"), when it gave any. */
+  constructor(readonly status: number, readonly serverMessage?: string) { super(`Smarties request failed (${status})`); }
+}
+
+const parseJson = (text: string) => { try { return JSON.parse(text); } catch { return null; } };
+// The gateway answers {name, data: {message}} (packages/gateway/src/errors.ts errorResponse); a top-level error/message is accepted too.
+const refusalSchema = z.object({ error: z.string().optional(), message: z.string().optional(), data: z.object({ message: z.string().optional() }).optional() });
+/** A refusal's message: a JSON `error` or `message`, or a short plain-text body. Never an HTML error page. */
+/** At most `limit` bytes of a body, then the rest is cancelled: a huge or endless error body can't hold the page (#567 security). */
+async function boundedText(response: Response, limit: number, timeoutMs = 3000): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const all = new Uint8Array(limit);
+  let at = 0, timer: ReturnType<typeof setTimeout> | undefined;
+  // A stalled body gives up after timeoutMs; each chunk keeps only the bytes still within the limit (#567 r4).
+  const stalled = new Promise<'stalled'>(resolve => { timer = setTimeout(() => resolve('stalled'), timeoutMs); });
+  try {
+    while (at < limit) {
+      const next = await Promise.race([reader.read(), stalled]);
+      if (next === 'stalled') return '';
+      if (next.done) break;
+      const part = next.value.subarray(0, limit - at);
+      all.set(part, at); at += part.length;
+    }
+  } catch { return ''; } finally {
+    clearTimeout(timer);
+    await reader.cancel().catch(() => undefined);
+  }
+  return new TextDecoder().decode(all.subarray(0, at));
+}
+async function refusalMessage(response: Response): Promise<string | undefined> {
+  const type = response.headers.get('content-type') ?? '';
+  const body = await boundedText(response, 4096);
+  const parsed = type.includes('json') ? refusalSchema.safeParse(parseJson(body)) : undefined;
+  const text = (parsed ? (parsed.success ? parsed.data.data?.message ?? parsed.data.error ?? parsed.data.message : undefined) : type.startsWith('text/plain') ? body : undefined)?.trim();
+  return text && text.length <= 500 ? text : undefined;
 }
 
 const read = { credentials: 'include', headers: { accept: 'application/json' } } satisfies RequestInit;
@@ -50,11 +85,11 @@ export async function loadSmartyFeed(id: string, query: FeedQuery = {}, fetcher:
   return feedSchema.parse(await response.json());
 }
 
-/** Resolves on 202; a refusal or failure throws, so the caller can give the text back. */
+/** Resolves on 202; a refusal or failure throws (a refusal with the gateway's message), so the caller can give the text back. */
 export async function sendSmartyMessage(id: string, text: string, clientId: string, fetcher: Fetcher = runtimeFetch): Promise<void> {
   const response = await fetcher(`${smartyPath(id)}/messages`, {
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ text, clientId }) });
-  if (!response.ok) throw new SmartiesRequestError(response.status);
+  if (!response.ok) throw new SmartiesRequestError(response.status, await refusalMessage(response));
 }
 
 export type SmartyStream = { close: () => void };
@@ -67,7 +102,7 @@ export function openSmartyStream(id: string, handlers: { onBlocks: (feed: Smarty
   const source = new EventSource(getRuntimeUrlResolver().sse(`${smartyPath(id)}/stream`), { withCredentials: true });
   let dropped = false;
   source.addEventListener('blocks', (event: MessageEvent<string>) => {
-    const parsed = feedSchema.safeParse((() => { try { return JSON.parse(event.data); } catch { return null; } })());
+    const parsed = feedSchema.safeParse(parseJson(event.data));
     if (parsed.success) handlers.onBlocks(parsed.data);
   });
   source.onerror = () => { dropped = true; };
