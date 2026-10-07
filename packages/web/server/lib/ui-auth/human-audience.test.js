@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,7 +31,7 @@ const members = async (fn) => {
   const root = mkdtempSync(join(tmpdir(), 'human-members-'));
   const file = join(root, 'members.json');
   const write = (value, mode = 0o600) => {
-    writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value), { mode });
+    writeFileSync(file, value instanceof Object ? JSON.stringify(value) : value, { mode });
     chmodSync(file, mode);
   };
   try { await fn({ root, file, write }); } finally { rmSync(root, { recursive: true, force: true }); }
@@ -87,4 +87,16 @@ test('an invalid, unreadable or unsafe members list denies everyone and recovers
   rmSync(file); symlinkSync(target, file);
   assert.equal(admits(verified('paul@example.test')), false, 'symlink');
   assert.ok(logged.length > 0 && logged.every(message => !message.includes('paul@')), 'logged without emails');
+}));
+
+test('an unchanged invalid members list is not re-parsed on every check', () => members(({ file, write }) => {
+  write('{"emails":');
+  const admits = createHumanAudience(['example.test'], { allowedEmailsFile: file, log: () => {} });
+  const parse = vi.spyOn(JSON, 'parse');
+  try {
+    for (let i = 0; i < 5; i++) assert.equal(admits(verified('paul@example.test')), false);
+    assert.equal(parse.mock.calls.length, 1);
+    write({ emails: ['paul@example.test'] });
+    assert.equal(admits(verified('paul@example.test')), true);
+  } finally { parse.mockRestore(); }
 }));

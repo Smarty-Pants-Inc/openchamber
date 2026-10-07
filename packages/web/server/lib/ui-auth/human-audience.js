@@ -49,8 +49,9 @@ function createMembersList(path, log) {
   }
   const uid = process.getuid?.();
   let cached = { key: null, emails: null }, lastProblem = null;
-  const problem = (message) => {
-    cached = { key: null, emails: null };
+  const problem = (message, key = null) => {
+    // An invalid file is cached by its metadata too: requests never re-parse an unchanged bad file.
+    cached = { key, emails: null };
     // Log each distinct problem once, not on every request; never log list contents.
     if (message !== lastProblem) log(`[human-auth] members list ${path} denies all sign-ins: ${message}`);
     lastProblem = message;
@@ -72,7 +73,7 @@ function createMembersList(path, log) {
       const key = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
       if (cached.key === key) return cached.emails;
       const emails = parseMembers(readFileSync(fd, 'utf8'));
-      if (!emails) return problem('it must be JSON {"emails": ["person@domain", ...]}');
+      if (!emails) return problem('it must be JSON {"emails": ["person@domain", ...]}', key);
       cached = { key, emails };
       if (lastProblem !== null) log(`[human-auth] members list ${path} is valid again`);
       lastProblem = null;
