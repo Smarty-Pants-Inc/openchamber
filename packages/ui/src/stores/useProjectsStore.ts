@@ -715,7 +715,10 @@ export const useProjectsStore = create<ProjectsStore>()(
       const live = new Set(rows.map(row => normalizeProjectPath(row.worktree) ?? row.worktree));
       const departedDirectories = [...new Set([...state.departedDirectories,
         ...(state.managedRows ?? []).map(row => normalizeProjectPath(row.worktree) ?? row.worktree)])].filter(path => !live.has(path));
-      const published = { managedCatalogAdmitted: true, managedCatalogStatus: 'ready' as const, managedRows: rows, managedProjects: projects, departedDirectories };
+      // smarty-code#1392: an unchanged republication (a refresh after a 503, say) keeps the published rows. Their identity
+      // is the catalog identity selected-owner proofs capture; a new array would retrigger the check that asked for it.
+      const managedRows = state.managedRows && JSON.stringify(state.managedRows) === JSON.stringify(rows) ? state.managedRows : rows;
+      const published = { managedCatalogAdmitted: true, managedCatalogStatus: 'ready' as const, managedRows, managedProjects: projects, departedDirectories };
       // An open the person asked for before its project was admitted: still waiting, or opened now that it is (#608).
       const pending = state.managedSessionHold?.pending ? state.managedSessionHold : null;
       if (pending) {

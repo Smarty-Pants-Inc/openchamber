@@ -12,6 +12,7 @@
  * Abort controller created once at init, cleaned up via returned cleanup fn.
  */
 
+import { notifyTransportReady } from "./transport-ready"
 import type { Event, OpencodeClient, SessionStatus } from "@opencode-ai/sdk/v2/client"
 import { opencodeClient } from "@/lib/opencode/client"
 import { getRuntimeUrlResolver } from "@/lib/runtime-url"
@@ -470,6 +471,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
   const markConnected = () => {
     disconnected = false
     consecutiveFailures = 0
+    notifyTransportReady()
     // Fire onReconnect on every successful connect — including the very
     // first one. Consumer state (isConnected) starts at false and needs
     // to be flipped positively; without this the send button throws
@@ -852,6 +854,7 @@ export function createEventPipeline(input: EventPipelineInput): EventPipeline {
           // The consumer still gets a hook so it can resync authoritative
           // state; real networks can lose/buffer events around transport flips.
           onTransportSwitch?.()
+          notifyTransportReady()
         } else if (!isAbortError(error)) {
           consecutiveFailures += 1
           if (!streamErrorLogged) {
