@@ -258,3 +258,21 @@ test('the Open count is the number of items the Open list returned, not a separa
   expect([...host.querySelectorAll('[role="tab"]')][0]?.textContent).toBe('Open 2');
   await act(async () => root.unmount());
 });
+
+test('an SSE event for an item already listed, and a reload during that event, leave one card per id', async () => {
+  const { useInboxStore } = await import('@/lib/smartyInbox');
+  // The second answer replays item ask:1 (an 'item changed' event racing the reload).
+  const changed = { ...items[0], title: 'Only a response (changed)', updated: '2026-09-28T11:00:00.000Z' };
+  let answer = 0;
+  listResponder = () => json({ person: 'paul', items: answer++ === 0 ? items : [...items, changed] });
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  // An SSE inbox event bumps the revision: the view reloads while the event is being handled.
+  await act(async () => { useInboxStore.setState(s => ({ revision: s.revision + 1 })); }); await settle();
+  await act(async () => { useInboxStore.setState(s => ({ revision: s.revision + 1 })); }); await settle();
+  const ids = [...host.querySelectorAll('[data-inbox-item]')].map(card => card.getAttribute('data-inbox-item'));
+  expect(ids).toEqual(['p0x', 'ask:1']);
+  expect(host.querySelector('[data-inbox-item="ask:1"]')?.textContent).toContain('Only a response (changed)');
+  await act(async () => root.unmount());
+});
