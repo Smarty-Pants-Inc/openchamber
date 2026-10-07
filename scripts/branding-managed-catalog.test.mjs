@@ -37,6 +37,9 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // The #539 avail-UI layer is the newest, on one PR486-added file that the PR486 unwind drops: remove its source.
+  assert.equal(historical.availUi539Source, '6c669649e0bd8e95f805c9820e7f87197066e6ac');
+  delete historical.availUi539Source;
   // The Smarties layer (smarty-code#1407: the inbox-card locale import and the Smarty-named top bar) is the newest
   // layer, above PR486: unwind it first.
   assert.equal(historical.smarties1407Source, '689ca2f8d21367829cf9b937ae64f6aa30d04cda');

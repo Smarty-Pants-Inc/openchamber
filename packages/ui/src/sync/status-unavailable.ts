@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { z } from 'zod';
 import type { SessionStatus as SDKSessionStatus } from '@opencode-ai/sdk/v2/client';
 import { normalizeProjectPath } from '@/lib/projectResolution';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 // Smarty Code (smarty-code#539): a managed gateway's fleet-wide `/session/status?unknown=1` lists the projects whose own
 // status read failed under `smarty.unknown`. Their sessions are absent from the map, which is NOT idle: the page keeps
@@ -26,9 +27,20 @@ export const takeStatusUnknownDirectories = (map: Record<string, SDKSessionStatu
 
 // Directories the watchdog has already seen unknown at one poll: the next poll that still finds them unknown clears them.
 const heldOnce = new Set<string>();
+let runtimeSubscribed = false;
+
+const ensureRuntimeSubscription = (): void => {
+  if (runtimeSubscribed || !globalThis.window) return;
+  runtimeSubscribed = true;
+  // A new runtime must not inherit another runtime's notice or grace; a same-runtime transport change keeps both.
+  subscribeRuntimeEndpointChanged(({ runtimeKey, previousRuntimeKey }) => {
+    if (runtimeKey !== previousRuntimeKey) recordStatusUnavailable([]);
+  });
+};
 
 /** Replaces the set wholesale: a directory is unknown only while the latest successful fleet read says so. */
 export const recordStatusUnavailable = (directories: Iterable<string>): void => {
+  ensureRuntimeSubscription();
   const next = new Set([...directories].map(key));
   for (const directory of heldOnce) if (!next.has(directory)) heldOnce.delete(directory);
   const current = useStatusUnavailableStore.getState().directories;

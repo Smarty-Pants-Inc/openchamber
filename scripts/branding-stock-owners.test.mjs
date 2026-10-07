@@ -40,8 +40,10 @@ test('PR486 status-read provenance binds exactly six source records and retains 
   for (const [file, hash] of expected) {
     const entry = overlays.get(file);
     assert.equal(entry.sessionStatusReadSha256, hash, file);
-    assert.equal(entry.combinedSha256, hash, file);
-    assert.equal(sha256(read(file)), hash, file);
+    // The #539 layer (avail UI) sits above PR486 on sync-context.tsx; PR486's record is its predecessor.
+    if (file !== 'packages/ui/src/sync/sync-context.tsx') assert.equal('preAvailUi539CombinedSha256' in entry, false, file);
+    assert.equal(entry.preAvailUi539CombinedSha256 ?? entry.combinedSha256, hash, file);
+    assert.equal(sha256(read(file)), entry.combinedSha256, file);
     if (entry.sessionStatusReadAdded) {
       assert.equal(coverage.has(file), false, file);
       assert.equal(entry.brandingSha256, undefined, file);
@@ -510,7 +512,10 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
-  // The Smarties layer (smarty-code#1407) is the newest, above PR486: unwind it first.
+  // The #539 avail-UI layer is the newest, on one PR486-added file that the PR486 unwind drops: remove its source.
+  assert.equal(historical.availUi539Source, '6c669649e0bd8e95f805c9820e7f87197066e6ac');
+  delete historical.availUi539Source;
+  // The Smarties layer (smarty-code#1407) is next, above PR486: unwind it.
   assert.equal(historical.smarties1407Source, '689ca2f8d21367829cf9b937ae64f6aa30d04cda');
   delete historical.smarties1407Source;
   for (const entry of historical.files.filter(file => file.smarties1407Sha256)) {
@@ -688,6 +693,20 @@ test('the shared worktree root binds its exact fix commit as a new overlay entry
     assert.equal(entry.worktreeRootSha256, entry.combinedSha256);
     assert.equal(sha256(read(entry.path)), entry.combinedSha256);
   }
+});
+
+test('the avail-UI layer binds its exact fix commit over the PR486 sync context only (smarty-code#539)', () => {
+  assert.equal(overlay.availUi539Source, '6c669649e0bd8e95f805c9820e7f87197066e6ac');
+  assert.deepEqual(overlay.files.filter(file => file.availUi539Sha256).map(file => file.path),
+    ['packages/ui/src/sync/sync-context.tsx']);
+  assert.deepEqual(overlay.files.filter(file => 'preAvailUi539CombinedSha256' in file).map(file => file.path),
+    ['packages/ui/src/sync/sync-context.tsx']);
+  const entry = overlays.get('packages/ui/src/sync/sync-context.tsx');
+  assert.equal(entry.availUi539Sha256, entry.combinedSha256);
+  assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+  assert.equal(entry.preAvailUi539CombinedSha256, entry.sessionStatusReadSha256);
+  assert.notEqual(entry.availUi539Sha256, entry.preAvailUi539CombinedSha256);
+  assert.ok(entry.availUi539Note);
 });
 
 test('the Smarties layer binds its exact feature commit over the eleven locales and the header only (smarty-code#1407)', () => {

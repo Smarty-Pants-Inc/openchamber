@@ -2940,8 +2940,9 @@ export function SyncProvider(props: {
         const freshCandidates = candidateSessionIds.filter((id) => !held.has(id))
         // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
         // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
+        // Only a successful sample (current: checked above) counts; a failed read spends no grace and clears nothing.
         if (fleet && isStatusUnavailable(directory)) {
-          if (noteStatusUnavailablePoll(directory)) {
+          if (shared && noteStatusUnavailablePoll(directory)) {
             applySessionStatusSnapshot(store, {}, freshCandidates, "authoritative")
             applyGlobalSessionStatusSnapshot(directory, {}, freshCandidates, held)
           }
