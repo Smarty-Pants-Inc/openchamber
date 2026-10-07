@@ -213,3 +213,36 @@ test('only the inline-comment context changes: the re-send is not treated as the
     expect(posts).toBe(1);
   } finally { sendUnconfirmed.ms = was; await c.dispose(); }
 }, 30_000);
+
+// openchamber#566 review delta P1: an inline comment edited in place (same draft ID and text, another file and line range)
+// is a different outgoing message too.
+test('only an inline comment location changes: the re-send is not treated as the same message', async () => {
+  const { useInlineCommentDraftStore } = await import('@/stores/useInlineCommentDraftStore');
+  const target = { directory: A, sessionKey: session.id };
+  const c = await mountedNativeComposer(false, undefined, undefined, undefined, f => {
+    f.children.ensureChild(A, { bootstrap: false }).setState({ session: [row] });
+    useSessionUIStore.setState(state => ({ currentSessionId: session.id, currentSessionDirectory: A, newSessionDraft: { ...state.newSessionDraft, open: false } }));
+    useInputStore.setState({ pendingInputText: null, attachedFiles: [], pendingSyntheticParts: [] });
+  });
+  const was = sendUnconfirmed.ms;
+  sendUnconfirmed.ms = 250;
+  let posts = 0;
+  c.handlers.prompt = async () => { posts++; return new Response(null, { status: 503 }); };
+  try {
+    await c.loader.ensure({ directory: A, sessionID: session.id }, { reason: 'navigation' });
+    await act(async () => { useInlineCommentDraftStore.getState().addDraft(target, {
+      source: 'file', fileLabel: 'a.ts', startLine: 1, endLine: 2, code: 'x', language: 'ts', text: 'note' }); });
+    await c.replace('Same text'); await c.submit();
+    await until(() => posts === 1 && sendAdmission.unconfirmed(c.runtimeA, session.id)?.inFlight === false);
+    await until(() => c.text() === 'Same text');
+    // Moved in place: the same draft, now on another file and range.
+    await act(async () => {
+      const store = useInlineCommentDraftStore.getState();
+      const [draft] = store.getDrafts(target);
+      store.updateDraft(target, draft.id, { fileLabel: 'b.ts', startLine: 10, endLine: 12 });
+    });
+    expect(useInlineCommentDraftStore.getState().getDrafts(target).map(draft => draft.fileLabel)).toEqual(['b.ts']);
+    await c.submit(); await act(async () => { await sleep(100); });
+    expect(posts).toBe(1);
+  } finally { sendUnconfirmed.ms = was; await c.dispose(); }
+}, 30_000);

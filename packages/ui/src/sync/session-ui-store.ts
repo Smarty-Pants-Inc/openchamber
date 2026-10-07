@@ -176,6 +176,8 @@ type RouteMessageParams = {
   /** smarty-code#827: the client message ID to send with (a re-send of an unconfirmed text reuses its first send's). */
   messageID?: string
   onMessageID?: (messageID: string) => void
+  /** Runs once the optimistic row is in the transcript (prompt and command sends), never for a refused Send. */
+  onOptimisticInsert?: () => void
   /** smarty-code#1427: the text a retry of this Send is recognized by (the composer's own text, before snippet and
    * mention preparation). Defaults to `content`. */
   admissionText?: string
@@ -301,6 +303,7 @@ async function dispatchRouteMessage(params: RouteMessageParams, dispatched: () =
           // The admission's client ID (a retry keeps its first send's), as for prompts.
           messageID: params.messageID,
           onMessageID: params.onMessageID,
+          onOptimisticInsert: params.onOptimisticInsert,
           send: (messageID) => opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
             id: params.sessionId,
@@ -341,6 +344,7 @@ async function dispatchRouteMessage(params: RouteMessageParams, dispatched: () =
   await optimisticSend({
     runtimeKey: params.runtimeKey,
     beforeOptimisticInsert: params.beforeDispatch,
+    onOptimisticInsert: params.onOptimisticInsert,
     sessionId: params.sessionId,
     content: params.content,
     providerID: params.providerID,

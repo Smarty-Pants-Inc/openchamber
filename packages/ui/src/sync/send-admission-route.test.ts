@@ -229,3 +229,43 @@ test('a Review Flow send to a stock session still goes while another prompt is i
     expect(pending(f.runtimeA)).toBe(false);
   } finally { held.resolve(new Response(null, { status: 204 })); await first; globalThis.fetch = fixtureFetch; f.dispose(); }
 });
+
+// openchamber#566 review delta P2: a refused Review Flow send does not force the transcript to scroll; an accepted one
+// scrolls after its row is inserted.
+test('Review Flow scrolls only after its row is inserted, never for a refused send', async () => {
+  const f = nativeDraftFixture(), held = deferred<Response>();
+  await prepare(f);
+  const review = { ...session, id: '01234567-1234-4234-9234-0123456789ac', title: 'review',
+    metadata: { openchamber: { kind: 'review', originalSessionID: session.id } } };
+  const fixtureFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    if (request.method === 'GET' && new URL(request.url).pathname.endsWith(`/session/${review.id}`)) return Response.json(review);
+    return fixtureFetch(input, init);
+  };
+  // Bun has no window: give the scroll request a real event target to land on.
+  const hadWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const target = new EventTarget();
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: target });
+  const scrolls: number[] = [];
+  target.addEventListener('openchamber:chat-force-scroll-bottom', () => { scrolls.push(posts); });
+  const { useConfigStore } = await import('@/stores/useConfigStore');
+  useConfigStore.setState({ currentProviderId: 'p', currentModelId: 'm' });
+  let posts = 0;
+  f.handlers.prompt = async () => ++posts === 1 ? held.promise : new Response(null, { status: 204 });
+  const first = routeMessage({ runtimeKey: f.runtimeA, sessionId: session.id, directory, content: 'First', providerID: 'p', modelID: 'm' });
+  try {
+    const { sendReviewFeedbackToOriginal } = await import('@/lib/reviewFlow');
+    // Refused: the first Send is unresolved. No scroll.
+    expect(await sendReviewFeedbackToOriginal(review.id, directory, 'Review findings', f.runtimeA).then(() => 'sent', () => 'refused')).toBe('refused');
+    expect(scrolls).toEqual([]);
+    held.resolve(new Response(null, { status: 204 })); await first;
+    // Accepted: one scroll, after the row is inserted and before its POST.
+    expect(await sendReviewFeedbackToOriginal(review.id, directory, 'Review findings', f.runtimeA).then(() => 'sent', () => 'refused')).toBe('sent');
+    expect(scrolls).toEqual([1]);
+  } finally {
+    held.resolve(new Response(null, { status: 204 })); await first;
+    if (hadWindow) Object.defineProperty(globalThis, 'window', hadWindow); else Reflect.deleteProperty(globalThis, 'window');
+    globalThis.fetch = fixtureFetch; f.dispose();
+  }
+});

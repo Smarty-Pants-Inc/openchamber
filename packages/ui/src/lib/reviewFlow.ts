@@ -373,7 +373,6 @@ const sendPlainMessage = async (
   }
   markPendingUserSendAnimation(sessionID);
   let sentMessageID: string | null = null;
-  requestChatForceScrollBottom(sessionID);
   // smarty-code#1443, openchamber#566 security P1: the same Send route as the composer. An ordinary (Pi) session gets one
   // unresolved Send at a time across tabs and its pinned native model; a stock session keeps its concurrent prompts.
   await routeMessage({
@@ -387,6 +386,8 @@ const sendPlainMessage = async (
     variant: resolved.variant,
     additionalParts,
     beforeDispatch: () => assertAutoReviewRuntimeStillCurrent(expectedRuntimeKey),
+    // After the row is in the transcript, as before; a refused Send does not move the transcript.
+    onOptimisticInsert: () => requestChatForceScrollBottom(sessionID),
     onMessageID: (messageID) => {
       sentMessageID = messageID;
     },

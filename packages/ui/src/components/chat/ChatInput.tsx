@@ -1443,7 +1443,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             linked.issue ? `issue:${linked.issue.url}\u0000${linked.issue.contextText ?? ''}` : '',
             linked.pr ? `pr:${linked.pr.url}\u0000${linked.pr.instructionsText ?? ''}\u0000${linked.pr.contextText ?? ''}` : '',
             linked.linear ? `linear:${linked.linear.url}\u0000${linked.linear.contextText ?? ''}` : '',
-            ...drafts.map(draft => `comment:${draft.id}\u0000${draft.text}\u0000${draft.code}`),
+            // The whole draft: its source, file, line range, side and language are sent too, and editable in place.
+            ...drafts.map(draft => `comment:${JSON.stringify([draft.id, draft.source, draft.fileLabel, draft.startLine,
+                draft.endLine, draft.side ?? null, draft.language, draft.code, draft.text])}`),
         ].filter(Boolean);
         return { target: [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', sessionId].join('\u0000'),
             content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id),
