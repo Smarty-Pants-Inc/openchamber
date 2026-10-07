@@ -1,5 +1,5 @@
 // smarty-code#1407: the Smarties a signed-in person may see (their own and those Paul shares), each one's feed, and
-// messages to their own Smarty, through the gateway's /api/smarties routes. The gateway decides who the person is and
+// messages to their own Smarty, through the gateway's /me/smarties routes. The gateway decides who the person is and
 // what they may see or send; this module only parses its answers.
 import { z } from 'zod';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -24,10 +24,12 @@ export class SmartiesRequestError extends Error {
 }
 
 const read = { credentials: 'include', headers: { accept: 'application/json' } } satisfies RequestInit;
-const smartyPath = (id: string) => `/api/smarties/${encodeURIComponent(id)}`;
+// The gateway serves /me/smarties (SMARTIES_API_PATH); OpenChamber's /api prefix maps onto it, as /api/inbox does.
+const SMARTIES_API = '/api/me/smarties';
+const smartyPath = (id: string) => `${SMARTIES_API}/${encodeURIComponent(id)}`;
 
 export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<SmartiesResult> {
-  const response = await fetcher('/api/smarties', read);
+  const response = await fetcher(SMARTIES_API, read);
   // ponytail: a 404 is a server without the Smarties route (VS Code, a plain OpenChamber); 403 is a person with no Smarty.
   if (response.status === 404 || response.status === 403) return { state: 'unavailable' };
   if (!response.ok) throw new SmartiesRequestError(response.status);

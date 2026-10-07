@@ -138,7 +138,9 @@ function SmartyPage({ smarty, all, me, compact, onClose, services }: {
   // The first paint waits for the first feed answer (a short wait on an empty page), so nothing jumps when it comes.
   if (feed.state === 'loading') return <div className="h-full bg-background" />;
 
-  const inbox = <InboxView compact onClose={() => setInboxShown(false)} ownerLabel={smarty.label} />;
+  // The owner's name as people say it ("Paul"), for the inbox's "Message Paul's Smarty" button.
+  const ownerName = smarty.id.charAt(0).toUpperCase() + smarty.id.slice(1);
+  const inbox = <InboxView compact onClose={() => setInboxShown(false)} ownerName={ownerName} />;
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <header className={cn('flex items-center gap-2 border-b border-border', compact ? 'flex-wrap px-3 py-2' : 'px-4 py-3')}>

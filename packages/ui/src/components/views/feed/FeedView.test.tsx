@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client';
 import type { FeedQuery, SmartiesResult, SmartyFeed } from '@/lib/smarties';
 import type { FeedServices } from './FeedView';
 
-// smarty-code#1407: the Smarties against fakes of the gateway's /api/smarties contract: the own Smarty is selected on
+// smarty-code#1407: the Smarties against fakes of the gateway's /api/me/smarties contract: the own Smarty is selected on
 // load, another person's is view only, the inbox sits inside the own view, the old view hides behind one nav button,
 // and the view paints from the first feed answer.
 const paul: SmartiesResult = { state: 'ready', me: 'paul', smarties: [
@@ -279,20 +279,20 @@ test('first paint is the newest 50 blocks; "Show earlier" reveals held blocks, t
   await unmount();
 });
 
-test('opening the Smarty view reads only /api/smarties feeds: never /api/session or any Pi session history', async () => {
+test('opening the Smarty view reads only /api/me/smarties feeds: never /api/session or any Pi session history', async () => {
   const urls: string[] = [];
   const realFetch = globalThis.fetch;
   Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : String(input);
     urls.push(url);
-    const body = url.includes('/api/smarties/paul/feed') ? paulFeed : url.includes('/api/inbox') ? { person: 'paul', items: [inboxItem] } : {};
+    const body = url.includes('/api/me/smarties/paul/feed') ? paulFeed : url.includes('/api/inbox') ? { person: 'paul', items: [inboxItem] } : {};
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   } });
   try {
     // The app's own services (the gateway client), only the Markdown renderer replaced.
     const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={{ Text: services.Text }} />);
     expect(host.textContent).toContain('Good evening, Paul.');
-    expect(urls.some(url => url.includes('/api/smarties/paul/feed'))).toBe(true);
+    expect(urls.some(url => url.includes('/api/me/smarties/paul/feed'))).toBe(true);
     expect(urls.filter(url => /\/api\/session|\/session\b|\/message\b/.test(url))).toEqual([]);
     await unmount();
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }

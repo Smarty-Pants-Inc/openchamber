@@ -9,9 +9,11 @@ import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
 import { inboxStepsI18n } from './inbox-steps.i18n';
+import { inboxCardI18n } from './inbox-card.i18n';
 
 export const dict: Record<I18nKey, string> = {
   ...inboxStepsI18n['pt-BR'],
+  ...inboxCardI18n['pt-BR'],
   'sessions.sidebar.projectAction.active': 'Ação do projeto em execução',
   ...settingsDict,
   ...displayNameI18n['pt-BR'],
