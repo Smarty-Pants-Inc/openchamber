@@ -920,6 +920,18 @@ export const registerFsRoutes = (app, dependencies) => {
       if (!directoryName || directoryName === '.' || directoryName === '..') {
         return res.status(400).json({ error: 'Destination path must include a directory name' });
       }
+      if (gitMetadataWritesRefused) {
+        // Node mode: the canonical final destination decides (a symlinked parent alias or a URL-inferred `.git`
+        // name), and mkdir and Git then work on that canonical path, not on the alias (smarty-code#1356).
+        const canonicalDestination = await canonicalizeForCreate(resolvedDestination, { fsPromises, path });
+        if (!canonicalDestination) {
+          return res.status(400).json({ error: 'Destination path goes through a broken symbolic link' });
+        }
+        if (gitMetadataRefused(res, canonicalDestination)) return;
+        resolvedDestination = canonicalDestination;
+        parentPath = path.dirname(canonicalDestination);
+        directoryName = path.basename(canonicalDestination);
+      }
 
       const identity = await resolveCloneGitIdentity(gitIdentityId);
       const gitArgs = ['clone', '--', remote, directoryName];

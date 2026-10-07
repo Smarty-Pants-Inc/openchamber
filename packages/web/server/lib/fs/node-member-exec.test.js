@@ -1,4 +1,7 @@
 import { EventEmitter } from 'events';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'fs';
+import fsPromises from 'fs/promises';
+import { tmpdir } from 'os';
 import path from 'path';
 import { expect, it, vi } from 'vitest';
 import { registerFsRoutes } from './routes.js';
@@ -54,6 +57,68 @@ for (const [route, body] of gitWrites) {
     expect(await call(routes.get(`POST /api/fs/${route}`), body)).toEqual({ statusCode: 403, body: GIT_REFUSAL });
   });
 }
+
+/** Clone on a real tree: the canonical final destination (after symlinks and the name inferred from the URL) decides. */
+const cloneOnDisk = async (env, layout) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'node-clone-'));
+  try {
+    mkdirSync(path.join(root, 'repo', '.git'), { recursive: true });
+    layout?.(root);
+    const routes = new Map();
+    const spawn = vi.fn(() => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
+      queueMicrotask(() => child.emit('close', 0, null));
+      return child;
+    });
+    registerFsRoutes({ get: (p, h) => routes.set(`GET ${p}`, h), post: (p, h) => routes.set(`POST ${p}`, h) }, {
+      os: { homedir: () => root }, path, fsPromises, spawn, crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: p => path.resolve(root, p), resolveProjectDirectory: async () => ({ directory: root }),
+      buildAugmentedPath: () => '/usr/bin', resolveGitBinaryForSpawn: () => 'git',
+      openchamberUserConfigRoot: path.join(root, '.config'), env,
+    });
+    return { root, spawn, call: body => call(routes.get('POST /api/fs/clone'), body) };
+  } catch (error) { rmSync(root, { recursive: true, force: true }); throw error; }
+};
+const cloneCases = [
+  ['a symlinked parent alias to .git', root => symlinkSync(path.join(root, 'repo', '.git'), path.join(root, 'alias')),
+    { remoteUrl: 'https://example.test/r.git', destinationPath: 'alias/hooks' }],
+  ['an inferred clone name of .git (trailing slash)', null,
+    { remoteUrl: 'https://example.test/.git', destinationPath: 'repo/' }],
+  ['an inferred clone name of .git (existing directory)', null,
+    { remoteUrl: 'https://example.test/.git.git', destinationPath: 'repo' }],
+  ['an existing directory that is a symlink alias to .git', root => symlinkSync(path.join(root, 'repo', '.git'), path.join(root, 'alias')),
+    { remoteUrl: 'https://example.test/hooks.git', destinationPath: 'alias' }],
+];
+for (const [name, layout, body] of cloneCases) {
+  it(`Node member clone through ${name} gets the refusal and creates nothing`, async () => {
+    const { root, spawn, call: clone } = await cloneOnDisk({ PATH: '/usr/bin', SMARTY_CODE_NODE_ID: 'fixture-node' }, layout);
+    try {
+      expect(await clone(body)).toEqual({ statusCode: 403, body: GIT_REFUSAL });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(await fsPromises.readdir(path.join(root, 'repo', '.git'))).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+it('Node member clone into an ordinary directory runs Git in the canonical parent', async () => {
+  const { root, spawn, call: clone } = await cloneOnDisk({ PATH: '/usr/bin', SMARTY_CODE_NODE_ID: 'fixture-node' },
+    r => { mkdirSync(path.join(r, 'work')); symlinkSync(path.join(r, 'work'), path.join(r, 'link')); });
+  try {
+    const res = await clone({ remoteUrl: 'https://example.test/app.git', destinationPath: 'link/' });
+    expect(res.statusCode).toBe(200);
+    const [, args, options] = spawn.mock.calls[0];
+    expect(args.slice(-1)).toEqual(['app']);
+    expect(options.cwd).toBe(await fsPromises.realpath(path.join(root, 'work')));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+it('owner clone (no Node) through a .git alias is not refused by the Git guard', async () => {
+  const { root, call: clone } = await cloneOnDisk({ PATH: '/usr/bin' }, cloneCases[0][1]);
+  try {
+    expect((await clone(cloneCases[0][2])).body).not.toEqual(GIT_REFUSAL);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 it('owner write into Git metadata (no Node) passes the guard', async () => {
   const { routes } = register({ PATH: '/usr/bin' });
