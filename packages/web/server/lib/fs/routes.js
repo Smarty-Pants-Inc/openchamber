@@ -2,6 +2,7 @@ import { createRealpathCache } from '../path-realpath-cache.js';
 import { isManagedCatalog, MANAGED_CATALOG_REFUSAL } from '../opencode/managed-catalog-guard.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
+import { GIT_METADATA_REFUSED, isGitMetadataPath, memberExecutionRefused, refuseMemberExecution } from '../security/node-member-execution.js';
 import { FILE_MIME_MAP, MAX_SERVE_BYTES, mintPreviewCapability, PREVIEW_CSP } from './preview-capability.js';
 import { appendContentSecurityPolicy, responsePolicyCacheControl } from '../http-response-policy.js';
 
@@ -227,6 +228,8 @@ const containedPath = async (resolved, { fsPromises, path, os, entry = false, st
     ? await canonical(path.dirname(resolved.resolved)).then((parent) => parent && path.join(parent, path.basename(resolved.resolved)))
     : await canonical(resolved.resolved);
   if (!target) return null;
+  // Node mode: the canonical target (after symlinks) never lands in Git metadata; the routes refuse the direct case.
+  if (gitMetadataWritesRefused && isGitMetadataPath(target)) return null;
   const roots = [resolved.canonicalBase ?? resolved.base,
     ...managedRoots.filter((root) => isPathWithinRoot(resolved.resolved, root, path, os))];
   for (const root of roots) {
@@ -247,6 +250,8 @@ const LEAVES_WORKSPACE = 'Path leaves the workspace through a symbolic link';
 
 // The Git executable the server resolved (OPENCHAMBER_GIT_BINARY on Windows); set when the routes are registered.
 let gitBinaryForSpawn = () => 'git';
+// Set when the routes are registered: Node mode refuses member writes into Git metadata (smarty-code#1356).
+let gitMetadataWritesRefused = false;
 /** As the Git service does: a Windows .cmd/.bat/.com override runs through its adjacent .exe; without one, a native .com
  * runs itself and a batch file (which execFile cannot run) falls back to PATH's git. */
 const gitExecutable = async (path) => {
@@ -613,6 +618,9 @@ export const registerFsRoutes = (app, dependencies) => {
     isLiveManagedDirectory = async () => false,
   } = dependencies;
   if (typeof resolveGitBinaryForSpawn === 'function') gitBinaryForSpawn = resolveGitBinaryForSpawn;
+  gitMetadataWritesRefused = memberExecutionRefused(env);
+  const gitMetadataRefused = (res, ...paths) => gitMetadataWritesRefused && paths.some(isGitMetadataPath)
+    && Boolean(res.status(403).json({ error: GIT_METADATA_REFUSED, code: 'NODE_MEMBER_GIT_METADATA_REFUSED' }));
   // Chat worktrees may live outside every project workspace; both managed
   // roots stay valid filesystem targets.
   const chatsRoot = typeof managedChatsRoot === 'string' && managedChatsRoot.trim()
@@ -807,6 +815,7 @@ export const registerFsRoutes = (app, dependencies) => {
   app.post('/api/fs/mkdir', async (req, res) => {
     try {
       const { path: dirPath, allowOutsideWorkspace } = req.body ?? {};
+      if (gitMetadataRefused(res, dirPath)) return;
       if (typeof dirPath !== 'string' || !dirPath.trim()) {
         return res.status(400).json({ error: 'Path is required' });
       }
@@ -869,6 +878,7 @@ export const registerFsRoutes = (app, dependencies) => {
       const { remoteUrl, destinationPath, gitIdentityId } = req.body ?? {};
       const remote = typeof remoteUrl === 'string' ? remoteUrl.trim() : '';
       const destination = typeof destinationPath === 'string' ? destinationPath.trim() : '';
+      if (gitMetadataRefused(res, destination)) return;
       if (!remote) {
         return res.status(400).json({ error: 'Repository URL is required' });
       }
@@ -1262,6 +1272,7 @@ export const registerFsRoutes = (app, dependencies) => {
 
   app.post('/api/fs/write', async (req, res) => {
     const { path: filePath, content } = req.body || {};
+    if (gitMetadataRefused(res, filePath)) return;
     if (!filePath || typeof filePath !== 'string') {
       return res.status(400).json({ error: 'Path is required' });
     }
@@ -1324,6 +1335,7 @@ export const registerFsRoutes = (app, dependencies) => {
   app.post('/api/fs/upload', async (req, res) => {
     const filePath = typeof req.query?.path === 'string' ? req.query.path.trim() : '';
     const overwrite = req.query?.overwrite === 'true';
+    if (gitMetadataRefused(res, filePath)) return;
     if (!filePath) {
       return res.status(400).json({ error: 'Path is required' });
     }
@@ -1444,6 +1456,7 @@ export const registerFsRoutes = (app, dependencies) => {
 
   app.post('/api/fs/delete', async (req, res) => {
     const { path: targetPath } = req.body || {};
+    if (gitMetadataRefused(res, targetPath)) return;
     if (!targetPath || typeof targetPath !== 'string') {
       return res.status(400).json({ error: 'Path is required' });
     }
@@ -1483,6 +1496,7 @@ export const registerFsRoutes = (app, dependencies) => {
 
   app.post('/api/fs/rename', async (req, res) => {
     const { oldPath, newPath } = req.body || {};
+    if (gitMetadataRefused(res, oldPath, newPath)) return;
     if (!oldPath || typeof oldPath !== 'string') {
       return res.status(400).json({ error: 'oldPath is required' });
     }
@@ -1598,6 +1612,7 @@ export const registerFsRoutes = (app, dependencies) => {
   });
 
   app.post('/api/fs/exec', async (req, res) => {
+    if (memberExecutionRefused(env)) return refuseMemberExecution(res);
     const { commands, cwd, background } = req.body || {};
     if (!Array.isArray(commands) || commands.length === 0) {
       return res.status(400).json({ error: 'Commands array is required' });

@@ -16,6 +16,14 @@ const createApp = (sayTTSCapability = null) => {
 };
 
 describe('tts routes', () => {
+  it('Node mode refuses say before any shell command', async () => {
+    const app = express(); app.use(express.json());
+    registerTtsRoutes(app, { sayTTSCapability: { available: true, voices: [] }, env: { SMARTY_CODE_NODE_ID: 'fixture-node' } });
+    const response = await request(app).post('/api/tts/say/speak').send({ text: 'hi', voice: 'x"; touch /tmp/pwn; "' });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe("Terminal and commands aren't available for members on this Node yet.");
+  });
+
   it('waits for the authoritative macOS say capability', async () => {
     let resolveCapability;
     const capability = new Promise((resolve) => {

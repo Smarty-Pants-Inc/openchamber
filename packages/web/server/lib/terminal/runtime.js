@@ -13,6 +13,7 @@ import { consumeTerminalThemeQueries, terminalThemeModeReport } from './theme-re
 import { buildTerminalShellLaunch, createTerminalShellResolver, normalizeTerminalShell } from './shells.js';
 import { stripAppImageArgv0Leak, resolveLinuxPtyLaunch } from '../inherited-env.js';
 import { createMemberLifetimeFrameHandler } from './member-lifetime.js';
+import { MEMBER_EXECUTION_REFUSED, memberExecutionRefused, refuseMemberExecution } from '../security/node-member-execution.js';
 
 const MAX_SESSIONS = 20;
 const MAX_HISTORY_BYTES = 512 * 1024;
@@ -94,8 +95,10 @@ export function createTerminalRuntime({
   app, server, fs, path, uiAuthController, buildAugmentedPath, searchPathFor, isExecutable,
   isRequestOriginAllowed, rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
   loadPtyProvider, terminalTerminationGraceMs = TERMINATION_GRACE_MS,
-  signalProcess = (pid, signal) => process.kill(pid, signal),
+  signalProcess = (pid, signal) => process.kill(pid, signal), env = process.env,
 }) {
+  // Node mode: no member terminal, command or attach until member execution is isolated (smarty-code#1356).
+  const refused = memberExecutionRefused(env);
   const sessions = new Map();
   const pendingSessionCreates = new Map();
   const pendingSessionRestarts = new Map();
@@ -407,6 +410,7 @@ export function createTerminalRuntime({
 
   const upgradeHandler = (req, socket, head) => {
     if (parseRequestPathname(req.url) !== TERMINAL_WS_PATH) return;
+    if (refused) { rejectWebSocketUpgrade(socket, 403, MEMBER_EXECUTION_REFUSED); return; }
     const upgrade = () => {
       if (!wsServer) { rejectWebSocketUpgrade(socket, 500, 'Terminal WebSocket unavailable'); return; }
       try {
@@ -499,6 +503,7 @@ export function createTerminalRuntime({
     res.json({ touched });
   });
   app.post('/api/terminal/create', async (req, res) => {
+    if (refused) return refuseMemberExecution(res);
     try {
       const session = await createSession(req.body ?? {}, req.humanConnection, res);
       if (res.destroyed || res.writableEnded) return;
@@ -530,6 +535,7 @@ export function createTerminalRuntime({
     res.json({ success: true });
   });
   app.post('/api/terminal/:sessionId/restart', async (req, res) => {
+    if (refused) return refuseMemberExecution(res);
     const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(404).json({ error: 'Terminal session not found' });
     if ((session.mode ?? INTERACTIVE_TERMINAL_MODE) === COMMAND_TERMINAL_MODE) return res.status(400).json({ error: 'Command-mode terminal sessions cannot be restarted' });
