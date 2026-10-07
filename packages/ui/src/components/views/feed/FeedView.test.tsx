@@ -351,3 +351,39 @@ test('a retry after the dedupe window, counted from the first send (not the fail
     await unmount();
   } finally { Date.now = realNow; }
 });
+
+test('3: the own Smarty always holds the inbox column, with a plain empty state when nothing needs the person', async () => {
+  // A person whose inbox list is unavailable or empty (Kate's first morning) still sees the column.
+  useInboxStore.setState({ available: false, openCount: 0 });
+  const realFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async () => new Response(JSON.stringify({ person: 'paul', items: [] }), { status: 200, headers: { 'content-type': 'application/json' } }) });
+  try {
+    const { host, unmount } = await mount(view());
+    expect(host.querySelector('aside')?.textContent).toContain('Nothing here.');
+    await unmount();
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
+
+test('the backfill format: "you" lines are the owner’s (right-aligned, named), and the earlier-conversation block is a divider', async () => {
+  const backfill: Partial<FeedServices> = { ...services, loadFeed: async (_id, query) => query?.after !== undefined ? { blocks: [], offset: 90 } : { offset: 90, blocks: [
+    { id: 'd1', author: 'org', at: '8:00 PM ET', text: '— Earlier conversation with your Smarty —' },
+    { id: 'y1', author: 'you', at: '8:01 PM ET', text: 'Morning!' },
+    { id: 'o1', author: 'org', at: '8:02 PM ET', text: 'Good morning, Kate.' },
+    { id: 'k1', author: 'kate', at: '8:03 PM ET', text: 'Thanks.' },
+  ] } };
+  // Paul looks at Kate's Smarty: her lines read "Kate", on the right.
+  useFeedStore.getState().selectSmarty('kate');
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={backfill} />);
+  const divider = host.querySelector('[role="separator"][data-feed-divider]');
+  expect(divider?.textContent).toBe('Earlier conversation with your Smarty');
+  expect(host.querySelectorAll('[data-feed-entry]')).toHaveLength(3);
+  const entries = Array.from(host.querySelectorAll('[data-feed-entry]')).map(e => [e.getAttribute('data-feed-entry'), e.querySelector('span.font-semibold')?.textContent]);
+  expect(entries).toEqual([['owner', 'Kate'], ['smarty', 'Kate’s Smarty'], ['owner', 'Kate']]);
+  expect(host.querySelector('[data-feed-entry="owner"]')?.className).toContain('items-end');
+  await unmount();
+  // Kate in her own Smarty: the same lines read "You".
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'kate', smarties: [{ id: 'kate', label: 'Kate’s Smarty', own: true, writable: true }] }), true);
+  const own = await mount(<FeedView onClose={() => undefined} services={backfill} />);
+  expect(Array.from(own.host.querySelectorAll('[data-feed-entry="owner"] span.font-semibold')).map(e => e.textContent)).toEqual(['You', 'You']);
+  await own.unmount();
+});

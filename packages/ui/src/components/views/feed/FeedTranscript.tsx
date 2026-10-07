@@ -20,15 +20,20 @@ export function FeedNotice({ children, alert, action }: { children: React.ReactN
 /** How close to the bottom (px) still counts as reading the newest block. */
 const PINNED_SLACK = 48;
 
+/** The backfill's divider block ("Earlier conversation with your Smarty"), drawn as a divider, not a message. */
+const DIVIDER = /^[\s\-—–*_#=]*earlier conversation with your smarty[\s\-—–*_#=.:]*$/i;
+const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
+
 /**
- * `smartyName` names the Smarty's own blocks (author "org"); `me` is the signed-in person, shown as "You". Any other
- * author is a person, shown by name, never by an id.
+ * `smartyName` names the Smarty's own blocks (author "org"). The owner's own lines (author "you", as the backfill
+ * writes them, or the owner's id) are the owner's messages: right-aligned, labelled "You" for the owner and the owner's
+ * name for anyone else. Any other author is a person, shown by name, never by an id.
  */
 export type BlockText = React.ComponentType<{ content: string }>;
 
 /** `earlier`: the "Show earlier" control, when older blocks exist. */
-export function FeedTranscript({ blocks, smartyName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
-  blocks: readonly SmartyBlock[]; smartyName: string; me: string; Text?: BlockText;
+export function FeedTranscript({ blocks, smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
+  blocks: readonly SmartyBlock[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
   earlier?: { state: 'idle' | 'loading' | 'failed'; show: () => void } | null;
 }): React.ReactNode {
   const { t } = useI18n();
@@ -44,7 +49,12 @@ export function FeedTranscript({ blocks, smartyName, me, Text = SimpleMarkdownRe
     else if (before.current.oldest !== oldest?.id) element.scrollTop += element.scrollHeight - before.current.height;
     before.current = { height: element.scrollHeight, oldest: oldest?.id };
   }, [blocks.length, newest?.id, oldest?.id]);
-  const authorName = (author: string) => author === 'org' ? smartyName : author === me ? t('feed.you') : author.charAt(0).toUpperCase() + author.slice(1);
+  const byOwner = (author: string) => author === 'you' || author === owner;
+  const authorName = (author: string) => {
+    if (author === 'org') return smartyName;
+    if (byOwner(author)) return owner === me ? t('feed.you') : ownerName;
+    return author === me ? t('feed.you') : author.charAt(0).toUpperCase() + author.slice(1);
+  };
   return (
     <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto"
       onScroll={event => { const el = event.currentTarget; pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < PINNED_SLACK; }}>
@@ -55,13 +65,23 @@ export function FeedTranscript({ blocks, smartyName, me, Text = SimpleMarkdownRe
             {earlier.state === 'failed' ? <span role="alert" className="typography-micro text-[var(--status-error)]">{t('feed.earlier.failed')}</span> : null}
           </li>) : null}
         {blocks.length === 0 ? <li className="chat-message-column typography-ui-label text-muted-foreground">{t('feed.empty')}</li> : null}
-        {blocks.map(block => (
-          <li key={block.id} data-feed-entry={block.author === 'org' ? 'smarty' : 'person'} className="chat-message-column flex min-w-0 flex-col gap-1">
+        {blocks.map(block => isDividerBlock(block) ? (
+          <li key={block.id} role="separator" aria-label={block.text.replace(/[-—–*_#=]/g, '').trim()} data-feed-divider
+            className="chat-message-column flex items-center gap-3 typography-micro text-muted-foreground">
+            <span aria-hidden className="h-px flex-1 bg-border" />
+            <span>{block.text.replace(/[-—–*_#=]/g, '').trim()}</span>
+            <span aria-hidden className="h-px flex-1 bg-border" />
+          </li>
+        ) : (
+          <li key={block.id} data-feed-entry={block.author === 'org' ? 'smarty' : byOwner(block.author) ? 'owner' : 'person'}
+            className={cn('chat-message-column flex min-w-0 flex-col gap-1', byOwner(block.author) && 'items-end')}>
             <div className="flex items-baseline gap-2 typography-ui-label">
               <span className="font-semibold text-foreground">{authorName(block.author)}</span>
               <span className="tabular-nums text-muted-foreground">{block.at}</span>
             </div>
-            <Text content={block.text} />
+            {byOwner(block.author)
+              ? <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2"><Text content={block.text} /></div>
+              : <Text content={block.text} />}
           </li>
         ))}
       </ol>

@@ -133,7 +133,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
   const { t } = useI18n();
   const stableServices = React.useRef(services).current;
   const { feed, retry, earlier } = useSmartyFeed(smarty.id, stableServices);
-  const ownInbox = useInboxStore(state => state.available) && smarty.own;
+  // Spec item 3: the own Smarty always holds the inbox (its list says plainly when nothing needs the person).
+  const ownInbox = smarty.own;
   const openCount = useInboxStore(state => state.openCount);
   const [inboxShown, setInboxShown] = React.useState(!compact);
   const inboxButton = React.useRef<HTMLButtonElement | null>(null);
@@ -171,7 +172,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {feed.state === 'failed'
             ? <FeedNotice alert action={<Button size="sm" variant="outline" onClick={retry}>{t('feed.retry')}</Button>}>{t('feed.historyFailed')}</FeedNotice>
-            : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} smartyName={smarty.label} me={me} Text={stableServices.Text} earlier={earlier} />}
+            : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
           {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} send={stableServices.send} /> : null}
         </section>
         {!compact && ownInbox && inboxShown ? (
