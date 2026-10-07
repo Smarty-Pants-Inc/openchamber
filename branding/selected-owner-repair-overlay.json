@@ -4,7 +4,7 @@
   "issue": "smarty-code#1378",
   "baseHead": "11796181f2f7341730e3a467b347bdd0470b0642",
   "sourceTreePath": "packages/ui",
-  "sourceTree": "4111c0d420eaba8f05de32be3bf57d023ed46242",
+  "sourceTree": "56f3ad1c581ae779110c4caf752896e6fea215b7",
   "objectFormat": "sha1",
   "predecessorLedgerSha256": "976e08cc78ac5585b68ffc51e79b59d7d66b2e3b2eafd12286c5540851cde78b",
   "predecessorLedgerBytesSha256": "25d8427aca66ccd894d0ce1a62467b0d79b37033b4fd3f9fd9db6a31b1283fc1",
@@ -274,11 +274,11 @@
       "status": "M",
       "path": "packages/ui/src/sync/DOCUMENTATION.md",
       "predecessorBlob": "16d18c486a11185137809abd0787bb3f48157ddf",
-      "blob": "fef01a0f3f0fa28876faa7ff969edfbc53df6823",
+      "blob": "836c36f09d69b35c6ad095e0e39507a4feb35a42",
       "predecessorMode": "100644",
       "mode": "100644",
       "predecessorSha256": "6389b1f0557422c63ff009f08ae4803265c315cd3ecae6e94d3233b0da6664e4",
-      "sha256": "6d665e985660afa1074284b53ed5509100229fb1163cd05bebeef4e7304d78c9",
+      "sha256": "dc905f70bd9bf707f3f2ea81f5d93076fd4ef2ad79160f95a767896fcefe76de",
       "note": "Document bounded quiet history recovery, verified owner transfer and browser-lifetime sync-owned Send confirmation."
     },
     {
