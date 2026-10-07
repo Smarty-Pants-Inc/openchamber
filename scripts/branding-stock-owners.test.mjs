@@ -211,7 +211,17 @@ test('hosted UI proof preserves the preceding workflow evidence', () => {
   assert.equal(entry.behaviorSha256, '1b9c75f1993b06158eaf78df7af03ac92812e7019e00ef0ee5a8cb854752b80f');
   assert.equal(entry.humanAuthUiProofSource, '0d0f988aa98c345bf2bfc79d0c9b4e753347d744');
   assert.equal(entry.humanAuthUiProofSha256, entry.preForgeRunnerCombinedSha256);
-  assert.equal(entry.forgeRunnerSha256, entry.combinedSha256);
+  assert.equal(entry.forgeRunnerSha256, entry.preArtifactRetentionCombinedSha256 ?? entry.combinedSha256);
+});
+
+test('smarty-dev#1246 artifact retention binds exactly the oc-review successor', () => {
+  assert.deepEqual(overlay.files.filter(entry => entry.artifactRetentionSha256).map(entry => entry.path),
+    ['.github/workflows/oc-review.yml']);
+  const entry = overlays.get('.github/workflows/oc-review.yml');
+  assert.equal(entry.preArtifactRetentionCombinedSha256, '674da75627d8d6788f5048a9eb306e65e5c5a07235d090b4f44b7d387a714297');
+  assert.equal(entry.artifactRetentionSha256, '09f18219e82207cd297ae950c18f4b9293cbb475b0082ab26083e240f36b15e3');
+  assert.equal(entry.combinedSha256, entry.artifactRetentionSha256);
+  assert.equal(sha256(read(entry.path)), entry.artifactRetentionSha256);
 });
 
 test('Forge workflows bind exact successor bytes without replacing coverage or prior workflow evidence', () => {
@@ -238,8 +248,8 @@ test('Forge workflows bind exact successor bytes without replacing coverage or p
     const entry = overlays.get(file);
     assert.equal(entry.forgeRunnerBaseSha256, baseHash, file);
     assert.equal(entry.forgeRunnerSha256, outputHash, file);
-    assert.equal(entry.combinedSha256, outputHash, file);
-    assert.equal(sha256(read(file)), outputHash, file);
+    assert.equal(entry.preArtifactRetentionCombinedSha256 ?? entry.combinedSha256, outputHash, file);
+    assert.equal(sha256(read(file)), entry.artifactRetentionSha256 ?? outputHash, file);
     if (entry.forgeRunnerAdded) {
       assert.equal(entry.behaviorSource, overlay.forgeRunnerProvenance.reviewedHead, file);
       assert.equal(entry.behaviorSha256, baseHash, file);
@@ -510,6 +520,14 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  // Unwind smarty-dev#1246 artifact retention first: it is the newest layer.
+  for (const entry of historical.files.filter(file => file.preArtifactRetentionCombinedSha256)) {
+    assert.equal(entry.artifactRetentionSha256, entry.combinedSha256);
+    entry.combinedSha256 = entry.preArtifactRetentionCombinedSha256;
+    delete entry.preArtifactRetentionCombinedSha256;
+    delete entry.artifactRetentionSha256;
+    delete entry.artifactRetentionNote;
+  }
   // Unwind PR486 first: it is the newest layer, above inbox Steps; the result is the exact smarty-code ledger.
   historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
   for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {

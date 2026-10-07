@@ -37,6 +37,14 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // Unwind smarty-dev#1246 artifact retention first: it is the newest layer.
+  for (const entry of historical.files.filter(file => file.preArtifactRetentionCombinedSha256)) {
+    assert.equal(entry.artifactRetentionSha256, entry.combinedSha256);
+    entry.combinedSha256 = entry.preArtifactRetentionCombinedSha256;
+    delete entry.preArtifactRetentionCombinedSha256;
+    delete entry.artifactRetentionSha256;
+    delete entry.artifactRetentionNote;
+  }
   // Unwind PR486 first: it is the newest layer, above inbox Steps; the result is the exact smarty-code ledger.
   historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
   for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
