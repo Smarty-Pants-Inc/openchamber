@@ -139,7 +139,10 @@ test('a Send holds its request\'s lock only while it starts and while its prompt
   expect([...heldLocks]).toEqual([]);
   await composerSend(); // The explicit retry to the same started session carries the same request.
   await new Promise(done => setTimeout(done, 1));
-  expect(during).toEqual([[`oc.nativeCreation.sending:${id}`], [`oc.nativeCreation.sending:${id}`]]);
+  // smarty-code#1427: the ordinary session's own Send lock is held alongside, only while each POST is in flight.
+  expect(during.map(names => names.filter(name => name.startsWith('oc.nativeCreation.'))))
+    .toEqual([[`oc.nativeCreation.sending:${id}`], [`oc.nativeCreation.sending:${id}`]]);
+  expect(during.every(names => names.some(name => name.startsWith('oc.send.session:')))).toBe(true);
   expect([...heldLocks]).toEqual([]);
   expect(JSON.parse(localStorage.getItem(`oc.nativeCreation.sent:${JSON.stringify([fx().runtimeA, directory])}`)!))
     .toMatchObject({ clientRequestId: id, admitted: true });
@@ -258,7 +261,9 @@ test('a mark the browser refuses to store blocks the prompt: nothing is sent and
   };
   try { expect(await failure(composerSend('hello'))).toBe('storage'); } finally { localStorage.setItem = setItem; }
   await new Promise(done => setTimeout(done, 1));
-  expect(fx().prompts()).toHaveLength(0); expect([...heldLocks]).toEqual([]);
+  expect(fx().prompts()).toHaveLength(0);
+  // Only this request's native lock matters here; earlier tests' still-held prompts own their session locks.
+  expect([...heldLocks].filter(name => name.startsWith('oc.nativeCreation.'))).toEqual([]);
   await composerSend('hello'); // Storage works again: the same Send goes once.
   expect(fx().prompts()).toHaveLength(1);
 });

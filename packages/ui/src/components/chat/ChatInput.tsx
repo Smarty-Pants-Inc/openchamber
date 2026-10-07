@@ -1,4 +1,4 @@
-import { isGloballyUnavailable, readOpenOrdinaryState } from '@/lib/openOrdinaryState';
+import { isGloballyUnavailable, readOpenOrdinaryState, readOrdinaryOwner } from '@/lib/openOrdinaryState';
 import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
@@ -103,11 +103,11 @@ import { useI18n } from '@/lib/i18n';
 import { sendUnconfirmed } from '@/lib/sendUnconfirmed';
 import { isClientIdConflict, SendRecovery } from '@/lib/sendRecovery';
 import { ascendingId } from '@/sync/session-actions';
+import { sendAdmission, sendContentHash } from '@/sync/send-admission';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { fetchResponseStyleInstruction } from '@/lib/responseStyle';
 import { wrapSystemReminder } from '@/lib/systemReminder';
-import { getAllSyncSessions, getSyncMessages, getSyncSessions } from '@/sync/sync-refs';
-import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
+import { getSyncMessages } from '@/sync/sync-refs';
 import { eventMatchesShortcut, getEffectiveShortcutCombo, normalizeCombo } from '@/lib/shortcuts';
 import {
     assignImageAttachmentFilenames,
@@ -1165,10 +1165,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const handleQueueMessageRef = React.useRef<() => Promise<void>>(async () => {});
     // An ordinary (Pi) session takes a message while its agent works: the server steers it into the running turn
     // (co-steer, MVP 1 G5). So its Send never queues, steers locally or pre-reads the status; it just sends.
-    const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => Boolean(sessionId) && (
-        readOrdinaryModel(getSyncSessions(currentSessionDirectoryForSync ?? currentDirectory ?? undefined)
-            .find(session => session.id === sessionId))
-        ?? readOrdinaryModel(getAllSyncSessions().find(session => session.id === sessionId))) !== undefined,
+    // The same ordinary source as the Send route (smarty-code#1427): a global row or accepted loader view counts too.
+    const isOrdinarySession = React.useCallback((sessionId: string | null | undefined) => !!sessionId
+        && readOrdinaryOwner(getRuntimeKey(), sessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined) !== undefined,
     [currentDirectory, currentSessionDirectoryForSync]);
     const sendsWhileWorking = !isBtwActive && (Boolean(displayedStopStatus?.ordinary) || isOrdinarySession(currentSessionId));
 
@@ -1436,8 +1435,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const recoveryKeys = (sessionId: string | null | undefined, text: string) => {
         if (!sessionId || !isOrdinarySession(sessionId)) return null;
         const input = useInputStore.getState();
+        // Every outgoing context is part of the message's identity (openchamber#566): a retry with other linked or
+        // inline context is a different message, not the same one under its first client ID.
+        const linked = liveLinkedReferences.current;
+        const drafts = inlineDraftTarget ? useInlineCommentDraftStore.getState().getDrafts(inlineDraftTarget) : [];
+        const context = [
+            linked.issue ? `issue:${linked.issue.url}\u0000${linked.issue.contextText ?? ''}` : '',
+            linked.pr ? `pr:${linked.pr.url}\u0000${linked.pr.instructionsText ?? ''}\u0000${linked.pr.contextText ?? ''}` : '',
+            linked.linear ? `linear:${linked.linear.url}\u0000${linked.linear.contextText ?? ''}` : '',
+            // The whole draft: its source, file, line range, side and language are sent too, and editable in place.
+            ...drafts.map(draft => `comment:${JSON.stringify([draft.id, draft.source, draft.fileLabel, draft.startLine,
+                draft.endLine, draft.side ?? null, draft.language, draft.code, draft.text])}`),
+        ].filter(Boolean);
         return { target: [getRuntimeKey(), currentSessionDirectoryForSync ?? currentDirectory ?? '', sessionId].join('\u0000'),
-            content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id), ...(input.pendingSyntheticParts ?? []).map(part => part.text)]) };
+            content: SendRecovery.signature(text, [...input.attachedFiles.map(file => file.id),
+                ...(input.pendingSyntheticParts ?? []).map(part => part.text), ...context]) };
     };
     const submitComposer = async (options?: SubmitOptions) => {
         const attempt: SubmitAttempt = {};
@@ -1458,7 +1470,33 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // notice says to choose another project (openchamber#441 r1).
         if (newSessionDraftOpen && nativeCreation.mode === 'notAdmitted') return;
         // smarty-code#827: the same content to the same session, while its send is unanswered: never posted twice.
-        const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerRef.current?.getValue() ?? messageRef.current);
+        const composerText = composerRef.current?.getValue() ?? messageRef.current;
+        const pendingKeys = options?.queuedOnly ? null : recoveryKeys(currentSessionId, composerText);
+        // smarty-code#1427: while a send to this session is unresolved, in this tab or another, only that same message
+        // (the same text, attachments and context) goes again, with its original client ID, so the gateway dedupes it.
+        // Anything else waits for its outcome. Read for every session: a marker outlives a session turning stock.
+        const unconfirmed = currentSessionId && !options?.queuedOnly
+            ? sendAdmission.unconfirmed(getRuntimeKey(), currentSessionId, currentSessionDirectoryForSync ?? currentDirectory ?? undefined) : undefined;
+        const retryID = unconfirmed && pendingKeys && unconfirmed.contentHash === sendContentHash(pendingKeys.content) ? unconfirmed.messageID : undefined;
+        if (unconfirmed && (!retryID || unconfirmed.inFlight)) {
+            if (unconfirmed.inFlight) { toast.info(t('chat.send.waitingForConfirmation')); return; }
+            // The outcome is unknown and this is not its retry. The person may choose to send anyway, after a second,
+            // explicit confirm that names the risk; nothing is sent by dismissing either notice.
+            const runtimeKey = getRuntimeKey(), sessionId = currentSessionId!, waitingID = unconfirmed.messageID;
+            // Only for this session and this composer: after switching away, the confirm does nothing.
+            const stillHere = () => getRuntimeKey() === runtimeKey && composerSessionIdRef.current === sessionId;
+            toast.info(t('chat.send.waitingForConfirmation'), { action: { label: t('chat.send.discard.action'), onClick: () => {
+                if (!stillHere()) return;
+                toast.warning(t('chat.send.discard.title'), { description: t('chat.send.discard.risk'), duration: Infinity,
+                    action: { label: t('chat.send.discard.confirm'), onClick: () => {
+                        if (!stillHere()) return;
+                        void sendAdmission.discard(runtimeKey, sessionId, waitingID).then(cleared => {
+                            if (cleared && stillHere()) void handleSubmitRef.current(options);
+                        });
+                    } } });
+            } } });
+            return;
+        }
         if (pendingKeys && sendRecovery.current!.wouldBlock(pendingKeys.target, pendingKeys.content)) {
             toast.info(t('chat.send.stillPending'));
             return;
@@ -1706,6 +1744,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             displayName?: string;
             messageID?: string;
             onMessageID?: (messageID: string) => void;
+            admissionText?: string;
         } | undefined;
         if (isBtwActive && btwSessionId && btwDirectory) {
             sendMessageOptions = {
@@ -1950,7 +1989,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             },
             notify: kind => { if (kind === 'unconfirmed') toast.info(t('chat.send.unconfirmed'));
                 else if (kind === 'delivered-late') toast.success(t('chat.send.deliveredLate')); else toast.info(t('chat.send.stillPending')); },
-        }) : null;
+        }, retryID) : null;
         if (watchUnconfirmed && !recovery) { restoreConsumedInput(); return; }
         if (nativeIntent) noteNativeDraftSubmitted(nativeIntent, inputSnapshot.message, submittedAt);
         else clearSubmittedInput();
@@ -2071,7 +2110,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
         // The group's client message ID, fixed at its first Send (before snippet expansion or any other preparation that
         // may stall): every attempt of this content sends with it, so a re-send is one message (review 3, P1 2).
-        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID };
+        // smarty-code#1427: an unresolved Send is recognized by the composer's own text, which is what a retry shows.
+        if (recovery) sendMessageOptions = { ...sendMessageOptions, messageID: recovery.messageID, admissionText: pendingKeys!.content };
         const sendPromise = sendMessage(
             primaryText,
             providerIdToSend,

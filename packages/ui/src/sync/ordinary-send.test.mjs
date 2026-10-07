@@ -33,6 +33,8 @@ const loader = await createServer({ configFile: false, root: fileURLToPath(new U
   resolve: { alias: { '@': ui } }, server: { middlewareMode: true, watch: null, hmr: false, ws: false },
   optimizeDeps: { noDiscovery: true, include: [] } });
 const load = path => loader.ssrLoadModule(`${ui}/${path}`);
+// smarty-code#1427: ordinary Send admission needs Web Locks and localStorage, as every browser runtime has.
+(await load('sync/test-web-locks.ts')).ensureTestWebLocks();
 const { switchRuntimeEndpoint, getRuntimeKey } = await load('lib/runtime-switch.ts');
 switchRuntimeEndpoint({ apiBaseUrl: 'http://127.0.0.1:40000', runtimeKey: 'offline-selected-send' });
 const { opencodeClient } = await load('lib/opencode/client.ts');

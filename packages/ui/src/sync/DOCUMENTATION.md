@@ -78,7 +78,16 @@ An established live proof whose history loader reaches error gets one delayed re
 even if SSE remains connected and the catalog does not change. This check uses the same strict
 native CAS and fresh writable-history requirement. A failed replacement becomes unknown, so it
 cannot retry itself. Unknown retries on existing endpoint, credential-generation, connection or
-loader recovery signals, or an explicit check, not immediately on 503. Credential notifications carry no credentials and fire
+loader recovery signals, or an explicit check, not immediately on 503. The event pipeline's
+transport-readiness signal (`notifySelectedOwnerTransportReady`, sent on reconnect and transport
+switch) is one of those recovery signals. Transport can also come back with no signal at all, so while
+the connection reports ready an unknown owner spends a budget of three delayed rechecks per
+selection (`selectedOwnerRecovery`, 2, 5 and 15 seconds). The budget refills on a readiness signal, a
+committed selection change, or a live or ended result, and changes only in committed effects; an owner
+that stays unreachable stops after three rechecks, with Send fenced. A catalog refresh that republishes
+unchanged rows keeps the `managedRows` identity, so it does not retrigger a failed owner check
+(smarty-code#1392). A same-ID native update that only moves `time.updated` while a check holds its
+scoped detail gets one replacement check; a real generation or owner change gets none. Credential notifications carry no credentials and fire
 after the existing provider assignment. Recovery uses the loader's existing configure seam to revoke
 old accepted views and replace its credential-bound SDK, then requires a fresh writable accepted view.
 There is no new fleet scan, polling loop or mutation redirect. Tests use real SDK,
@@ -94,6 +103,7 @@ pane moves or the original Pi process.
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, one-shot draft-materialization transition identity, abort prompts, worktree metadata, SDK-facing action entrypoints | App UI state |
+| `send-admission.ts` | Ordinary Send admission: one unresolved Send per session, its client ID and text | One runtime; shared by the browser's tabs |
 | `useGlobalSessionsStore.ts` | Global active/archived entities plus root, parent/child, and directory indexes | All opened project/worktree session lists |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
@@ -324,6 +334,36 @@ are not input authority: accepted-view, native readiness and no-replay checks st
 apply independently. Directory aliases are normalized only for the native lookup;
 request payload bytes remain unchanged. Unsupported command/shell mutations and
 ordinary queue admission still fail through their existing gateway/capability gates.
+
+### Ordinary Send admission
+
+`openOrdinaryState.readOrdinaryOwner` is the one ordinary (Pi) classification and model source. The
+composer, `routeMessage` and its final dispatch checks all read it. In order: the selected owner's
+verified state; any directory's row for the session (a row in one directory never masks another's);
+the global listing, only while no directory has a row yet; then a loader view accepted as ordinary
+history, with a Code-created session's creation model as its model. The global listing's
+retained-unavailable or ended mark overrides a directory row, and a target row that is reloading or
+ended is unavailable too. Ordinary without a model refuses; it never falls back to stock.
+
+`send-admission.ts` admits one ordinary Send per runtime and session, across the tabs of this browser
+(smarty-code#1427). `routeMessage` claims the session synchronously, then takes the session's Web Lock
+while its request is unresolved, so a second Send here or in another tab waits. When the request
+leaves, a localStorage marker records its client ID and a hash of the composer's own text (never the
+text). A closed tab, a reload, a lost response,
+a 503 or a client-ID conflict leaves the marker, and every other message to that session waits. The
+same message re-sent with its original client ID is always admitted; the gateway's client-ID
+reservation dedupes it, so its answer settles the outcome without a duplicate. A confirmed message
+with that ID in history settles it too. Known acceptance or refusal clears the marker at once, and
+clearing never sends. Admission fails closed: without Web Locks, or when the browser refuses to
+store the marker, the Send is refused and nothing leaves. The person may also choose "Discard and
+send anyway" on the wait notice; a second confirm names the risk that the earlier message may still
+arrive, and only then is the marker cleared and the new message sent.
+
+The route pins the model `readOrdinaryOwner` names and checks the same source again in the final
+`beforeDispatch` of every request kind (prompt, slash command, shell), after that path's preparation;
+passing it marks the request dispatched. Stock sessions keep their concurrent prompts. A
+stock-classified Send refuses before its POST if the session turns ordinary or gains an unresolved
+Send during preparation.
 
 ### Stream recovery
 

@@ -1,3 +1,4 @@
+import { notifyTransportReady, subscribeTransportReady } from './transport-ready';
 import { z } from 'zod';
 import { opencodeClient } from '@/lib/opencode/client';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
@@ -11,7 +12,7 @@ import type { ChildStoreManager } from './child-store';
 import { getSyncChildStores } from './sync-refs';
 import { adoptObservedSessionOwner } from './session-actions';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
-import { isSelectedOwnerCurrent, observation, readHerdrPaneLive, type SelectedManagedOwner } from './selected-session-owner';
+import { isSelectedOwnerCurrent, observation, ownerRowKey, readHerdrPaneLive, type SelectedManagedOwner } from './selected-session-owner';
 
 const identitySchema = z.object({ id: z.string().min(1), directory: z.string().min(1) });
 let selectionEpoch = 0;
@@ -58,6 +59,12 @@ export function retainSelectedSessionOwner(): () => void {
 export function getSelectedOwnerSelectionEpoch(): number { return selectionEpoch; }
 export function hasActiveSelectedOwnerOperation(): boolean { return Boolean(active); }
 
+// The event pipeline reconnected or switched transport. Carries nothing; mounted hooks treat it as a recovery signal for
+// an unknown owner. Emitted only by real pipeline transitions, so it is bounded by them.
+/** The event pipeline's transport-readiness signal (`transport-ready.ts`), named for the selected-owner recovery. */
+export const subscribeSelectedOwnerTransportReady = subscribeTransportReady;
+export const notifySelectedOwnerTransportReady = notifyTransportReady;
+
 // Per-ID CAS, not an ordering of opaque native generations. Direct child writes are observations too.
 function nativeSnapshot(sessionID: string, directory: string, stores: ChildStoreManager) {
   const state = stores.getState(directory);
@@ -68,9 +75,22 @@ function sameNativeSnapshot(expected: ReturnType<typeof nativeSnapshot>, session
   const current = nativeSnapshot(sessionID, directory, stores);
   return current.row === expected.row && current.event === expected.event && current.deleted === expected.deleted;
 }
+/** The CAS fence moved. `equal` says the newer row is the same owner observation (e.g. only time.updated changed). */
+class NativeObservationChanged extends Error {
+  constructor(readonly expected: ReturnType<typeof nativeSnapshot>, readonly directory: string) { super('Destination native observation changed'); }
+  equal(sessionID: string, stores: ChildStoreManager): boolean {
+    const current = nativeSnapshot(sessionID, this.directory, stores);
+    return Boolean(current.row && this.expected.row) && current.deleted === this.expected.deleted
+      && ownerRowKey(current.row) === ownerRowKey(this.expected.row);
+  }
+}
 
 /** Explicit retry/direct checks own their observers until settlement; mounted checks share their lifetime and request. */
 export function checkSelectedSessionOwner(sessionID: string, directory: string, childStores?: ChildStoreManager): Promise<void> {
+  return runSelectedOwnerCheck(sessionID, directory, childStores, false);
+}
+/** `replacement`: this check replaces one whose CAS fence moved under an equal observation; it gets no replacement. */
+function runSelectedOwnerCheck(sessionID: string, directory: string, childStores: ChildStoreManager | undefined, replacement: boolean): Promise<void> {
   const existing = useSessionUIStore.getState().selectedManagedOwner;
   if (existing?.status === 'checking' && isSelectedOwnerCurrent(existing, childStores) && active?.promise && !active.controller.signal.aborted) return active.promise;
   const projects = useProjectsStore.getState();
@@ -105,6 +125,7 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
     request.then(resolve, reject).finally(() => controller.signal.removeEventListener('abort', abort));
     if (controller.signal.aborted) abort();
   });
+  let replace = false;
   const run = (async () => {
     try {
       assertCurrent();
@@ -118,7 +139,7 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
       if (identity.id !== sessionID || !initialNative) throw new Error('Selected owner is outside current admitted catalog');
       let baseline = initialNative;
       const assertDestination = () => {
-        if (!sameNativeSnapshot(baseline, sessionID, identity.directory, stores)) throw new Error('Destination native observation changed');
+        if (!sameNativeSnapshot(baseline, sessionID, identity.directory, stores)) throw new NativeObservationChanged(baseline, identity.directory);
       };
       assertDestination();
       const pane = readHerdrPaneLive(result.data);
@@ -138,7 +159,8 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
       }
       let acceptedNative = baseline;
       stops.push(destination.subscribe(() => {
-        if (!operation.adopting && !sameNativeSnapshot(acceptedNative, sessionID, identity.directory, stores)) controller.abort(new Error('Destination native observation changed'));
+        if (!operation.adopting && !controller.signal.aborted && !sameNativeSnapshot(acceptedNative, sessionID, identity.directory, stores))
+          controller.abort(new NativeObservationChanged(acceptedNative, identity.directory));
       }));
       const detail = await bound(opencodeClient.getScopedSdkClient(identity.directory).session.get({ sessionID }, { signal: controller.signal }));
       assertCurrent();
@@ -162,8 +184,8 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
       loader.configure({ sdk: opencodeClient.getSdkClient(), runtimeKey: scope.runtimeKey });
       await bound(loader.ensure(target, { force: true, reason: 'navigation' }));
       assertCurrent();
-      if (!sameNativeSnapshot(acceptedNative, sessionID, identity.directory, stores) || loader !== getImperativeSessionMessageLoader())
-        throw new Error('Destination native observation or loader changed');
+      if (loader !== getImperativeSessionMessageLoader()) throw new Error('Selected destination loader changed');
+      if (!sameNativeSnapshot(acceptedNative, sessionID, identity.directory, stores)) throw new NativeObservationChanged(acceptedNative, identity.directory);
       const view = loader.getSnapshot(target);
       if (!view.resolved || view.status !== 'ready' || view.readOnly !== false || !loader.getAcceptedOrdinaryView(target, scope.runtimeKey))
         throw new Error('Fresh destination history has no accepted writable view');
@@ -173,6 +195,10 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
       if (active === operation && useSessionUIStore.getState().selectedManagedOwner === proof && isSelectedOwnerCurrent(proof, stores)) {
         proof = { ...proof, status: 'unknown', reason: error instanceof Error ? error.message : 'Selected owner unavailable' };
         useSessionUIStore.setState({ selectedManagedOwner: proof });
+        // smarty-code#1414: a newer same-ID row that is the same owner observation (only time.updated, say) moved the CAS
+        // fence without changing what the hook watches, so nothing else would ask again. Spend one replacement check;
+        // it captures a fresh fence. A semantic change is not replaced here: the observation or a recovery signal owns it.
+        replace = !replacement && error instanceof NativeObservationChanged && error.equal(sessionID, stores);
       }
     } finally {
       clearTimeout(timeout);
@@ -180,6 +206,9 @@ export function checkSelectedSessionOwner(sessionID: string, directory: string, 
       if (active === operation) active = undefined;
       releaseObservers();
     }
+    // Still current: the unknown proof published above is the store's proof and its fences hold.
+    if (replace && !active && useSessionUIStore.getState().selectedManagedOwner === proof && isSelectedOwnerCurrent(proof, stores))
+      await runSelectedOwnerCheck(sessionID, proof.directory, childStores, true);
   })();
   operation.promise = run;
   return run;

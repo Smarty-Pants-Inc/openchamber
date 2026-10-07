@@ -1,0 +1,218 @@
+import { z } from 'zod';
+import { getSyncMessages } from './sync-refs';
+import { optimisticMessageRecords } from './unsaved';
+
+/**
+ * smarty-code#1427: one ordinary (Pi) Send at a time per runtime and session, across the tabs of this browser.
+ *
+ * - A Send claims the session synchronously in this page, then takes the session's Web Lock for as long as its request
+ *   is unresolved. Another tab's Send, or a second Send here, is refused meanwhile ("Waiting for your last message").
+ * - Once the request leaves (dispatched), a marker in localStorage names its client message ID and text. A tab closed
+ *   mid-request, a reload, or an ambiguous outcome (lost response, 503, client-ID conflict) leaves that marker: the
+ *   session stays fenced for every OTHER message, in every tab, until the outcome is known.
+ * - The same message, re-sent with its original client ID, is always admitted. The gateway's client-ID reservation
+ *   dedupes it, so this is how an unknown outcome gets resolved without risking a duplicate: its answer (accepted or
+ *   refused) settles the marker. A confirmed message with that ID in the session's history settles it too.
+ * - Known acceptance or refusal clears the marker at once. Clearing never sends anything.
+ *
+ * It fails closed: without Web Locks, or when the marker cannot be stored, the Send is refused and nothing is sent.
+ * The marker keeps the client ID and a hash of the text, never the text itself.
+ */
+type SendOutcome = 'refused' | 'unknown';
+type SendAttempt = {
+  readonly messageID: string;
+  /** Takes the cross-tab lock. Anything but 'acquired' means the attempt is already released and nothing may be sent. */
+  acquire(): Promise<AcquireResult>;
+  /** False once a newer claim replaced this one, or the outcome turned unknown. */
+  canDispatch(): boolean;
+  /** The request is about to leave: from here an ambiguous failure keeps the session fenced. Throws, so nothing is sent,
+   * when the marker cannot be stored. */
+  dispatched(): void;
+  accepted(): void;
+  failed(outcome: SendOutcome): void;
+};
+/** `inFlight`: this tab's request is still being prepared or awaiting its answer; not even its retry goes yet. */
+type UnconfirmedSend = { messageID: string; contentHash: string; inFlight: boolean };
+/** Why `acquire` refused: another tab holds the session, or this browser cannot enforce one Send at a time. */
+type AcquireResult = 'acquired' | 'busy' | 'unsupported';
+
+type Phase = 'preparing' | 'dispatched' | 'unknown';
+type Claim = { messageID: string; contentHash: string; phase: Phase; unlock: () => void };
+
+const markerSchema = z.object({ messageID: z.string().min(1), contentHash: z.string().min(1) });
+type Marker = z.infer<typeof markerSchema>;
+const key = (runtimeKey: string, sessionId: string) => JSON.stringify([runtimeKey, sessionId]);
+const markerKey = (runtimeKey: string, sessionId: string) => `oc.send.unconfirmed:${key(runtimeKey, sessionId)}`;
+const lockName = (runtimeKey: string, sessionId: string) => `oc.send.session:${key(runtimeKey, sessionId)}`;
+const claims = new Map<string, Claim>();
+/** This page's last lock request per session: it settles once the browser has really released the lock. */
+const releasing = new Map<string, Promise<unknown>>();
+const locks = (): LockManager | undefined => globalThis.navigator?.locks;
+
+function readMarker(runtimeKey: string, sessionId: string): Marker | undefined {
+  let raw: string | null;
+  try { raw = localStorage.getItem(markerKey(runtimeKey, sessionId)); } catch { return undefined; }
+  if (raw === null) return undefined;
+  const parse = (text: string) => { try { return markerSchema.safeParse(JSON.parse(text)); } catch { return markerSchema.safeParse(null); } };
+  const parsed = parse(raw);
+  if (parsed.success) return parsed.data;
+  // Not a marker this build writes (an earlier format kept the prompt text): remove it rather than keep the text.
+  const stale = raw;
+  void removeMarkerUnderLock(runtimeKey, sessionId, current => current === stale);
+  return undefined;
+}
+
+/**
+ * Removes the marker only while holding the session's lock, and only if `matches` still accepts the value stored then.
+ * Every marker write and removal happens under that lock (a Send holds it from acquire to settle), so this is a
+ * compare-and-delete: a live marker written by another tab is never erased. False when the lock is busy or missing, or
+ * the browser refused the removal; the marker then stays.
+ */
+async function removeMarkerUnderLock(runtimeKey: string, sessionId: string, matches: (raw: string) => boolean): Promise<boolean> {
+  const manager = locks();
+  if (!manager) return false;
+  try {
+    return await manager.request(lockName(runtimeKey, sessionId), { ifAvailable: true }, lock => {
+      if (!lock) return false;
+      const raw = localStorage.getItem(markerKey(runtimeKey, sessionId));
+      if (raw === null) return true;
+      if (!matches(raw)) return false;
+      localStorage.removeItem(markerKey(runtimeKey, sessionId));
+      return true;
+    });
+  } catch { return false; }
+}
+const markerNamed = (messageID: string) => (raw: string) => {
+  try { return markerSchema.safeParse(JSON.parse(raw)).data?.messageID === messageID; } catch { return false; }
+};
+/** False when the browser refused the write: the caller must not rely on the marker. */
+function writeMarker(runtimeKey: string, sessionId: string, marker: Marker | null): boolean {
+  try {
+    if (marker) localStorage.setItem(markerKey(runtimeKey, sessionId), JSON.stringify(marker));
+    else localStorage.removeItem(markerKey(runtimeKey, sessionId));
+    return true;
+  } catch { return false; }
+}
+
+/** FNV-1a 64-bit of the exact content identity: enough to recognize the same message again, without storing it. */
+export function sendContentHash(identity: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const unit of new TextEncoder().encode(identity)) hash = BigInt.asUintN(64, (hash ^ BigInt(unit)) * 0x100000001b3n);
+  return hash.toString(16).padStart(16, '0');
+}
+
+/** A confirmed (not optimistic) user message with this client ID in the session's history: it was delivered. */
+function delivered(sessionId: string, directory: string | undefined, messageID: string) {
+  return getSyncMessages(sessionId, directory).some(message => message.id === messageID && !optimisticMessageRecords.has(message));
+}
+
+/** Settles an unknown send whose message now shows in history. */
+/** True when localStorage is readable here, so a missing marker means another tab settled the send. */
+function storageReadable() {
+  try { localStorage.getItem('oc.send.probe'); return true; } catch { return false; }
+}
+
+function reconcile(runtimeKey: string, sessionId: string, directory: string | undefined) {
+  const id = key(runtimeKey, sessionId), claim = claims.get(id), marker = readMarker(runtimeKey, sessionId);
+  if (claim?.phase === 'unknown' && (delivered(sessionId, directory, claim.messageID)
+    || (!marker && storageReadable()))) claims.delete(id);
+  if (marker && !(claims.get(id) && claims.get(id)?.messageID === marker.messageID && claims.get(id)?.phase !== 'unknown')
+    && delivered(sessionId, directory, marker.messageID)) void removeMarkerUnderLock(runtimeKey, sessionId, markerNamed(marker.messageID));
+}
+
+/** The stored marker, unless history already shows its message delivered (its removal may still be pending). */
+function liveMarker(runtimeKey: string, sessionId: string, directory: string | undefined): Marker | undefined {
+  const marker = readMarker(runtimeKey, sessionId);
+  return marker && !delivered(sessionId, directory, marker.messageID) ? marker : undefined;
+}
+
+export const sendAdmission = {
+  /**
+   * The send this session is waiting on, from this tab or another: its client ID and text. Undefined when the session
+   * takes a new message now. A session waiting only on another tab's in-flight first send (lock held, no marker yet)
+   * reads as free here; `begin` and `acquire` still refuse it.
+   */
+  unconfirmed(runtimeKey: string, sessionId: string, directory?: string): UnconfirmedSend | undefined {
+    reconcile(runtimeKey, sessionId, directory);
+    const claim = claims.get(key(runtimeKey, sessionId));
+    if (claim) return { messageID: claim.messageID, contentHash: claim.contentHash, inFlight: claim.phase !== 'unknown' };
+    const marker = liveMarker(runtimeKey, sessionId, directory);
+    return marker && { ...marker, inFlight: false };
+  },
+
+  /**
+   * The person chose to send without waiting ("Discard and send anyway", after a confirm that names the risk): forget the
+   * unresolved Send `messageID`, here and in other tabs. Refused while that request is still in flight in this tab, while
+   * another tab holds the session (it may be retrying), and without Web Locks. The marker is removed under the lock.
+   */
+  async discard(runtimeKey: string, sessionId: string, messageID: string): Promise<boolean> {
+    const id = key(runtimeKey, sessionId), claim = claims.get(id);
+    if (claim && (claim.messageID !== messageID || claim.phase !== 'unknown')) return false;
+    if (!await removeMarkerUnderLock(runtimeKey, sessionId, markerNamed(messageID))) return false;
+    if (claims.get(id) === claim && claim) claims.delete(id);
+    return true;
+  },
+
+  /**
+   * Claims the session for one Send, synchronously. Null when another message to it is unresolved; the same message
+   * (its original client ID) is admitted, as its retry.
+   */
+  begin(runtimeKey: string, sessionId: string, messageID: string, content: string, directory?: string): SendAttempt | null {
+    reconcile(runtimeKey, sessionId, directory);
+    const id = key(runtimeKey, sessionId), held = claims.get(id), marker = liveMarker(runtimeKey, sessionId, directory);
+    const contentHash = sendContentHash(content);
+    if (held && !(held.phase === 'unknown' && held.messageID === messageID && held.contentHash === contentHash)) return null;
+    if (marker && (marker.messageID !== messageID || marker.contentHash !== contentHash)) return null;
+    // A retry of an unresolved send: if it fails before leaving, the original is still unresolved.
+    const retry = held?.phase === 'unknown' || marker?.messageID === messageID;
+    const claim: Claim = { messageID, contentHash, phase: 'preparing', unlock: () => {} };
+    claims.set(id, claim);
+    const owns = () => claims.get(id) === claim;
+    // Marker writes happen before the lock is released, so no other tab writes or cleans the marker in between.
+    const settle = (keepMarker: boolean) => {
+      if (!owns()) { claim.unlock(); return; }
+      if (keepMarker) { claim.phase = 'unknown'; writeMarker(runtimeKey, sessionId, { messageID, contentHash }); claim.unlock(); return; }
+      claims.delete(id);
+      const current = readMarker(runtimeKey, sessionId);
+      if (current?.messageID === messageID) writeMarker(runtimeKey, sessionId, null);
+      claim.unlock();
+    };
+    return {
+      messageID,
+      acquire: async () => {
+        const manager = locks();
+        if (!manager) { if (owns() && !retry) claims.delete(id); else if (owns()) claim.phase = 'unknown'; return 'unsupported'; }
+        const released = new Promise<void>(resolve => { claim.unlock = resolve; });
+        // This page's own previous Send may still be letting go of the lock: that is not another tab.
+        await releasing.get(id);
+        const taken = await new Promise<boolean>(resolve => {
+          const request = manager.request(lockName(runtimeKey, sessionId), { ifAvailable: true }, lock => {
+            resolve(Boolean(lock));
+            return lock ? released : undefined;
+          }).catch(() => resolve(false));
+          releasing.set(id, request);
+        });
+        if (!taken || !owns()) {
+          // Another tab holds the session. A retry leaves the original unresolved; a first Send leaves nothing behind.
+          if (owns()) { if (retry) claim.phase = 'unknown'; else claims.delete(id); }
+          claim.unlock();
+          return 'busy';
+        }
+        return 'acquired';
+      },
+      canDispatch: () => owns() && claim.phase !== 'unknown',
+      dispatched: () => {
+        if (!owns() || claim.phase !== 'preparing') return;
+        // From here a closed tab, a reload or a lost response leaves the session fenced for other messages. A marker
+        // the browser refuses to store fences nothing, so the request does not leave.
+        if (!writeMarker(runtimeKey, sessionId, { messageID, contentHash })) throw new Error('send-admission: marker not stored');
+        claim.phase = 'dispatched';
+      },
+      accepted: () => settle(false),
+      failed: outcome => {
+        if (!owns()) { claim.unlock(); return; }
+        settle(claim.phase === 'preparing' ? retry : outcome === 'unknown');
+      },
+    };
+  },
+};

@@ -14,12 +14,17 @@
 
 import type { ContextPartMetadata } from "@/lib/messages/contextParts"
 import { create } from "zustand"
-import { isSelectedOwnerCurrent, selectedOwnerOrdinaryState } from "./selected-session-owner"
+import { isSelectedOwnerCurrent } from "./selected-session-owner"
+import { readOrdinaryOwner } from "@/lib/openOrdinaryState"
+import { sendAdmission } from "./send-admission"
+import { isAmbiguousSendFailure } from "./send-failure-classification"
+import { isClientIdConflict } from "@/lib/sendRecovery"
+import { formatMessage, useI18nStore } from "@/lib/i18n"
 import type { Session, Part, TextPart } from "@opencode-ai/sdk/v2/client"
 import type { AttachedFile, SessionContextUsage, SessionWorktreeAttachment } from "@/stores/types/sessionTypes"
 import type { WorktreeMetadata } from "@/types/worktree"
 import { opencodeClient } from "@/lib/opencode/client"
-import { readOrdinaryModel, sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
+import { sameOrdinaryModel } from '@/lib/opencode/ordinaryModel'
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { capturePersonalSidebarAdmission, isPersonalSidebarAdmissionCurrent } from '@/lib/sidebar-view'
 import { useConfigStore } from "@/stores/useConfigStore"
@@ -72,6 +77,7 @@ import {
   shareSession as shareSessionAction,
   unshareSession as unshareSessionAction,
   optimisticSend,
+  ascendingId,
   refetchSessionMessages,
   revertToMessage as revertToMessageAction,
   unrevertSession as unrevertSessionAction,
@@ -150,7 +156,7 @@ export function expandSlashCommandGoalObjective(content: string, commands: GoalC
 // Send routing — shell mode, slash commands, or normal prompt
 // ---------------------------------------------------------------------------
 
-export async function routeMessage(params: {
+type RouteMessageParams = {
   runtimeKey?: string
   sessionId: string
   directory?: string | null
@@ -170,27 +176,74 @@ export async function routeMessage(params: {
   /** smarty-code#827: the client message ID to send with (a re-send of an unconfirmed text reuses its first send's). */
   messageID?: string
   onMessageID?: (messageID: string) => void
-}): Promise<'command' | 'prompt' | 'shell'> {
-  params.beforeDispatch?.()
-  const requestDirectory = params.directory ?? undefined
-  const selectedOrdinary = () => {
-    const directory = normalizePath(requestDirectory) ?? undefined
-    return selectedOwnerOrdinaryState(params.sessionId, directory) ?? readOrdinaryModel(getSyncSessions(directory)
-      .find(session => session.id === params.sessionId && (!directory || normalizePath(session.directory) === directory)))
+  /** Runs once the optimistic row is in the transcript (prompt and command sends), never for a refused Send. */
+  onOptimisticInsert?: () => void
+  /** smarty-code#1427: the text a retry of this Send is recognized by (the composer's own text, before snippet and
+   * mention preparation). Defaults to `content`. */
+  admissionText?: string
+}
+
+const sendError = (key: 'chat.send.waitingForConfirmation' | 'chat.send.notSent' | 'common.unavailable') =>
+  new Error(formatMessage(useI18nStore.getState().dictionary, key))
+
+/**
+ * smarty-code#1427. Ordinary (Pi) Sends are admitted one at a time per runtime and session, across tabs
+ * (`send-admission.ts`), and use the model `readOrdinaryOwner` names, checked again before every request leaves.
+ * Stock sessions keep their concurrent prompts.
+ */
+export async function routeMessage(params: RouteMessageParams): Promise<'command' | 'prompt' | 'shell'> {
+  const runtimeKey = params.runtimeKey ?? getRuntimeKey()
+  // The directory this send goes to, captured once (an omitted one takes the client's now) and passed down, so the
+  // classification and the SDK never read different directories.
+  const directory = normalizePath(params.directory) ?? normalizePath(opencodeClient.getDirectory()) ?? undefined
+  params = { ...params, runtimeKey, directory }
+  const ordinaryOwner = () => readOrdinaryOwner(runtimeKey, params.sessionId, directory)
+  const waiting = () => sendAdmission.unconfirmed(runtimeKey, params.sessionId, directory) !== undefined
+  const pinned = ordinaryOwner()
+  if (!pinned && !waiting()) {
+    // Stock stays stock only while nothing says otherwise: an ordinary observation or another Send's reservation
+    // arriving during preparation refuses before any request leaves.
+    return dispatchRouteMessage({ ...params, beforeDispatch: () => {
+      if (ordinaryOwner() || waiting()) throw sendError('chat.send.notSent')
+      params.beforeDispatch?.()
+    } }, () => {})
   }
-  const ordinary = selectedOrdinary()
-  if (ordinary) {
-    const { formatMessage, useI18nStore } = await import('@/lib/i18n')
-    const unavailable = () => new Error(formatMessage(useI18nStore.getState().dictionary, 'common.unavailable'))
-    if (!ordinary.model) throw unavailable()
-    const beforeDispatch = params.beforeDispatch
-    params = { ...params, providerID: ordinary.model.providerID, modelID: ordinary.model.modelID,
-      agent: undefined, variant: undefined, beforeDispatch: () => {
-        beforeDispatch?.()
-        if (!sameOrdinaryModel(ordinary, selectedOrdinary())) throw unavailable()
-      } }
+  if (!pinned?.model) throw sendError(pinned ? 'common.unavailable' : 'chat.send.waitingForConfirmation')
+  const model = pinned.model
+  const scope = captureRuntimeRequestScope()
+  if (runtimeKey !== scope.runtimeKey) throw new Error('Message was not sent because the runtime changed.')
+  const attempt = sendAdmission.begin(runtimeKey, params.sessionId, params.messageID ?? ascendingId('msg'),
+    params.admissionText ?? params.content, directory)
+  if (!attempt) throw sendError('chat.send.waitingForConfirmation')
+  const acquired = await attempt.acquire()
+  // 'unsupported': this browser cannot keep one Send at a time across tabs, so it sends nothing rather than risk two.
+  if (acquired !== 'acquired') throw sendError(acquired === 'busy' ? 'chat.send.waitingForConfirmation' : 'chat.send.notSent')
+  const beforeDispatch = () => {
+    if (!isRuntimeRequestScopeCurrent(scope)) throw new Error('Message was not sent because the runtime changed.')
+    if (!attempt.canDispatch()) throw sendError('chat.send.waitingForConfirmation')
     params.beforeDispatch?.()
+    // The same source, the same generation and model, and still available, right before the request leaves.
+    if (!sameOrdinaryModel(pinned, ordinaryOwner())) throw sendError('common.unavailable')
   }
+  try {
+    const result = await dispatchRouteMessage({ ...params, messageID: attempt.messageID, providerID: model.providerID,
+      modelID: model.modelID, agent: undefined, variant: undefined, beforeDispatch }, () => {
+      try { attempt.dispatched() } catch { throw sendError('chat.send.notSent') }
+    }, true)
+    attempt.accepted()
+    return result
+  } catch (error) {
+    const conflict = isClientIdConflict(error instanceof Error ? error.message : String(error ?? ''))
+    attempt.failed(conflict || isAmbiguousSendFailure(error) ? 'unknown' : 'refused')
+    throw error
+  }
+}
+
+/** Sends one admitted message. `dispatched` runs inside each request's final check, right before it leaves. */
+async function dispatchRouteMessage(params: RouteMessageParams, dispatched: () => void, ordinaryOwner = false): Promise<'command' | 'prompt' | 'shell'> {
+  const requestDirectory = params.directory ?? undefined
+  const finalCheck = () => { params.beforeDispatch?.(); dispatched() }
+  params.beforeDispatch?.()
   if (params.displayName !== undefined && (params.inputMode === 'shell' || params.content.startsWith('/') || params.delivery)) {
     const { formatMessage, useI18nStore } = await import('@/lib/i18n')
     throw new Error(formatMessage(useI18nStore.getState().dictionary, 'chat.displayName.plainOnly'))
@@ -205,7 +258,10 @@ export async function routeMessage(params: {
       agent: params.agent ?? "",
       model: { providerID: params.providerID, modelID: params.modelID },
       command: params.content,
+      messageId: params.messageID,
+      beforeDispatch: finalCheck,
     })
+    if (params.messageID) params.onMessageID?.(params.messageID)
     return 'shell'
   }
 
@@ -244,6 +300,10 @@ export async function routeMessage(params: {
           directory: requestDirectory,
           files: params.files,
           appendSubmissions: params.appendSubmissions,
+          // The admission's client ID (a retry keeps its first send's), as for prompts.
+          messageID: params.messageID,
+          onMessageID: params.onMessageID,
+          onOptimisticInsert: params.onOptimisticInsert,
           send: (messageID) => opencodeClient.sendCommand({
             runtimeKey: params.runtimeKey,
             id: params.sessionId,
@@ -256,6 +316,7 @@ export async function routeMessage(params: {
             files: params.files,
             messageId: messageID,
             directory: requestDirectory,
+            beforeDispatch: finalCheck,
           }).then(() => {}),
         })
         return 'command'
@@ -283,6 +344,7 @@ export async function routeMessage(params: {
   await optimisticSend({
     runtimeKey: params.runtimeKey,
     beforeOptimisticInsert: params.beforeDispatch,
+    onOptimisticInsert: params.onOptimisticInsert,
     sessionId: params.sessionId,
     content: params.content,
     providerID: params.providerID,
@@ -295,7 +357,8 @@ export async function routeMessage(params: {
     onMessageID: params.onMessageID,
     send: (messageID) => opencodeClient.sendMessage({
       runtimeKey: params.runtimeKey,
-      beforeDispatch: params.beforeDispatch,
+      beforeDispatch: finalCheck,
+      ordinaryOwner,
       id: params.sessionId,
       providerID: params.providerID,
       modelID: params.modelID,
@@ -339,6 +402,8 @@ type SendMessageOptions = {
   /** smarty-code#827: see routeMessage. */
   messageID?: string
   onMessageID?: (messageID: string) => void
+  /** smarty-code#1427: see routeMessage. */
+  admissionText?: string
 }
 
 type AssistantMessageSessionExecution = {
@@ -2273,6 +2338,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       displayName,
       messageID: options?.messageID,
       onMessageID: options?.onMessageID,
+      admissionText: options?.admissionText,
       additionalParts: partsWithPinnedContext?.map((p) => ({
         text: p.text,
         synthetic: p.synthetic,

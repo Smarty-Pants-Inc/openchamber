@@ -59,7 +59,7 @@ export class SendRecovery {
    * A Send of `content` to `target`. Returns null when the same content's send to the same target is still unanswered
    * and its input was not given back (a second Send would post it twice): the caller keeps the input and says so.
    */
-  begin(target: string, content: string, hooks: Hooks): RecoveryAttempt | null {
+  begin(target: string, content: string, hooks: Hooks, messageID?: string): RecoveryAttempt | null {
     const key = `${target}\u0000${content}`;
     let g = this.groups.get(key);
     if (g && !g.delivered && g.pending > 0 && !g.copyInComposer) { g.notify('still-pending'); return null; }
@@ -68,7 +68,8 @@ export class SendRecovery {
       g.copyInComposer = false; g.saved = false; g.due = null; Object.assign(g, hooks);
     } else {
       if (g) this.drop(g);
-      g = { key, target, ...hooks, messageID: this.newID(), pending: 0, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
+      // `messageID`: a retry of a send left unresolved elsewhere (another tab, a remounted composer) keeps its ID.
+      g = { key, target, ...hooks, messageID: messageID ?? this.newID(), pending: 0, delivered: false, copyInComposer: false, saved: false, due: null, timers: new Set() };
       this.groups.set(key, g);
     }
     const group = g; let settled = false;

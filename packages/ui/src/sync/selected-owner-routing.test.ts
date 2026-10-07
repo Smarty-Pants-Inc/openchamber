@@ -29,10 +29,12 @@ test('PREFLIGHT: generation superseded during dispatch preparation blocks before
   let calls = 0;
   let raw: unknown;
   try { await routeMessage({ runtimeKey: 'owner-test', sessionId: id, directory: B, content: 'hello', providerID: 'p', modelID: 'm', beforeDispatch: () => {
-    if (++calls === 4) fixture.stores.ensureChild(B, { bootstrap: false }).setState({ session: [{ ...row(B), ...{ ordinary: { ...ordinary, generation: 'g2' } } }] });
+    // smarty-code#1427: the route calls this at entry, before the optimistic insert, and in the final check before the
+    // POST. The generation changes in the pre-insert check; the route's model check right after it refuses.
+    if (++calls === 2) fixture.stores.ensureChild(B, { bootstrap: false }).setState({ session: [{ ...row(B), ...{ ordinary: { ...ordinary, generation: 'g2' } } }] });
   } }); } catch (error) { raw = error; }
   console.log('preflight calls=', calls, 'raw=', raw);
-  expect(raw).toBeInstanceOf(Error); expect(calls).toBe(4); expect(requests.filter(request => request.method !== 'GET')).toHaveLength(0);
+  expect(raw).toBeInstanceOf(Error); expect(calls).toBe(2); expect(requests.filter(request => request.method !== 'GET')).toHaveLength(0);
 });
 
 test('REFRESH: observed move resists actual older bootstrap merge in source and destination', async () => {

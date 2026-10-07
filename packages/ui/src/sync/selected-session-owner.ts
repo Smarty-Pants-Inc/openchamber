@@ -14,7 +14,8 @@ import type { ChildStoreManager } from './child-store';
 import { useDirectoryStore, useSyncRuntime } from './sync-context';
 import { getSyncSessions } from './sync-refs';
 import { getImperativeSessionMessageLoader } from './session-message-loader';
-import { checkSelectedSessionOwner, retainSelectedSessionOwner, getSelectedOwnerSelectionEpoch, hasActiveSelectedOwnerOperation } from './selected-owner-operation';
+import { checkSelectedSessionOwner, retainSelectedSessionOwner, getSelectedOwnerSelectionEpoch, hasActiveSelectedOwnerOperation,
+  subscribeSelectedOwnerTransportReady } from './selected-owner-operation';
 export { checkSelectedSessionOwner, retainSelectedSessionOwner } from './selected-owner-operation';
 
 // Gateway1322 identity.ts emits this topology field. Status/model/cache presence is not pane liveness.
@@ -29,14 +30,15 @@ export type SelectedManagedOwner = OwnerOutcome & {
   catalog: ManagedProject[]; observation: string; selectionEpoch: number; adopted?: boolean;
 };
 const unavailable = { generation: null, sequence: 0, model: null, thinkingLevel: null } as const;
-const rowKey = (row: Session | undefined) => JSON.stringify([row?.directory, row?.title, herdrSignature(row), readHerdrPaneLive(row),
+/** The owner observation of one row: what can change ownership, readiness or routing. Not time.updated. */
+export const ownerRowKey = (row: Session | undefined) => JSON.stringify([row?.directory, row?.title, herdrSignature(row), readHerdrPaneLive(row),
   readOrdinaryModel(row), Boolean(row && 'smartyRetainedUnavailable' in row && row.smartyRetainedUnavailable)]);
 type ScopedChildStores = Pick<ChildStoreManager, 'getState'>;
 function getScopedSessions(directory: string, childStores?: ScopedChildStores): Session[] {
   return childStores ? childStores.getState(directory)?.session ?? [] : getSyncSessions(directory);
 }
 export function observation(sessionID: string, directory: string, childStores?: ScopedChildStores): string {
-  return rowKey(getScopedSessions(directory, childStores).find(row => row.id === sessionID)) + rowKey(useGlobalSessionsStore.getState().entityById.get(sessionID));
+  return ownerRowKey(getScopedSessions(directory, childStores).find(row => row.id === sessionID)) + ownerRowKey(useGlobalSessionsStore.getState().entityById.get(sessionID));
 }
 export function needsSelectedOwnerCheck(sessionID: string, directory: string, childStores?: ScopedChildStores): boolean {
   if (!useProjectsStore.getState().managedCatalogAdmitted) return false;
@@ -91,6 +93,8 @@ export function selectedOwnerOrdinaryState(sessionID: string, directory: string 
   return owner.status === 'live'
     ? readOrdinaryModel(getSyncSessions(owner.row.directory).find(row => row.id === sessionID)) ?? unavailable : unavailable;
 }
+/** Delays of the bounded delayed rechecks of an unknown owner while connected and catalog-ready. Test seam. */
+export const selectedOwnerRecovery = { delaysMs: [2_000, 5_000, 15_000] };
 export function useSelectedSessionOwner(sessionID: string | null | undefined, directory: string | undefined, historyReadOnly: boolean | undefined) {
   const { childStores, messageLoader, runtimeKey } = useSyncRuntime();
   const store = useDirectoryStore(directory ?? '', { bootstrap: false });
@@ -108,7 +112,7 @@ export function useSelectedSessionOwner(sessionID: string | null | undefined, di
   }, []);
   const subscribe = React.useCallback((listener: () => void) => store.subscribe(listener), [store]);
   const snapshot = React.useCallback(() => sessionID && directory
-    ? rowKey(store.getState().session.find(row => row.id === sessionID)) : '', [store, sessionID, directory]);
+    ? ownerRowKey(store.getState().session.find(row => row.id === sessionID)) : '', [store, sessionID, directory]);
   const key = React.useSyncExternalStore(subscribe, snapshot, snapshot);
   const subscribeHistory = React.useCallback((listener: () => void) => sessionID && directory
     ? messageLoader.subscribe({ sessionID, directory }, listener) : () => {}, [sessionID, directory, messageLoader]);
@@ -152,5 +156,31 @@ export function useSelectedSessionOwner(sessionID: string | null | undefined, di
     if (owner?.status === 'checking' && (!currentProof || unusableLiveProof && recovery) || owner?.status === 'unknown' && recovery)
       void checkSelectedSessionOwner(sessionID, directory, childStores);
   }, [sessionID, directory, key, historyKey, global, catalog, catalogStatus, recoveryRevision, historyReadOnly, proof, childStores, messageLoader]);
-  return readSelectedSessionOwner(sessionID, directory, childStores, messageLoader);
+  const owner = readSelectedSessionOwner(sessionID, directory, childStores, messageLoader);
+  // A check that failed while transport was down leaves unknown, and transport can return without a connection,
+  // catalog or loader change. Two bounded paths recover it: the pipeline's transport-readiness signal, and a few
+  // delayed rechecks per committed selection while connected and catalog-ready. The signal, a selection change and
+  // live/ended refill the budget, so it is never spent for good; a session that stays unreachable stops polling.
+  // Budget state changes only in committed effects and the signal's handler, never during render: an abandoned
+  // render of another selection cannot reset or spend the committed selection's budget.
+  const retries = React.useRef({ selection: '', spent: 0 });
+  const selection = `${runtimeKey}\u0000${directory ?? ''}\u0000${sessionID ?? ''}`;
+  const ownerStatus = owner?.status;
+  React.useEffect(() => subscribeSelectedOwnerTransportReady(() => {
+    retries.current = { ...retries.current, spent: 0 };
+    recheck();
+  }), []);
+  React.useEffect(() => {
+    if (retries.current.selection !== selection || ownerStatus === 'live' || ownerStatus === 'ended')
+      retries.current = { selection, spent: 0 };
+    const budget = retries.current, delay = selectedOwnerRecovery.delaysMs[budget.spent];
+    if (ownerStatus !== 'unknown' || !connected || catalogStatus !== 'ready' || delay === undefined) return;
+    const timer = setTimeout(() => {
+      if (retries.current !== budget) return;
+      budget.spent++;
+      recheck(); // Reruns the check effect; an operation already in flight is shared, not duplicated.
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [ownerStatus, connected, catalogStatus, selection, recoveryRevision]);
+  return owner;
 }
