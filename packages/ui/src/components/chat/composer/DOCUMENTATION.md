@@ -185,6 +185,13 @@ and the send path reading the same grammar.
   draft. Two orderings are load-bearing: the debounced write is skipped once
   while a draft is being restored, and a deleted draft's empty signature is
   recorded before a queued write could resurrect it.
+- Ordinary Send admission lives in `sync/send-admission.ts`, not the composer
+  (smarty-code#1427). While a Send to the session is unresolved, in this tab
+  or another, Send shows "Waiting for your last message to be confirmed."
+  Only the same text goes again, with its original client ID, so the gateway
+  dedupes it; `SendRecovery` reuses that ID even when its own group is gone
+  (another tab, a remount). The watchdog gives the text back but grants no
+  permission. Other sessions and Stop stay available.
 - `state/useDraftTarget.ts` — the draft can target a directory that does not
   exist yet (a worktree being created). It must survive not appearing in the
   branch list, or the selector snaps back to the project root mid-creation. It
