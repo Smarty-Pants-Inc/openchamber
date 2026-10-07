@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import { EventEmitter } from 'events';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import fsPromises from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
@@ -148,6 +148,17 @@ it('Node member request (member Git env: safe.bareRepository=explicit) is still 
     if (before === undefined) delete process.env.SMARTY_CODE_NODE_ID; else process.env.SMARTY_CODE_NODE_ID = before;
     cleanup();
   }
+});
+
+it('Node member mkdir that cannot create a level leaks no directory descriptor', async () => {
+  const { root, call, cleanup } = onDisk(NODE);
+  try {
+    mkdirSync(path.join(root, 'locked'), { mode: 0o555 });
+    const open = () => readdirSync('/proc/self/fd').length;
+    const before = open();
+    for (let i = 0; i < 5; i += 1) expect((await call('mkdir', { path: 'locked/a/b' })).statusCode).toBe(403);
+    expect(open()).toBe(before);
+  } finally { chmodSync(path.join(root, 'locked'), 0o755); cleanup(); }
 });
 
 it('Node member write into the worktree of a repository with a separate Git directory still works', async () => {

@@ -76,10 +76,14 @@ export const openDirectory = async (directory, { fsPromises, path, create = fals
   let pinned = await pin(existing, existing, fsPromises);
   for (const name of missing) {
     if (!pinned) return null;
-    await fsPromises.mkdir(pinned.at(name)).catch((error) => { if (error?.code !== 'EEXIST') throw error; });
-    const next = await pin(pinned.at(name), path.join(existing, name), fsPromises);
-    await pinned.close();
-    pinned = next;
+    // The open level is closed on every path: a failed mkdir or open must not leak its descriptor.
+    const current = pinned;
+    try {
+      await fsPromises.mkdir(current.at(name)).catch((error) => { if (error?.code !== 'EEXIST') throw error; });
+      pinned = await pin(current.at(name), path.join(existing, name), fsPromises);
+    } finally {
+      await current.close();
+    }
     existing = path.join(existing, name);
   }
   return pinned;
