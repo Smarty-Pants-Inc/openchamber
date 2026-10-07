@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
+import { gitEnvForCaller } from '../security/node-member-execution.js';
 
 /**
  * Node mode (smarty-code#1356): member file writes may not reach Git metadata. Two gaps beyond the `.git` path
@@ -28,10 +29,11 @@ export const inGitDirectory = async (target, { fsPromises, path, git = 'git' }) 
     directory = parent;
   }
   // No repository (or no Git) means no Git directory to protect here. A bare repository or one owned by another
-  // account still counts: a user's safe.bareRepository or safe.directory must not hide it from this check.
+  // account still counts: safe.bareRepository (explicit in member Git env) or safe.directory must not hide it from
+  // this check; the command-line `-c` wins over both. The probe runs in the caller's Git env (member isolation).
   const args = ['-c', 'safe.bareRepository=all', '-c', 'safe.directory=*', 'rev-parse', '--absolute-git-dir'];
   const gitDir = await new Promise((resolve) => execFile(git, args,
-    { cwd: directory, windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout))));
+    { cwd: directory, env: gitEnvForCaller(process.env), windowsHide: true }, (error, stdout) => resolve(error ? null : String(stdout))));
   if (gitDir === null) return false;
   // Only the line delimiter is removed: a Git directory name may itself end in whitespace. Unparseable output
   // counts as Git metadata (fail closed).

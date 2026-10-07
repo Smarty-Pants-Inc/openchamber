@@ -6,6 +6,7 @@ import { tmpdir } from 'os';
 import path from 'path';
 import { Readable } from 'stream';
 import { expect, it, vi } from 'vitest';
+import { runAsMember } from '../security/node-member-execution.js';
 import { registerFsRoutes } from './routes.js';
 
 const NODE = { PATH: process.env.PATH, SMARTY_CODE_NODE_ID: 'fixture-node' };
@@ -133,6 +134,21 @@ for (const [route, body, created] of alternates) {
     } finally { cleanup(); }
   });
 }
+
+it('Node member request (member Git env: safe.bareRepository=explicit) is still refused in a bare Git directory', async () => {
+  const { root, call, cleanup } = withRepos(NODE);
+  const before = process.env.SMARTY_CODE_NODE_ID;
+  process.env.SMARTY_CODE_NODE_ID = NODE.SMARTY_CODE_NODE_ID; // memberInitiated() reads the process env.
+  try {
+    for (const target of ['bare.git/hooks/pre-commit', 'spaced /config', 'repo/meta/config']) {
+      expect(await runAsMember(() => call('write', { path: target, content: 'x' }))).toEqual({ statusCode: 403, body: GIT_REFUSAL });
+    }
+    expect(existsSync(path.join(root, 'bare.git', 'hooks', 'pre-commit'))).toBe(false);
+  } finally {
+    if (before === undefined) delete process.env.SMARTY_CODE_NODE_ID; else process.env.SMARTY_CODE_NODE_ID = before;
+    cleanup();
+  }
+});
 
 it('Node member write into the worktree of a repository with a separate Git directory still works', async () => {
   const { root, call, cleanup } = withRepos(NODE);
