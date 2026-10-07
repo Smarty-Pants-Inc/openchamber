@@ -2,7 +2,7 @@ import { registerHumanSidebarViewRoutes } from '../ui-auth/human-sidebar-view.js
 import { registerBillingRoleRoute } from '../billing-role/billing-role.js';
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
 import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
-import { refuseMemberAgentActions } from '../security/node-member-agent-access.js';
+import { memberAllowList } from '../security/node-member-agent-access.js';
 import { runMemberRequestsInScope } from '../security/node-member-execution.js';
 
 export const createBootstrapRuntime = (dependencies) => {
@@ -93,6 +93,9 @@ export const createBootstrapRuntime = (dependencies) => {
         })().catch(next);
       });
     }
+    // Node mode: members have read-only access (smarty-code#1442). First, before every route and router below: a
+    // member request passes only on the read-only allow-list (default deny), then meets the auth gate.
+    app.use(memberAllowList);
     // Preview capabilities precede origin/session checks. Human mode still requires a bound Host above;
     // passwordless mode retains its capability-only preview exception.
     registerPreviewServeRoute(app);
@@ -170,9 +173,8 @@ export const createBootstrapRuntime = (dependencies) => {
       readSettingsFromDiskMigrated,
       normalizeTunnelSessionTtlMs,
     });
-    // Right after the /api auth gate, before every agent route and the OpenCode proxy: members are read-only on shared
-    // agents (smarty-code#1442), and their requests run in the member scope that locks down Git (smarty-code#1356).
-    app.use('/api', refuseMemberAgentActions);
+    // Right after the /api auth gate: a member's allowed reads run in the member scope that locks down Git
+    // (smarty-code#1356).
     app.use('/api', runMemberRequestsInScope);
 
     registerHumanSidebarViewRoutes(app, { express, humanAuth });
