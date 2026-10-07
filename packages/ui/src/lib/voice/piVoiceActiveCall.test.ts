@@ -13,7 +13,7 @@ test('a call stays bound to its session while the page shows other sessions', as
   await startPiVoiceCallFor('org', '/p', d, h);
   expect(getActivePiVoiceCall()).toMatchObject({ sessionId: 'org', directory: '/p', state: { status: 'active' } });
   // Viewing another session is only a different render; nothing in the store changes.
-  calls[0]!.state!({ status: 'active', phase: 'listening', muted: false, transcript: null });
+  calls[0]!.state!({ status: 'active', phase: 'listening', muted: false, transcript: null, audioBlocked: false });
   expect(getActivePiVoiceCall()).toMatchObject({ sessionId: 'org', state: { phase: 'listening' } });
   expect(calls[0]!.hungUp).toBe(false);
   expect(log).toEqual({ ended: [], failed: [] });

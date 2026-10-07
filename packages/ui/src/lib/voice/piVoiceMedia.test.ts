@@ -12,11 +12,14 @@ afterEach(() => {
   }
 });
 
+type FakeStream = { getAudioTracks(): never[] };
+type FakeTrackEvent = { streams: FakeStream[] };
+interface FakePage { allowPlay: boolean; plays: number; resumes: number; audio?: { paused: boolean };
+  peer?: { ontrack: ((event: FakeTrackEvent) => void) | null } }
 function browser() {
-  const page = { allowPlay: false, plays: 0, resumes: 0, audio: undefined as undefined | { paused: boolean },
-    peer: undefined as undefined | { ontrack: ((event: { streams: unknown[] }) => void) | null } };
+  const page: FakePage = { allowPlay: false, plays: 0, resumes: 0 };
   class FakeAudio {
-    autoplay = false; srcObject: unknown = null; paused = true;
+    autoplay = false; srcObject: FakeStream | null = null; paused = true;
     constructor() { page.audio = this; }
     play() {
       page.plays++;
@@ -34,7 +37,7 @@ function browser() {
   }
   class FakePeer {
     iceGatheringState = 'complete'; connectionState = 'new'; localDescription: { sdp: string } | null = null;
-    ontrack: ((event: { streams: unknown[] }) => void) | null = null; onconnectionstatechange = null;
+    ontrack: ((event: FakeTrackEvent) => void) | null = null; onconnectionstatechange = null;
     constructor() { page.peer = this; }
     addTrack() {} close() {} addEventListener() {}
     createDataChannel() { return { onopen: null }; }
