@@ -50,6 +50,7 @@ import { setActionRefs } from "./session-actions"
 import { setSyncRefs, getAllSyncSessions, getAllSyncSessionMap, getSyncChildStores } from "./sync-refs"
 import { useSessionUIStore } from "./session-ui-store"
 import { stripSessionDiffSnapshots } from "./sanitize"
+import { publishMessageMetadata } from "./unsaved"
 import { upsertSessionRecord } from "./session-records"
 import {
   applySessionEventToGlobalSessions,
@@ -2411,11 +2412,11 @@ export function interruptedTurnToolParts(
     data: { message: "aborted" },
     message: "aborted",
   } satisfies LocalMessageAbortedError
-  nextMessages[messageIndex] = {
+  nextMessages[messageIndex] = publishMessageMetadata(message, {
     ...message,
     time: { ...message.time, completed: now },
     error,
-  }
+  })
 
   let partsChanged = false
   const currentParts = state.part[messageID]
