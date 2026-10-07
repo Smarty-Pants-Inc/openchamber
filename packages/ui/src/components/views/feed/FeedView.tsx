@@ -214,6 +214,9 @@ function SmartyPage({ smarty, all, me, compact, services }: {
  * never merges into it (openchamber#558 P2).
  */
 const NO_FAILED: readonly FailedSend[] = [];
+/** The gateway dedupes a client ID for 24 h from its first send; past that a resend could deliver it twice. */
+const DEDUPE_MS = 24 * 3_600_000;
+const tooOld = (message: FailedSend) => Date.now() - message.at >= DEDUPE_MS;
 
 function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
   const { t } = useI18n();
@@ -242,9 +245,11 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
   // Always the same client ID: the original may have been accepted with its answer lost, and only the ID lets the
   // gateway (which dedupes it for 24 h) drop the repeat.
   const sendAgain = (message: FailedSend) => {
+    if (tooOld(message)) return; // Checked again at the click: past the window the next render shows Copy text.
     useFeedStore.getState().removeFailedSend(key, message.clientId);
     deliver(message);
   };
+  const copy = (message: FailedSend) => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); };
 
   return (
     <form className="shrink-0 border-t border-border px-4 py-3" onSubmit={event => { event.preventDefault(); submit(); }}>
@@ -263,7 +268,10 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
           <div key={message.clientId} role="alert" className="flex min-w-0 items-center gap-2 typography-micro text-[var(--status-error)]">
             <span className="shrink-0">{t('feed.message.failed')}</span>
             <q className="min-w-0 truncate text-muted-foreground">{message.text}</q>
-            <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={() => sendAgain(message)}>{t('feed.message.retry')}</Button>
+            {tooOld(message) ? <>
+              <span className="shrink-0 text-muted-foreground">{t('feed.message.mayBeSent')}</span>
+              <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={() => copy(message)}>{t('feed.message.copy')}</Button>
+            </> : <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={() => sendAgain(message)}>{t('feed.message.retry')}</Button>}
           </div>))}
         <p aria-live="polite" className="typography-micro text-muted-foreground">{sending ? t('feed.reply.sending') : t('feed.reply.hint')}</p>
       </div>

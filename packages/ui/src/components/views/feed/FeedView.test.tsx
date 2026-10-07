@@ -453,3 +453,23 @@ test('the Smarty view lifts the app’s loading splash once it has painted from 
   expect(document.getElementById('initial-loading')).toBeNull();
   await unmount();
 });
+
+test('past 24 h from its first send, a failed message offers Copy text and a plain note, not Send again (#558 P2b)', async () => {
+  const copied: string[] = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
+  sendResult = async () => { throw new Error('response lost'); };
+  const { host, unmount } = await mount(view());
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'Ship it'); });
+  await pressEnter(host.querySelector('textarea')!); await settle();
+  expect(button(host, 'Send again')).toBeDefined();
+  // The same failed message, first sent a day and a minute ago: the gateway no longer dedupes it.
+  const key = draftKey('paul');
+  await act(async () => { useFeedStore.setState(state => ({ failedSends: { ...state.failedSends,
+    [key]: (state.failedSends[key] ?? []).map(item => ({ ...item, at: Date.now() - 24 * 3_600_000 - 60_000 })) } })); });
+  expect(button(host, 'Send again')).toBeUndefined();
+  expect(host.querySelector('form [role="alert"]')?.textContent).toContain('This may already have been sent.');
+  await act(async () => { button(host, 'Copy text')!.click(); }); await settle();
+  expect(copied).toEqual(['Ship it']);
+  expect(sent).toHaveLength(1);
+  await unmount();
+});
