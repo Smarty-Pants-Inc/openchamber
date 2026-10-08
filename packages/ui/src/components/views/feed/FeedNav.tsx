@@ -7,7 +7,8 @@ import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { ensureSmartiesLoaded, openFeedPage, useFeedStore } from './feedStore';
+import { ensureSmartiesLoaded, openFeedPage, useFeedStore, useSmartiesRefresh } from './feedStore';
+import { SmartyStatusBadge } from './SmartyStatus';
 
 const rowClass = 'flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left typography-ui-label font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
 
@@ -17,6 +18,7 @@ export function SmartiesNavSection(): React.ReactNode {
   const selectedId = useFeedStore(state => state.selectedId);
   const pageOpen = useFeedStore(state => state.pageOpen);
   React.useEffect(() => { void ensureSmartiesLoaded(); }, []);
+  useSmartiesRefresh(); // #1490: each row's status stays current.
   if (smarties.state === 'unavailable' || smarties.state === 'loading') return null;
   return (
     <nav aria-label={t('feed.nav.label')} className="mb-1">
@@ -37,7 +39,8 @@ export function SmartiesNavSection(): React.ReactNode {
                   onClick={() => { useUIStore.getState().closeMainSurfaces(); useFeedStore.getState().selectSmarty(smarty.id); openFeedPage(); }}
                   className={cn(rowClass, selected ? 'bg-interactive-selection text-interactive-selection-foreground' : 'text-muted-foreground hover:text-foreground')}>
                   <Icon name="chat-ai-3" className="h-4 w-4 flex-shrink-0" />
-                  <span className="truncate">{smarty.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{smarty.label}</span>
+                  <SmartyStatusBadge activity={smarty.activity} />
                 </button>
               </li>);
           })}

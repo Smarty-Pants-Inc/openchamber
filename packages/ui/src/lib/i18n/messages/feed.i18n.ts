@@ -1,5 +1,6 @@
 // smarty-code#1407: the Smarties (each person's conversation with their Smarty, their inbox, a message box) and the
 // nav's button to the old Smarty Code view.
+import { feedStatusI18n } from './feed-status.i18n';
 type Copy = [nav: string, retry: string, historyFailed: string, empty: string, you: string, inboxToggle: string, send: string, sending: string, hint: string, transcript: string, smartiesFailed: string, viewOnly: string, classicShow: string, classicHide: string, messageLabel: string, messageFailed: string, earlierShow: string, earlierFailed: string, messageRetry: string, messageMayBeSent: string, messageCopy: string, messageTooLong: string, smartiesEmpty: string];
 const feed = ([nav, retry, historyFailed, empty, you, inboxToggle, send, sending, hint, transcript, smartiesFailed, viewOnly, classicShow, classicHide, messageLabel, messageFailed, earlierShow, earlierFailed, messageRetry, messageMayBeSent, messageCopy, messageTooLong, smartiesEmpty]: Copy) => ({
   'feed.nav.label': nav,
@@ -26,7 +27,7 @@ const feed = ([nav, retry, historyFailed, empty, you, inboxToggle, send, sending
   'feed.message.tooLong': messageTooLong,
   'feed.smartiesEmpty': smartiesEmpty,
 });
-export const feedI18n = {
+const feedBase = {
   en: feed(['Smarties', 'Try again', 'Could not load the conversation.', 'No messages yet.', 'You', 'Inbox ({count})', 'Send', 'Sending…', 'Enter to send, Shift+Enter for a new line', 'Conversation with {name}', 'Could not load the Smarties.', 'View only', 'Smarty Code', 'Back to Smarties', 'Message {name}', 'Your message was not sent.', 'Show earlier', 'Could not load earlier messages.', 'Send again', 'This may already have been sent.', 'Copy text', 'This message is too long to send (over 120 KB). Try splitting it into parts.', 'No Smarties to show yet.']),
   de: feed(['Smarties', 'Erneut versuchen', 'Die Unterhaltung konnte nicht geladen werden.', 'Noch keine Nachrichten.', 'Du', 'Posteingang ({count})', 'Senden', 'Wird gesendet…', 'Eingabe zum Senden, Umschalt+Eingabe für eine neue Zeile', 'Unterhaltung mit {name}', 'Die Smarties konnten nicht geladen werden.', 'Nur ansehen', 'Smarty Code', 'Zurück zu den Smarties', 'Nachricht an {name}', 'Deine Nachricht wurde nicht gesendet.', 'Frühere anzeigen', 'Frühere Nachrichten konnten nicht geladen werden.', 'Erneut senden', 'Diese Nachricht wurde vielleicht schon gesendet.', 'Text kopieren', 'Diese Nachricht ist zu lang zum Senden (über 120 KB). Teile sie am besten in mehrere Teile auf.', 'Noch keine Smarties zum Anzeigen.']),
   es: feed(['Smarties', 'Reintentar', 'No se pudo cargar la conversación.', 'Aún no hay mensajes.', 'Tú', 'Bandeja ({count})', 'Enviar', 'Enviando…', 'Intro para enviar, Mayús+Intro para una línea nueva', 'Conversación con {name}', 'No se pudieron cargar los Smarties.', 'Solo lectura', 'Smarty Code', 'Volver a los Smarties', 'Mensaje para {name}', 'Tu mensaje no se envió.', 'Mostrar anteriores', 'No se pudieron cargar los mensajes anteriores.', 'Enviar de nuevo', 'Puede que ya se haya enviado.', 'Copiar texto', 'Este mensaje es demasiado largo para enviarlo (más de 120 KB). Prueba a dividirlo en partes.', 'Aún no hay Smarties para mostrar.']),
@@ -40,3 +41,6 @@ export const feedI18n = {
   'zh-CN': feed(['Smarties', '重试', '无法加载对话。', '还没有消息。', '你', '收件箱 ({count})', '发送', '正在发送…', '按 Enter 发送，Shift+Enter 换行', '与 {name} 的对话', '无法加载 Smarties。', '仅查看', 'Smarty Code', '返回 Smarties', '给 {name} 的消息', '你的消息未发送。', '显示更早的消息', '无法加载更早的消息。', '重新发送', '这条消息可能已经发送。', '复制文本', '这条消息太长，无法发送（超过 120 KB）。请尝试拆分成几部分。', '还没有可显示的 Smarties。']),
   'zh-TW': feed(['Smarties', '重試', '無法載入對話。', '還沒有訊息。', '你', '收件匣 ({count})', '傳送', '正在傳送…', '按 Enter 傳送，Shift+Enter 換行', '與 {name} 的對話', '無法載入 Smarties。', '僅檢視', 'Smarty Code', '返回 Smarties', '給 {name} 的訊息', '你的訊息未傳送。', '顯示較早的訊息', '無法載入較早的訊息。', '重新傳送', '這則訊息可能已經傳送。', '複製文字', '這則訊息太長，無法傳送（超過 120 KB）。請試著拆成幾個部分。', '還沒有可顯示的 Smarties。']),
 };
+/** smarty-code#1490: each Smarty's status words, merged per locale. */
+export const feedI18n = Object.fromEntries(Object.entries(feedBase).map(([locale, copy]) =>
+  [locale, { ...copy, ...feedStatusI18n[locale as keyof typeof feedStatusI18n] }])) as { [L in keyof typeof feedBase]: (typeof feedBase)[L] & (typeof feedStatusI18n)['en'] };
