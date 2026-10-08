@@ -97,12 +97,28 @@ test('1–2: the nav lists the Smarties the person may see, own first, and selec
   await unmount();
 });
 
-test('1: a person with no Smarties (or a server without them) sees no section and keeps the old view', async () => {
+test('1: a server without Smarties shows no section and keeps the old view', async () => {
   await ensureSmartiesLoaded(async () => ({ state: 'unavailable' }), true);
   const { host, unmount } = await mount(<><SmartiesNavSection /><ClassicViewToggle /></>);
   expect(host.textContent).toBe('');
   expect(useFeedStore.getState().pageOpen).toBe(false);
   await unmount();
+});
+
+test('smarty-code#1456: a signed-in member with no Smarties lands on "No Smarties to show yet" and reaches the old view by its button', async () => {
+  await ensureSmartiesLoaded(async () => ({ state: 'empty' }), true);
+  expect(useFeedStore.getState().pageOpen).toBe(true);
+  const nav = await mount(<><SmartiesNavSection /><ClassicViewToggle /></>);
+  expect(nav.host.querySelector('h2')?.textContent).toBe('Smarties');
+  expect(nav.host.textContent).toContain('No Smarties to show yet.');
+  expect(nav.host.querySelector('[role="alert"]')).toBeNull();
+  const main = await mount(view());
+  expect(main.host.querySelector('[data-smarties-empty]')?.textContent).toContain('No Smarties to show yet.');
+  expect(main.host.querySelector('[role="alert"]')).toBeNull();
+  await act(async () => { button(main.host, 'Smarty Code')!.click(); });
+  expect(useFeedStore.getState().pageOpen).toBe(false);
+  expect(button(nav.host, 'Back to Smarties')).toBeDefined();
+  await main.unmount(); await nav.unmount();
 });
 
 test('3: the own Smarty shows the conversation, the inbox inside it, and a "Message Paul’s Smarty" box that sends', async () => {

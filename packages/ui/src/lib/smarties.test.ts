@@ -15,10 +15,11 @@ test('the list puts the own Smarty first', async () => {
   expect(calls.at(-1)?.url).toBe('/api/me/smarties');
 });
 
-test('404, 403 and an empty list are unavailable; a 500 or a malformed body throws', async () => {
+test('404 and 403 are unavailable; an empty list is empty, also with no person (smarty-code#1456); a 500 or a malformed body throws', async () => {
   expect(await loadSmarties(fake(() => new Response('Not Found', { status: 404 })))).toEqual({ state: 'unavailable' });
   expect(await loadSmarties(fake(() => json(JSON.stringify({}), 403)))).toEqual({ state: 'unavailable' });
-  expect(await loadSmarties(fake(() => json(JSON.stringify({ me: 'x', smarties: [] }))))).toEqual({ state: 'unavailable' });
+  expect(await loadSmarties(fake(() => json(JSON.stringify({ me: 'x', smarties: [] }))))).toEqual({ state: 'empty' });
+  expect(await loadSmarties(fake(() => json(JSON.stringify({ me: null, smarties: [] }))))).toEqual({ state: 'empty' });
   expect(loadSmarties(fake(() => json(JSON.stringify({}), 500)))).rejects.toBeInstanceOf(SmartiesRequestError);
   expect(loadSmarties(fake(() => json(JSON.stringify({ me: 'paul', smarties: [{ id: 'paul' }] }))))).rejects.toThrow();
 });
