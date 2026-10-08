@@ -763,11 +763,11 @@
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
-      "behaviorSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
-      "combinedSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6",
-      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. Outside the original donor ledger; no fabricated branding predecessor.",
+      "behaviorSha256": "83b1aecfcb7569ba0375610efe60de179a7e60225fc6bd23d0d46ad1e54de79c",
+      "combinedSha256": "83b1aecfcb7569ba0375610efe60de179a7e60225fc6bd23d0d46ad1e54de79c",
+      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1501 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): wires the loader's live-update nudge for journal-only history. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6"
+      "sessionStatusReadSha256": "83b1aecfcb7569ba0375610efe60de179a7e60225fc6bd23d0d46ad1e54de79c"
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
