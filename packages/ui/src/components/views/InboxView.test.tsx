@@ -32,6 +32,7 @@ mock.module('@/components/ui', () => ({ ...ui, toast: { ...ui.toast,
   error: (message: string) => { toasts.push({ message }); } } }));
 const { InboxView } = await import('./InboxView');
 const { I18nProvider } = await import('@/lib/i18n');
+const { useAuthSessionStore } = await import('@/lib/runtime-auth-expiry');
 const View = () => <I18nProvider><InboxView onClose={() => undefined} /></I18nProvider>;
 
 const win = new Window({ url: 'http://localhost' });
@@ -274,5 +275,35 @@ test('an SSE event for an item already listed, and a reload during that event, l
   const ids = [...host.querySelectorAll('[data-inbox-item]')].map(card => card.getAttribute('data-inbox-item'));
   expect(ids).toEqual(['p0x', 'ask:1']);
   expect(host.querySelector('[data-inbox-item="ask:1"]')?.textContent).toContain('Only a response (changed)');
+  await act(async () => root.unmount());
+});
+
+test('another person signing in on this page clears the lists at once; only their own read fills them again', async () => {
+  const host = document.createElement('div'); document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(<View />)); await settle();
+  expect(host.querySelectorAll('[data-inbox-item]').length).toBe(2);
+  let release: (r: Response) => void = () => undefined;
+  listResponder = () => new Promise<Response>(r => { release = r; });
+  await act(async () => { useAuthSessionStore.getState().markAuthenticated(); });
+  expect(host.querySelectorAll('[data-inbox-item], article').length).toBe(0);
+  await act(async () => { release(json({ person: 'paul', items: [items[0]] })); }); await settle();
+  expect([...host.querySelectorAll('[data-inbox-item]')].map(e => e.getAttribute('data-inbox-item'))).toEqual(['ask:1']);
+  listResponder = () => json({ person: 'paul', items });
+  await act(async () => root.unmount());
+});
+
+test('a tab brought back starts the lists over: the earlier list is gone until the current cookie\'s read answers', async () => {
+  let release: (r: Response) => void = () => undefined;
+  listResponder = () => json({ person: 'paul', items });
+  const host = document.createElement('div'); const root = createRoot(host);
+  await act(async () => root.render(<View />)); await settle();
+  expect(host.textContent).toContain('Codex accounts nearly out');
+  listResponder = () => new Promise<Response>(r => { release = r; });
+  await act(async () => { win.document.dispatchEvent(new win.Event('visibilitychange')); });
+  expect(host.textContent).not.toContain('Codex accounts nearly out');
+  await act(async () => { release(json({ person: 'paul', items: [] })); }); await settle();
+  expect(host.textContent).not.toContain('Codex accounts nearly out');
+  listResponder = () => json({ person: 'paul', items });
   await act(async () => root.unmount());
 });

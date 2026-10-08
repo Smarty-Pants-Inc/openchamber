@@ -6,6 +6,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+import { subscribeRestore } from './pageRestore';
 
 const itemSchema = z.object({
   id: z.string().min(1), to: z.string(), title: z.string(),
@@ -49,21 +50,33 @@ const uniqueById = (items: InboxItem[]): InboxItem[] => {
 export const safeLink = (url: string) => { try { return ['https:', 'http:'].includes(new URL(url).protocol) ? url : null; } catch { return null; } };
 
 export class InboxRequestError extends Error {
-  constructor(message: string, readonly uncertain: boolean) { super(message); }
+  constructor(message: string, readonly uncertain: boolean, readonly status?: number) { super(message); }
 }
+/** A read worth retrying: the network failed, the gateway is down (5xx) or busy (429). A 401/404 is an answer. */
+export const isTransientInboxFailure = (error: Error): boolean => error instanceof InboxRequestError
+  ? error.status === 429 || (error.status ?? 0) >= 500 : !(error instanceof z.ZodError);
 const failure = async (response: Response) => {
   const body = z.object({ data: z.object({ message: z.string().optional(), code: z.string().optional() }).optional() }).safeParse(await response.json().catch(() => null));
   const unsupportedGuard = response.status === 501 && body.success && body.data.data?.code === 'smarty.inbox-guard-unavailable';
-  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408));
+  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408), response.status);
 };
 
-/** The list for one tab; a 403 means this account has no inbox (the page shows no badge). */
-export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = runtimeFetch): Promise<InboxListResult> {
-  const response = await fetcher(`/api/inbox?state=${state}`, { credentials: 'include', headers: { accept: 'application/json' } });
+/**
+ * The list for one tab; a 403 means this account has no inbox (the page shows no badge). `principal` (smarty-code#1476)
+ * reads another principal's inbox, read only: the gateway answers 403 ("This inbox is not shared with you") unless the
+ * signed-in person may see it. An answer for anyone but `principal` (a gateway that ignores `person=` and returns the
+ * caller's own inbox) is not that inbox, so it counts as not shared.
+ */
+export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = runtimeFetch, principal?: string): Promise<InboxListResult> {
+  const query = principal === undefined ? '' : `&person=${encodeURIComponent(principal)}`;
+  // smarty-code#1480 review: never from the browser cache (another person's inbox, or your own).
+  const response = await fetcher(`/api/inbox?state=${state}${query}`, { credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } });
   if (response.status === 403) return { available: false, items: [] };
   if (!response.ok) throw await failure(response);
+  // A shared (read-only) answer carries `capabilities: {}`: it grants nothing (smarty-code#1476).
   const body = z.object({ items: z.array(z.json()), person: z.string().optional(),
-    capabilities: z.object({ guardedReopen: z.boolean() }).optional() }).parse(await response.json());
+    capabilities: z.object({ guardedReopen: z.boolean().optional() }).optional() }).parse(await response.json());
+  if (principal !== undefined && body.person !== principal) return { available: false, items: [] };
   const items: InboxItem[] = [], invalidStepGroups: string[] = [];
   const person = state === 'all' ? z.string().min(1).parse(body.person) : body.person;
   for (const value of body.items) {
@@ -76,7 +89,7 @@ export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = ru
     }
   }
   const result = { available: true, items: sortInboxItems(uniqueById(items)) };
-  return state === 'all' ? { ...result, capabilities: body.capabilities ?? { guardedReopen: false }, invalidStepGroups } : result;
+  return state === 'all' ? { ...result, capabilities: { guardedReopen: body.capabilities?.guardedReopen ?? false }, invalidStepGroups } : result;
 }
 
 /** One write, with only the documented body fields (the gateway refuses others); returns the item after it. */
@@ -88,9 +101,20 @@ export async function actOnInboxItem(id: string, action: InboxAction, body: Reco
 }
 
 export async function loadInboxItem(id: string, fetcher: Fetcher = runtimeFetch): Promise<InboxItem> {
-  const response = await fetcher(`/api/inbox/${encodeURIComponent(id)}`, { credentials: 'include', headers: { accept: 'application/json' } });
+  const response = await fetcher(`/api/inbox/${encodeURIComponent(id)}`, { credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } });
   if (!response.ok) throw await failure(response);
   return z.object({ item: itemSchema }).parse(await response.json()).item;
+}
+
+/**
+ * smarty-code#1476: live changes to another principal's inbox (GET /inbox/events?person=, the same sharing rule as the
+ * list). Each event only says "something changed": the caller reads the list again.
+ */
+export function watchSharedInbox(person: string, onChange: () => void): () => void {
+  if (!globalThis.EventSource) return () => undefined;
+  const source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events', { person }), { withCredentials: true });
+  source.onmessage = () => onChange();
+  return () => source.close();
 }
 
 type Store = {
@@ -187,12 +211,12 @@ export const INBOX_RETRY_MS = [5_000, 15_000, 60_000];
  * loads retry; a 403 (this account has no inbox) is an answer, and ends bootstrap.
  */
 export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_MS): () => void {
-  let scope = captureRuntimeRequestScope();
+  let scope = captureRuntimeRequestScope(), run = 0;
   let source: EventSource | undefined, closed = false, timer: ReturnType<typeof setTimeout> | undefined;
   useInboxStore.getState().setItems(false, []);
   const attempt = (n: number) => {
-    const revision = useInboxStore.getState().revision, requestScope = scope;
-    const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
+    const revision = useInboxStore.getState().revision, requestScope = scope, mine = run;
+    const current = () => !closed && mine === run && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
     void loadWatchSnapshot(load, current).then(snapshot => {
       if (!snapshot || !current()) return;
       if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
@@ -201,8 +225,9 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
     }, () => { if (current()) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
   };
+  // A restart drops every earlier read (its run ends) and clears the store before reading again.
   const restart = () => {
-    source?.close(); clearTimeout(timer);
+    run += 1; source?.close(); source = undefined; clearTimeout(timer);
     scope = captureRuntimeRequestScope();
     useInboxStore.getState().setItems(false, []);
     attempt(0);
@@ -211,6 +236,9 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
   const unsubscribeAuth = useAuthSessionStore.subscribe((state, before) => {
     if (state.recoveryGeneration !== before.recoveryGeneration) restart();
   });
+  // #574 security review: a tab brought back may now be another person's (an account switch in another tab): the store
+  // clears at once, every pending read (badge refreshes included: the clear bumps the revision) is dropped, and it reads anew.
+  const unsubscribeRestore = subscribeRestore(restart);
   attempt(0);
-  return () => { closed = true; unsubscribe(); unsubscribeAuth(); clearTimeout(timer); source?.close(); };
+  return () => { closed = true; unsubscribe(); unsubscribeAuth(); unsubscribeRestore(); clearTimeout(timer); source?.close(); };
 }
