@@ -169,6 +169,22 @@ test("a reconnect (a new loader) during the check ends it as 'Not confirmed', ne
   } finally { restore() }
 })
 
+test("a reconnect before any match: the page's copy goes and the sender is told, as for any failure", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    await deliver("msg_kate", "unconfirmed")
+    expect(shown()).toEqual(["msg_kate"])
+    newLoader()
+    await windowEnds()
+    await Promise.resolve()
+    expect(notices()).toEqual(["unconfirmed: what changed today?"])
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0].startsWith("Not confirmed:")).toBe(true)
+    expect(shown()).toEqual([])
+  } finally { restore() }
+})
+
 test("a save that lands after the expiry, before a late timer fires, never reads as 'Sent'", async () => {
   const restore = shortWindow()
   const realNow = Date.now

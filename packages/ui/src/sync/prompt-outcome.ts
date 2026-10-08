@@ -135,8 +135,15 @@ function checkTranscript(runtimeKey: string, pending: PendingSteer, loader: Sess
   const expiresAt = Date.now() + 2 * sendUnconfirmed.ms
   const stop = () => { unsubscribe?.(); clearTimeout(timer); clearTimeout(deadline); checks.delete(key) }
   const evaluate = () => {
-    // The loader went (a reconnect or another runtime): this check can't go on, so its notice says not confirmed.
-    if (!current()) { stop(); useSteerOutcomes.getState().settleChecking(runtimeKey, pending.messageID); return }
+    // The loader went: this check can't go on. A reconnect in the same runtime fails it through the loader now in place
+    // (the copy in the shared store goes, the sender is told); after a runtime switch the notice only says not confirmed.
+    if (!current()) {
+      stop()
+      const now = getImperativeSessionMessageLoader()
+      if (now && getRuntimeKey() === runtimeKey && failed.has(key)) fail(runtimeKey, pending, 'unconfirmed', () => getImperativeSessionMessageLoader() === now, now)
+      else useSteerOutcomes.getState().settleChecking(runtimeKey, pending.messageID)
+      return
+    }
     if (!failed.has(key)) { stop(); return }
     if (Date.now() >= expiresAt) savedBy = windowOver = true
     const match = matchingMessage(loader, pending)
