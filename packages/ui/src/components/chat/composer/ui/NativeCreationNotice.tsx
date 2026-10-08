@@ -78,7 +78,7 @@ export function NativeCreationNotice({ native, draftOpen, sent = null, onSend }:
           if (directory) void resolveSentStart(key, directory, draft.draftId, mine ? undefined : ownNativeRequestId(draft, key));
           native.refresh();
         }, error => setStop({ id: operation.operationId, busy: false, error }));
-      }}>{t('chat.nativeCreation.stopStart', { id: operation.operationId.slice(0, 8) })}</Button>
+      }}>{t('chat.nativeCreation.stopStart')}</Button>
     </>;
   };
   if (!draftOpen) return null;
