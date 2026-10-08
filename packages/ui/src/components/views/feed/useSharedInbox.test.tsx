@@ -107,3 +107,17 @@ test('after the first retries it retries every 30 s, and not while the page is h
   Reflect.deleteProperty(win.document, 'visibilityState');
   await unmount();
 });
+
+test('a tab brought back hides the shared inbox in that same render and shows it again only on the current cookie\'s read', async () => {
+  const again = deferred();
+  replies = [async () => answer(2), () => again.promise];
+  const unmount = await mount();
+  expect(seen).toMatchObject({ state: 'shown', openCount: 2 });
+  // Another person may have signed in from another tab while this one was away: nothing shows until the gateway answers.
+  await act(async () => { win.document.dispatchEvent(new win.Event('visibilitychange')); });
+  expect(seen).toEqual({ state: 'hidden' });
+  expect(reads).toBe(2);
+  again.resolve(answer(0, 403)); await flush();
+  expect(seen).toEqual({ state: 'hidden' }); // The new cookie is not shared this inbox: it stays hidden.
+  await unmount();
+});

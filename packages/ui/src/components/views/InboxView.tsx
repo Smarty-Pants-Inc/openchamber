@@ -16,6 +16,7 @@ import { useI18n } from '@/lib/i18n';
 import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+import { useRestoreEpoch } from '@/lib/pageRestore';
 import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
@@ -26,9 +27,10 @@ type ReadOnlyInbox = { person: string; openCount: number; revision: number };
 
 type InboxViewProps = { onClose: () => void; compact?: boolean; ownerName?: string; readOnly?: ReadOnlyInbox };
 
-/** Review P1: a verified recovery (another person signed in on this origin) starts the lists over: nothing of the person before. */
+/** Review P1: a verified recovery (another person signed in on this origin), or the tab brought back (it may now be another
+ * person's), starts the lists over: nothing of the person before shows until the current cookie's own read answers. */
 export function InboxView(props: InboxViewProps): React.ReactNode {
-  return <InboxLists key={useAuthSessionStore(s => s.recoveryGeneration)} {...props} />;
+  return <InboxLists key={`${useAuthSessionStore(s => s.recoveryGeneration)}:${useRestoreEpoch()}`} {...props} />;
 }
 
 function InboxLists({ onClose, compact, ownerName, readOnly }: InboxViewProps): React.ReactNode {

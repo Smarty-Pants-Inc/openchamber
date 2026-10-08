@@ -292,3 +292,18 @@ test('another person signing in on this page clears the lists at once; only thei
   listResponder = () => json({ person: 'paul', items });
   await act(async () => root.unmount());
 });
+
+test('a tab brought back starts the lists over: the earlier list is gone until the current cookie\'s read answers', async () => {
+  let release: (r: Response) => void = () => undefined;
+  listResponder = () => json({ person: 'paul', items });
+  const host = document.createElement('div'); const root = createRoot(host);
+  await act(async () => root.render(<View />)); await settle();
+  expect(host.textContent).toContain('Codex accounts nearly out');
+  listResponder = () => new Promise<Response>(r => { release = r; });
+  await act(async () => { win.document.dispatchEvent(new win.Event('visibilitychange')); });
+  expect(host.textContent).not.toContain('Codex accounts nearly out');
+  await act(async () => { release(json({ person: 'paul', items: [] })); }); await settle();
+  expect(host.textContent).not.toContain('Codex accounts nearly out');
+  listResponder = () => json({ person: 'paul', items });
+  await act(async () => root.unmount());
+});
