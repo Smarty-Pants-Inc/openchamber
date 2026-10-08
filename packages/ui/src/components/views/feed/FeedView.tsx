@@ -12,7 +12,7 @@ import { Icon } from '@/components/icon/Icon';
 import { InboxView } from '@/components/views/InboxView';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { loadInbox, useInboxStore, watchSharedInbox } from '@/lib/smartyInbox';
+import { useInboxStore, watchSharedInbox } from '@/lib/smartyInbox';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -20,6 +20,7 @@ import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
 import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, type FailedSend, type PendingSend } from './feedStore';
 import { dismissInitialLoading } from './initialLoading';
+import { useSharedInbox } from './useSharedInbox';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
@@ -160,34 +161,6 @@ function useSmartyFeed(id: string, services: FeedServices) {
   };
   const hasEarlier = feed.state === 'ready' && (feed.blocks.length > feed.shown || Boolean(feed.start));
   return { feed, retry: () => { setFeed({ state: 'loading' }); setAttempt(n => n + 1); }, earlier: hasEarlier ? { state: earlier, show: showEarlier } : null };
-}
-
-type SharedInbox = { state: 'hidden' } | { state: 'shown'; openCount: number; revision: number };
-const HIDDEN: SharedInbox = { state: 'hidden' };
-
-/**
- * smarty-code#1476: another principal's inbox, read only. It shows only once the gateway has shared it (its Open list
- * answered for that person); a 403 (not shared), or a read that fails, leaves it hidden: no button, no error. Each event
- * on its stream reads the Open list again and bumps `revision`, so the open tab reloads too.
- */
-function useSharedInbox(person: string | null, watch: FeedServices['watchInbox']): SharedInbox {
-  const [shared, setShared] = React.useState<SharedInbox>(HIDDEN);
-  React.useEffect(() => {
-    if (person === null) return undefined;
-    let current = true, latest = 0, close: (() => void) | null = null;
-    const read = () => {
-      const request = ++latest;
-      loadInbox('open', undefined, person).then(result => {
-        if (!current || request !== latest) return;
-        if (!result.available) { setShared(HIDDEN); return; }
-        setShared(before => ({ state: 'shown', openCount: result.items.length, revision: before.state === 'shown' ? before.revision + 1 : 0 }));
-        close ??= watch(person, read);
-      }, () => undefined);
-    };
-    read();
-    return () => { current = false; close?.(); setShared(HIDDEN); };
-  }, [person, watch]);
-  return shared;
 }
 
 function SmartyPage({ smarty, all, me, compact, services }: {

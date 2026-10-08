@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
@@ -23,7 +24,14 @@ const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1
 /** Another principal's inbox: whose it is, its open count, and a revision that changes when it does (its event stream). */
 type ReadOnlyInbox = { person: string; openCount: number; revision: number };
 
-export function InboxView({ onClose, compact, ownerName, readOnly }: { onClose: () => void; compact?: boolean; ownerName?: string; readOnly?: ReadOnlyInbox }): React.ReactNode {
+type InboxViewProps = { onClose: () => void; compact?: boolean; ownerName?: string; readOnly?: ReadOnlyInbox };
+
+/** Review P1: a verified recovery (another person signed in on this origin) starts the lists over: nothing of the person before. */
+export function InboxView(props: InboxViewProps): React.ReactNode {
+  return <InboxLists key={useAuthSessionStore(s => s.recoveryGeneration)} {...props} />;
+}
+
+function InboxLists({ onClose, compact, ownerName, readOnly }: InboxViewProps): React.ReactNode {
   const { t } = useI18n();
   const ownOpenCount = useInboxStore(s => s.openCount), ownRevision = useInboxStore(s => s.revision);
   const storeOpenCount = readOnly ? readOnly.openCount : ownOpenCount, revision = readOnly ? readOnly.revision : ownRevision;
@@ -42,12 +50,13 @@ export function InboxView({ onClose, compact, ownerName, readOnly }: { onClose: 
   const request = React.useRef(0), openRequest = React.useRef(0), shownTab = React.useRef(tab);
   const reload = React.useCallback(() => {
     const mine = ++request.current;
-    const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
+    const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0, scope = captureRuntimeRequestScope();
     return loadInbox(listedTab, undefined, person).then(r => {
+      if (!isRuntimeRequestScopeCurrent(scope)) return;
       if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
       if (mine === request.current) { setItems(r.items); setError(null); }
     },
-      e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
+      e => { if (mine === request.current && isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); });
   }, [person]);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
   // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a

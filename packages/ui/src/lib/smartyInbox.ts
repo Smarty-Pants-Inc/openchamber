@@ -49,12 +49,15 @@ const uniqueById = (items: InboxItem[]): InboxItem[] => {
 export const safeLink = (url: string) => { try { return ['https:', 'http:'].includes(new URL(url).protocol) ? url : null; } catch { return null; } };
 
 export class InboxRequestError extends Error {
-  constructor(message: string, readonly uncertain: boolean) { super(message); }
+  constructor(message: string, readonly uncertain: boolean, readonly status?: number) { super(message); }
 }
+/** A read worth retrying: the network failed, the gateway is down (5xx) or busy (429). A 401/404 is an answer. */
+export const isTransientInboxFailure = (error: Error): boolean => error instanceof InboxRequestError
+  ? error.status === 429 || (error.status ?? 0) >= 500 : !(error instanceof z.ZodError);
 const failure = async (response: Response) => {
   const body = z.object({ data: z.object({ message: z.string().optional(), code: z.string().optional() }).optional() }).safeParse(await response.json().catch(() => null));
   const unsupportedGuard = response.status === 501 && body.success && body.data.data?.code === 'smarty.inbox-guard-unavailable';
-  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408));
+  return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408), response.status);
 };
 
 /**
