@@ -215,7 +215,9 @@ export const registerPwaManifestRoute = (app, dependencies) => {
     );
 
     // smarty-code#1489: the home-screen label is the product name, never a truncated "<name> - AI Coding Assist".
-    const shortName = appName === DEFAULT_PWA_APP_NAME ? PRODUCT_NAME : appName.slice(0, 30);
+    // The default is known by where the name came from (no name given), never by comparing the text.
+    const usesDefaultName = hasQueryOverride ? !queryOverrideName : !storedName;
+    const shortName = usesDefaultName ? PRODUCT_NAME : appName.slice(0, 30);
     const recentSessionShortcuts = await getRecentPwaSessionShortcuts(req);
 
     const manifest = {

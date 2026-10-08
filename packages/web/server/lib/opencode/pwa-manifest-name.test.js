@@ -40,6 +40,12 @@ describe('installed app name', () => {
     expect(long.short_name).toBe('A very long installed applicat');
   });
 
+  it('a chosen name that equals the default text is still the person\'s own (cut to 30), not the default', async () => {
+    const same = `${PRODUCT_NAME} - AI Coding Assistant`;
+    expect((await manifestFor({ appName: same })).short_name).toBe(same.slice(0, 30));
+    expect((await manifestFor({}, { pwaAppName: same })).short_name).toBe(same.slice(0, 30));
+  });
+
   it('index.html: iOS title, home-screen capable, client fallback short_name', () => {
     const html = readFileSync(new URL('../../../index.html', import.meta.url), 'utf8');
     expect(html).toContain('<meta name="apple-mobile-web-app-title" content="__PRODUCT_NAME_HTML__" />');
