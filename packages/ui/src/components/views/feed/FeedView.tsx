@@ -341,7 +341,8 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
     <form className="shrink-0 border-t border-border px-4 py-3" onSubmit={event => { event.preventDefault(); submit(); }}>
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-1">
         <div className="flex items-end gap-2">
-          <Textarea aria-label={label} placeholder={label} rows={2} value={draft}
+          {/* smarty-code#1488 (Paul): a message box is prose, so phone spell check, autocorrect and sentence capitals stay on. */}
+          <Textarea aria-label={label} placeholder={label} rows={2} value={draft} spellCheck autoCorrect="on" autoCapitalize="sentences"
             outerClassName="min-w-0 flex-1" onChange={event => { setNotice(null); useFeedStore.getState().setDraftAt(key, event.target.value); }}
             onKeyDown={event => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;

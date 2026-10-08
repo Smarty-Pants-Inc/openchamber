@@ -137,6 +137,13 @@ test('smarty-code#1456: a signed-in member with no Smarties lands on "No Smartie
   await main.unmount(); await nav.unmount();
 });
 
+test('smarty-code#1488: the message box keeps phone spell check, autocorrect and sentence capitals on', async () => {
+  const { host, unmount } = await mount(view());
+  const box = host.querySelector('textarea')!;
+  expect([box.getAttribute('spellcheck'), box.getAttribute('autocorrect'), box.getAttribute('autocapitalize')]).toEqual(['true', 'on', 'sentences']);
+  await unmount();
+});
+
 test('3: the own Smarty shows the conversation, the inbox inside it, and a "Message Paul’s Smarty" box that sends', async () => {
   const { host, unmount } = await mount(view());
   expect(host.querySelector('h1')?.textContent).toBe('Paul’s Smarty');
