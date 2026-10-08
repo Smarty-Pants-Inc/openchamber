@@ -755,11 +755,11 @@
     },
     {
       "path": "packages/ui/src/sync/global-session-status.ts",
-      "behaviorSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
-      "combinedSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df",
-      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. Outside the original donor ledger; no fabricated branding predecessor.",
+      "behaviorSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
+      "combinedSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
+      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df"
+      "sessionStatusReadSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646"
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
