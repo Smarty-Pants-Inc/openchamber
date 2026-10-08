@@ -34,6 +34,16 @@ describe('smarty-code#701 inbox data', () => {
     await expect(loadInbox('open', async () => json({ data: { message: 'Inbox command failed: x' } }, 502))).rejects.toThrow('Inbox command failed: x');
   });
 
+  test('smarty-code#1476: person= reads another principal\'s inbox; a 403 or an answer for anyone else is "not shared"', async () => {
+    const urls: string[] = [];
+    const shared = await loadInbox('snoozed', async url => { urls.push(url); return json({ person: 'kate', items: [item({ id: 'k', to: 'kate' })], readOnly: true, capabilities: {} }); }, 'kate');
+    expect(urls).toEqual(['/api/inbox?state=snoozed&person=kate']);
+    expect(shared).toEqual({ available: true, items: [item({ id: 'k', to: 'kate' })] });
+    expect(await loadInbox('open', async () => json({ data: { message: 'This inbox is not shared with you' } }, 403), 'kate')).toEqual({ available: false, items: [] });
+    // A gateway that ignores person= answers with the caller's own inbox: never shown as Kate's.
+    expect(await loadInbox('open', async () => json({ person: 'paul', items: [item({})] }), 'kate')).toEqual({ available: false, items: [] });
+  });
+
   test('loads the list, drops malformed items and sorts it', async () => {
     const urls: string[] = [];
     const fetcher = async (url: string) => { urls.push(url); return json({ person: 'paul', items: [item({ id: 'x' }), { id: 'bad' }, item({ id: 'p', priority: 'p0' })] }); };

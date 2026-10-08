@@ -88,13 +88,29 @@ beforeEach(async () => {
 
 test('1–2: the nav lists the Smarties the person may see, own first, and selects the own one on load', async () => {
   const { host, unmount } = await mount(<SmartiesNavSection />);
-  expect(host.querySelector('h2')?.textContent).toBe('Smarties');
+  // smarty-code#1477: the own Smarty under "Your Smarty", named as theirs for keyboard and screen-reader users; the others under "Smarties".
+  expect(Array.from(host.querySelectorAll('h2')).map(h => h.textContent)).toEqual(['Your Smarty', 'Smarties']);
+  expect(Array.from(host.querySelectorAll('[data-smarty-own]')).map(row => [row.getAttribute('data-smarty-row'), row.getAttribute('aria-label')]))
+    .toEqual([['paul', 'Your Smarty: Paul’s Smarty']]);
+  expect(host.querySelector('[data-smarty-row="kate"]')?.getAttribute('aria-label')).toBeNull();
   expect(Array.from(host.querySelectorAll('[data-smarty-row]')).map(row => row.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
   expect(host.querySelector('[aria-current="page"]')?.getAttribute('data-smarty-row')).toBe('paul');
   await act(async () => { host.querySelector<HTMLButtonElement>('[data-smarty-row="kate"]')!.click(); });
   expect(useFeedStore.getState().selectedId).toBe('kate');
   expect(host.querySelector('[aria-current="page"]')?.getAttribute('data-smarty-row')).toBe('kate');
   await unmount();
+});
+
+test('smarty-code#1477: the own Smarty comes first even when the server lists it last; no own Smarty means only "Smarties"', async () => {
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'paul', smarties: [...(paul.state === 'ready' ? paul.smarties : [])].reverse() }), true);
+  const own = await mount(<SmartiesNavSection />);
+  expect(Array.from(own.host.querySelectorAll('h2, [data-smarty-row]')).map(e => e.textContent)).toEqual(['Your Smarty', 'Paul’s Smarty', 'Smarties', 'Kate’s Smarty']);
+  await own.unmount();
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'ann', smarties: [{ id: 'kate', label: 'Kate’s Smarty', own: false, writable: false }] }), true);
+  const none = await mount(<SmartiesNavSection />);
+  expect(Array.from(none.host.querySelectorAll('h2')).map(h => h.textContent)).toEqual(['Smarties']);
+  expect(none.host.querySelector('[data-smarty-own]')).toBeNull();
+  await none.unmount();
 });
 
 test('1: a server without Smarties shows no section and keeps the old view', async () => {
@@ -283,16 +299,80 @@ test('3: an accepted send whose answer was lost, then more typing: the retry is 
   await unmount();
 });
 
-test('4: another person’s Smarty is view only: transcript, no message box, no inbox', async () => {
-  useFeedStore.getState().selectSmarty('kate');
-  const { host, unmount } = await mount(view());
-  expect(host.querySelector('h1')?.textContent).toBe('Kate’s Smarty');
-  expect(host.textContent).toContain('Hello Kate.');
-  expect(host.textContent).toContain('View only');
-  expect(host.querySelector('textarea')).toBeNull();
-  expect(host.querySelector('aside')).toBeNull();
-  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual([]);
-  await unmount();
+const withFetch = async (respond: (url: string) => Response, run: () => Promise<void>) => {
+  const realFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => respond(input instanceof Request ? input.url : String(input)) });
+  try { await run(); } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+};
+/** The gateway's /api/inbox answers: a list (a shared one says readOnly and grants no capabilities), or a refusal. */
+type InboxAnswer = { person: string; items: (typeof inboxItem)[]; readOnly?: true; capabilities?: Record<string, never> } | { data: { message: string } };
+const json = (body: InboxAnswer, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+test('4: another person’s Smarty is view only: transcript, no message box, and no inbox when theirs is not shared (a 403 shows nothing)', async () => {
+  const urls: string[] = [];
+  await withFetch(url => { urls.push(url); return url.includes('person=') ? json({ data: { message: 'This inbox is not shared with you' } }, 403) : json({ person: 'paul', items: [inboxItem] }); }, async () => {
+    useFeedStore.getState().selectSmarty('kate');
+    const { host, unmount } = await mount(view());
+    expect(host.querySelector('h1')?.textContent).toBe('Kate’s Smarty');
+    expect(host.textContent).toContain('Hello Kate.');
+    expect(host.textContent).toContain('View only');
+    expect(host.querySelector('textarea')).toBeNull();
+    expect(host.querySelector('aside')).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual([]);
+    expect(urls.some(url => url.includes('/api/inbox?state=open&person=kate'))).toBe(true);
+    await unmount();
+  });
+});
+
+test('smarty-code#1476: a principal sees another principal’s shared inbox read only: items and tabs, no answer, snooze or resolve', async () => {
+  const kateItem = { ...inboxItem, id: 'k-i1', to: 'kate', title: 'Sign the lease', actions: ['accept', 'respond', 'ignore'] };
+  const urls: string[] = [];
+  let changed: () => void = () => undefined;
+  const watched: string[] = [];
+  const shared: Partial<FeedServices> = { ...services, watchInbox: (person, onChange) => { watched.push(person); changed = onChange; return () => undefined; } };
+  let kateItems = [kateItem];
+  await withFetch(url => {
+    urls.push(url);
+    if (url.includes('person=kate')) return json({ person: 'kate', items: url.includes('state=open') ? kateItems : [], readOnly: true, capabilities: {} });
+    return json({ person: 'paul', items: [inboxItem] });
+  }, async () => {
+    useFeedStore.getState().selectSmarty('kate');
+    const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={shared} />);
+    expect(watched).toEqual(['kate']);
+    const aside = host.querySelector('aside')!;
+    expect(button(host, 'Inbox (1)')?.getAttribute('aria-pressed')).toBe('true');
+    expect(aside.querySelector('[data-inbox-read-only]')?.textContent).toBe('Read only');
+    expect(Array.from(aside.querySelectorAll('[role="tab"]')).map(tab => tab.textContent)).toEqual(['Open 1', 'Snoozed', 'Resolved']);
+    await act(async () => { aside.querySelector<HTMLButtonElement>('[data-inbox-item="k-i1"]')!.click(); }); await settle();
+    const article = host.querySelector('aside article')!;
+    expect(article.textContent).toContain('Sign the lease');
+    // Only the way back to the list: no Accept, Respond, Snooze, Ignore or Reopen.
+    expect(Array.from(article.querySelectorAll('button')).map(b => b.textContent?.trim())).toEqual(['Inbox']);
+    expect(host.querySelector('textarea')).toBeNull();
+    // A change on Kate's inbox stream reads her list again.
+    kateItems = [kateItem, { ...kateItem, id: 'k-i2', title: 'Book the flight' }];
+    await act(async () => { changed(); }); await settle();
+    expect(button(host, 'Inbox (2)')).toBeDefined();
+    await unmount();
+  });
+  // Every inbox read was Kate's, never the signed-in person's.
+  expect(urls.filter(url => url.includes('/api/inbox')).every(url => url.includes('person=kate'))).toBe(true);
+  expect(urls.some(url => url.includes('state=open&person=kate'))).toBe(true);
+});
+
+test('smarty-code#1476: on a phone the shared inbox opens as the same read-only sheet', async () => {
+  await withFetch(url => url.includes('person=kate') ? json({ person: 'kate', items: [{ ...inboxItem, id: 'k-i1', to: 'kate', title: 'Sign the lease' }], readOnly: true, capabilities: {} })
+    : json({ person: 'paul', items: [inboxItem] }), async () => {
+    useFeedStore.getState().selectSmarty('kate');
+    const { host, unmount } = await mount(view(true));
+    await act(async () => { button(host, 'Inbox (1)')!.click(); }); await settle();
+    const sheet = document.querySelector('[role="dialog"]')!;
+    expect(sheet.textContent).toContain('Sign the lease');
+    expect(sheet.querySelector('[data-inbox-read-only]')?.textContent).toBe('Read only');
+    await act(async () => { button(document.body, 'Close inbox')?.click(); }); await settle();
+    await unmount();
+  });
 });
 
 test('5: the old view is hidden by default; the one bottom button switches to it and back, for this visit only', async () => {

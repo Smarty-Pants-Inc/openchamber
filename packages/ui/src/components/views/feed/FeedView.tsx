@@ -1,6 +1,8 @@
 // smarty-code#1407: a Smarty: one person's continuous conversation with their Smarty (their org instance), read from the
 // gateway's feed. The person's own Smarty adds their inbox (to the right on a desktop; on a phone, a sheet the header's
-// Inbox button opens) and a message box. Anyone else's Smarty is view only: the transcript, nothing to act with.
+// Inbox button opens) and a message box. Anyone else's Smarty is view only: the transcript, nothing to act with, and
+// (smarty-code#1476) their inbox read only when the gateway shares it with the signed-in principal; when it does not
+// (a 403), there is no inbox button at all, never an error.
 // The view paints once, from the first feed response: no spinner before it and no layout jump after it.
 import React from 'react';
 import { Button } from '@/components/ui/button';
@@ -10,7 +12,7 @@ import { Icon } from '@/components/icon/Icon';
 import { InboxView } from '@/components/views/InboxView';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { useInboxStore } from '@/lib/smartyInbox';
+import { loadInbox, useInboxStore, watchSharedInbox } from '@/lib/smartyInbox';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -24,10 +26,12 @@ export type FeedServices = {
   loadFeed: (id: string, query?: FeedQuery) => Promise<SmartyFeed>;
   openStream: (id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void }) => SmartyStream;
   send: (id: string, text: string, clientId: string) => Promise<void>;
+  /** Live changes to another principal's inbox (smarty-code#1476); returns the close. */
+  watchInbox: (person: string, onChange: () => void) => () => void;
   /** A block's text (the chat's Markdown renderer). */
   Text?: BlockText;
 };
-const defaultServices: FeedServices = { loadFeed: (id, query) => loadSmartyFeed(id, query), openStream: openSmartyStream, send: (id, text, clientId) => sendSmartyMessage(id, text, clientId) };
+const defaultServices: FeedServices = { loadFeed: (id, query) => loadSmartyFeed(id, query), openStream: openSmartyStream, send: (id, text, clientId) => sendSmartyMessage(id, text, clientId), watchInbox: watchSharedInbox };
 
 /**
  * `onClose`: the host's close request. It is ignored on purpose: the Smarty view leaves only to the old view, through
@@ -158,15 +162,46 @@ function useSmartyFeed(id: string, services: FeedServices) {
   return { feed, retry: () => { setFeed({ state: 'loading' }); setAttempt(n => n + 1); }, earlier: hasEarlier ? { state: earlier, show: showEarlier } : null };
 }
 
+type SharedInbox = { state: 'hidden' } | { state: 'shown'; openCount: number; revision: number };
+const HIDDEN: SharedInbox = { state: 'hidden' };
+
+/**
+ * smarty-code#1476: another principal's inbox, read only. It shows only once the gateway has shared it (its Open list
+ * answered for that person); a 403 (not shared), or a read that fails, leaves it hidden: no button, no error. Each event
+ * on its stream reads the Open list again and bumps `revision`, so the open tab reloads too.
+ */
+function useSharedInbox(person: string | null, watch: FeedServices['watchInbox']): SharedInbox {
+  const [shared, setShared] = React.useState<SharedInbox>(HIDDEN);
+  React.useEffect(() => {
+    if (person === null) return undefined;
+    let current = true, latest = 0, close: (() => void) | null = null;
+    const read = () => {
+      const request = ++latest;
+      loadInbox('open', undefined, person).then(result => {
+        if (!current || request !== latest) return;
+        if (!result.available) { setShared(HIDDEN); return; }
+        setShared(before => ({ state: 'shown', openCount: result.items.length, revision: before.state === 'shown' ? before.revision + 1 : 0 }));
+        close ??= watch(person, read);
+      }, () => undefined);
+    };
+    read();
+    return () => { current = false; close?.(); setShared(HIDDEN); };
+  }, [person, watch]);
+  return shared;
+}
+
 function SmartyPage({ smarty, all, me, compact, services }: {
   smarty: Smarty; all: readonly Smarty[]; me: string; compact: boolean; services: FeedServices;
 }): React.ReactNode {
   const { t } = useI18n();
   const stableServices = React.useRef(services).current;
   const { feed, retry, earlier } = useSmartyFeed(smarty.id, stableServices);
-  // Spec item 3: the own Smarty always holds the inbox (its list says plainly when nothing needs the person).
-  const ownInbox = smarty.own;
-  const openCount = useInboxStore(state => state.openCount);
+  // Spec item 3: the own Smarty always holds the inbox (its list says plainly when nothing needs the person). Another
+  // principal's holds theirs read only, when it is shared (smarty-code#1476).
+  const shared = useSharedInbox(smarty.own ? null : smarty.id, stableServices.watchInbox);
+  const ownInbox = smarty.own || shared.state === 'shown';
+  const ownOpenCount = useInboxStore(state => state.openCount);
+  const openCount = shared.state === 'shown' ? shared.openCount : ownOpenCount;
   const [inboxShown, setInboxShown] = React.useState(!compact);
   const inboxButton = React.useRef<HTMLButtonElement | null>(null);
   const inboxLabel = t('feed.inbox.toggle', { count: openCount });
@@ -186,7 +221,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
 
   // The owner's name as people say it ("Paul"), for the inbox's "Message Paul's Smarty" button.
   const ownerName = smarty.id.charAt(0).toUpperCase() + smarty.id.slice(1);
-  const inbox = <InboxView compact onClose={() => setInboxShown(false)} ownerName={ownerName} />;
+  const inbox = <InboxView compact onClose={() => setInboxShown(false)} ownerName={ownerName}
+    readOnly={shared.state === 'shown' ? { person: smarty.id, openCount: shared.openCount, revision: shared.revision } : undefined} />;
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <header className={cn('flex items-center gap-2 border-b border-border', compact ? 'flex-wrap px-3 py-2' : 'px-4 py-3')}>
@@ -194,7 +230,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
           // A phone has no nav column: the Smarties are a row of their own, above the header's buttons.
           <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 basis-full flex-wrap items-center gap-1">
             {all.map(item => (
-              <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
+              <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id}
+                aria-label={item.own ? t('feed.nav.ownRow', { name: item.label }) : undefined} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
                 <span className="truncate">{item.label}</span>
               </Button>))}
           </div>

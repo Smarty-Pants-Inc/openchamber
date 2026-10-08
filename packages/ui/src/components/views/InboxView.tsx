@@ -3,6 +3,8 @@
 // smarty-code#1407 item 6 (R-plain-english, smarty-dev#2264): a card shows only the plain title, the why and the
 // recommendation; evidence sits behind one Details link (the item's first safe link). `ownerName` names the message
 // button for the Smarty the inbox belongs to ("Message Paul's Smarty").
+// smarty-code#1476: `readOnly` shows another principal's inbox (GET /inbox?person=): the same lists and tabs, a plain
+// "Read only" label, and no answer, snooze, resolve or reopen controls. The gateway refuses every write for it anyway.
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,9 +20,14 @@ import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink,
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
 
-export function InboxView({ onClose, compact, ownerName }: { onClose: () => void; compact?: boolean; ownerName?: string }): React.ReactNode {
+/** Another principal's inbox: whose it is, its open count, and a revision that changes when it does (its event stream). */
+type ReadOnlyInbox = { person: string; openCount: number; revision: number };
+
+export function InboxView({ onClose, compact, ownerName, readOnly }: { onClose: () => void; compact?: boolean; ownerName?: string; readOnly?: ReadOnlyInbox }): React.ReactNode {
   const { t } = useI18n();
-  const storeOpenCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
+  const ownOpenCount = useInboxStore(s => s.openCount), ownRevision = useInboxStore(s => s.revision);
+  const storeOpenCount = readOnly ? readOnly.openCount : ownOpenCount, revision = readOnly ? readOnly.revision : ownRevision;
+  const person = readOnly?.person;
   // The Open count is the number of items the Open list itself returned (the same response it shows), never a separate
   // total; until the Open list has answered once, the badge's count stands in.
   const [openListed, setOpenListed] = React.useState<number | null>(null);
@@ -36,19 +43,19 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
   const reload = React.useCallback(() => {
     const mine = ++request.current;
     const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
-    return loadInbox(listedTab).then(r => {
+    return loadInbox(listedTab, undefined, person).then(r => {
       if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
       if (mine === request.current) { setItems(r.items); setError(null); }
     },
       e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
-  }, []);
+  }, [person]);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
   // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
   // response being typed) away (#365 review).
   React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
   const listed = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
   // A status read can be newer than the tab response. Keep its displayed version until the list catches up.
-  const selected = listed?.source?.startsWith('steps:') ? useInboxStore.getState().items.find(i =>
+  const selected = !readOnly && listed?.source?.startsWith('steps:') ? useInboxStore.getState().items.find(i =>
     i.id === listed.id && i.to === listed.to && Date.parse(i.updated) >= Date.parse(listed.updated)) ?? listed : listed;
 
   const list = (
@@ -56,6 +63,7 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
       <div className="flex items-center gap-2 px-4 pb-2 pt-4">
         <span aria-hidden className="typography-ui-header">⚑</span>
         <h1 className="typography-ui-header font-semibold">Inbox</h1>
+        {readOnly ? <span data-inbox-read-only="" className="shrink-0 rounded-md border border-border px-1.5 typography-micro text-muted-foreground">{t('feed.inbox.readOnly')}</span> : null}
         <Button variant="ghost" size="icon" className="ml-auto size-8" aria-label="Close inbox" onClick={onClose}><Icon name="close" className="size-4" /></Button>
       </div>
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
@@ -88,19 +96,19 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
   return (
     <div className="flex h-full min-h-0 bg-background">
       {compact ? null : list}
-      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} ownerName={ownerName} /> : null}
+      {selected ? <InboxItemDetail key={selected.id} item={selected} compact={compact} onBack={() => setSelectedId(null)} onChanged={reload} stepActions={stepActions} ownerName={ownerName} readOnly={Boolean(readOnly)} /> : null}
     </div>
   );
 }
 
-function InboxItemDetail({ item, compact, onBack, onChanged, stepActions, ownerName }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions; ownerName?: string }) {
+function InboxItemDetail({ item, compact, onBack, onChanged, stepActions, ownerName, readOnly }: { item: InboxItem; compact?: boolean; onBack: () => void; onChanged: () => Promise<void>; stepActions: StepActions; ownerName?: string; readOnly: boolean }) {
   const { t } = useI18n();
   const guardedReopen = useInboxStore(s => s.guardedReopen);
   const steps = Boolean(item.source?.startsWith('steps:'));
   const canReopen = !steps || guardedReopen;
   const [busy, setBusy] = React.useState(false), [error, setError] = React.useState<string | null>(null);
   const [reply, setReply] = React.useState<null | 'respond' | 'edit'>(null), [text, setText] = React.useState('');
-  const status = steps ? stepActions.status(item) : undefined;
+  const status = steps && !readOnly ? stepActions.status(item) : undefined;
   const locked = busy || status?.state === 'pending' || status?.state === 'uncertain';
   const allowed = (action: string) => item.actions.includes(action);
   const writeDisplayed = async (target: InboxItem, action: InboxAction, body: Record<string, string>) => {
@@ -162,14 +170,14 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions, ownerN
               <Button size="sm" variant="ghost" onClick={() => setReply(null)}>Cancel</Button>
             </div>
           </div>) : null}
-        {steps && !guardedReopen ? <p className="mt-3 typography-micro text-muted-foreground">{t('steps.undoUnavailable')}</p> : null}
+        {steps && !guardedReopen && !readOnly ? <p className="mt-3 typography-micro text-muted-foreground">{t('steps.undoUnavailable')}</p> : null}
         {status?.state === 'uncertain' ? <div className="mt-3">
           <p role="alert" className="typography-ui-label text-muted-foreground">{t('steps.uncertain')}</p>
           <Button size="sm" variant="outline" onClick={() => void stepActions.check(item)}>{t('steps.checkStatus')}</Button>
         </div> : null}
         {error ? <p role="alert" className="mt-3 typography-ui-label text-destructive">{error}</p> : null}
       </div>
-      <div className={cn('flex flex-wrap gap-2 py-3', compact ? 'px-4' : 'px-7', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
+      {readOnly ? null : <div className={cn('flex flex-wrap gap-2 py-3', compact ? 'px-4' : 'px-7', compact && 'border-t border-border pb-[max(0.75rem,env(safe-area-inset-bottom))]')}>
         {state === 'resolved' ? canReopen && <Button size="sm" variant="outline" disabled={locked} onClick={() => void act('reopen', {})}>Reopen</Button> : <>
           {allowed('accept') ? <Button size="sm" disabled={locked} onClick={() => void act('resolve', { action: 'accept' }, 'Accepted')}>✓ Accept</Button> : null}
           {allowed('respond') ? <Button size="sm" variant="outline" disabled={locked} onClick={() => setReply('respond')}>{ownerName ? t('inbox.card.messageOwner', { name: ownerName }) : '✎ Respond'}</Button> : null}
@@ -180,7 +188,7 @@ function InboxItemDetail({ item, compact, onBack, onChanged, stepActions, ownerN
           </DropdownMenu>
           {allowed('ignore') ? <Button size="sm" variant="ghost" disabled={locked} onClick={() => void act('resolve', { action: 'ignore' }, 'Ignored')}>Ignore</Button> : null}
         </>}
-      </div>
+      </div>}
     </article>
   );
 }

@@ -57,13 +57,21 @@ const failure = async (response: Response) => {
   return new InboxRequestError(body.success && body.data.data?.message || `Inbox request failed (${response.status})`, !unsupportedGuard && (response.status >= 500 || response.status === 408));
 };
 
-/** The list for one tab; a 403 means this account has no inbox (the page shows no badge). */
-export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = runtimeFetch): Promise<InboxListResult> {
-  const response = await fetcher(`/api/inbox?state=${state}`, { credentials: 'include', headers: { accept: 'application/json' } });
+/**
+ * The list for one tab; a 403 means this account has no inbox (the page shows no badge). `principal` (smarty-code#1476)
+ * reads another principal's inbox, read only: the gateway answers 403 ("This inbox is not shared with you") unless the
+ * signed-in person may see it. An answer for anyone but `principal` (a gateway that ignores `person=` and returns the
+ * caller's own inbox) is not that inbox, so it counts as not shared.
+ */
+export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = runtimeFetch, principal?: string): Promise<InboxListResult> {
+  const query = principal === undefined ? '' : `&person=${encodeURIComponent(principal)}`;
+  const response = await fetcher(`/api/inbox?state=${state}${query}`, { credentials: 'include', headers: { accept: 'application/json' } });
   if (response.status === 403) return { available: false, items: [] };
   if (!response.ok) throw await failure(response);
+  // A shared (read-only) answer carries `capabilities: {}`: it grants nothing (smarty-code#1476).
   const body = z.object({ items: z.array(z.json()), person: z.string().optional(),
-    capabilities: z.object({ guardedReopen: z.boolean() }).optional() }).parse(await response.json());
+    capabilities: z.object({ guardedReopen: z.boolean().optional() }).optional() }).parse(await response.json());
+  if (principal !== undefined && body.person !== principal) return { available: false, items: [] };
   const items: InboxItem[] = [], invalidStepGroups: string[] = [];
   const person = state === 'all' ? z.string().min(1).parse(body.person) : body.person;
   for (const value of body.items) {
@@ -76,7 +84,7 @@ export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = ru
     }
   }
   const result = { available: true, items: sortInboxItems(uniqueById(items)) };
-  return state === 'all' ? { ...result, capabilities: body.capabilities ?? { guardedReopen: false }, invalidStepGroups } : result;
+  return state === 'all' ? { ...result, capabilities: { guardedReopen: body.capabilities?.guardedReopen ?? false }, invalidStepGroups } : result;
 }
 
 /** One write, with only the documented body fields (the gateway refuses others); returns the item after it. */
@@ -91,6 +99,17 @@ export async function loadInboxItem(id: string, fetcher: Fetcher = runtimeFetch)
   const response = await fetcher(`/api/inbox/${encodeURIComponent(id)}`, { credentials: 'include', headers: { accept: 'application/json' } });
   if (!response.ok) throw await failure(response);
   return z.object({ item: itemSchema }).parse(await response.json()).item;
+}
+
+/**
+ * smarty-code#1476: live changes to another principal's inbox (GET /inbox/events?person=, the same sharing rule as the
+ * list). Each event only says "something changed": the caller reads the list again.
+ */
+export function watchSharedInbox(person: string, onChange: () => void): () => void {
+  if (!globalThis.EventSource) return () => undefined;
+  const source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events', { person }), { withCredentials: true });
+  source.onmessage = () => onChange();
+  return () => source.close();
 }
 
 type Store = {
