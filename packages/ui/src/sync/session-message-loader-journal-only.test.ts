@@ -123,3 +123,15 @@ test("no header: today's behaviour (no provisional marker, its own coverage, no 
     expect(s.g.reads).toBe(1)
   } finally { s.done() }
 })
+
+test("a session invalidated (deleted or archived) during journal-only polling stops re-reading (#1501 review)", async () => {
+  const s = gateway()
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    expect(s.loader.getSnapshot(target).provisional).toBe(true)
+    const reads = s.g.reads
+    s.loader.invalidateSession(target)
+    await sleep(3_300) // The 1 s and 2 s re-reads would have run.
+    expect(s.g.reads).toBe(reads)
+  } finally { s.done() }
+})

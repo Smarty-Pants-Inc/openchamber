@@ -755,6 +755,8 @@ export class SessionMessageLoader {
     entry.replaceEpoch++ // A history replacement in flight is older than this: it ends without committing.
     entry.inflight = null
     entry.optimistic.clear()
+    // smarty-code#1501 review: a deleted or archived session stops its journal-only re-reads too.
+    this.normalHistoryArrived(entry)
     // Keep the last known read-only marker until a fresh newest page replaces it.
     entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
     entry.lastOrdinaryView = undefined
