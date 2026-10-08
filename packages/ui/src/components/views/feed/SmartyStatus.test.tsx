@@ -156,3 +156,18 @@ test('a refresh never overlaps itself: a second call while one is in flight shar
   await refreshSmarties(async () => { throw new Error('again'); });
   expect(calls).toBe(1);
 });
+
+test('a list refresh never overwrites a stream status that arrived while it was in flight', async () => {
+  const idle = { state: 'idle' as const, startedAt: null, lastActiveAt: T };
+  useFeedStore.getState().setSmarties({ state: 'ready', me: 'paul', smarties: [{ id: 'paul', label: 'P', own: true, writable: true, activity: idle },
+    { id: 'kate', label: 'K', own: false, writable: false, activity: idle }] } as never);
+  let answer!: (value: never) => void;
+  const read = refreshSmarties(() => new Promise(resolve => { answer = resolve as never; }));
+  const working = { state: 'working' as const, startedAt: T, lastActiveAt: T };
+  useFeedStore.getState().setActivity('paul', working); // The open Smarty's stream, newer than the read's snapshot.
+  answer({ state: 'ready', me: 'paul', smarties: [{ id: 'paul', label: 'P', own: true, writable: true, activity: idle },
+    { id: 'kate', label: 'K', own: false, writable: false, activity: { state: 'waiting', startedAt: null, lastActiveAt: T } }] } as never);
+  await read;
+  const now = useFeedStore.getState().smarties;
+  expect(now.state === 'ready' && now.smarties.map(s => s.activity?.state)).toEqual(['working', 'waiting']);
+});
