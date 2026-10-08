@@ -193,7 +193,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         {compact && all.length > 1 ? (
           // A phone has no nav column: the Smarties are a row of their own, above the header's buttons.
           <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 basis-full flex-wrap items-center gap-1">
-            {all.map(item => (
+            {[...all.filter(item => item.own), ...all.filter(item => !item.own)].map(item => ( // #1477: own first here too
               <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id}
                 aria-label={item.own ? t('feed.nav.ownRow', { name: item.label }) : undefined} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
                 <span className="truncate">{item.label}</span>

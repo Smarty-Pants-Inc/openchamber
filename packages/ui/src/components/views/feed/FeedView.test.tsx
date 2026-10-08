@@ -106,6 +106,10 @@ test('smarty-code#1477: the own Smarty comes first even when the server lists it
   const own = await mount(<SmartiesNavSection />);
   expect(Array.from(own.host.querySelectorAll('h2, [data-smarty-row]')).map(e => e.textContent)).toEqual(['Your Smarty', 'Paul’s Smarty', 'Smarties', 'Kate’s Smarty']);
   await own.unmount();
+  // A phone's chip row too (review on openchamber#581).
+  const phone = await mount(view(true));
+  expect(Array.from(phone.host.querySelectorAll('header [role="group"] button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
+  await phone.unmount();
   await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'ann', smarties: [{ id: 'kate', label: 'Kate’s Smarty', own: false, writable: false }] }), true);
   const none = await mount(<SmartiesNavSection />);
   expect(Array.from(none.host.querySelectorAll('h2')).map(h => h.textContent)).toEqual(['Smarties']);
