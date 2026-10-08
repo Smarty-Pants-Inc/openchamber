@@ -12,17 +12,18 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useInboxStore } from '@/lib/smartyInbox';
 import { useUIStore } from '@/stores/useUIStore';
-import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
+import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyActivity, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, type FailedSend, type PendingSend } from './feedStore';
+import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
+import { SmartyStatusBadge, SmartyWorkingLine } from './SmartyStatus';
 import { dismissInitialLoading } from './initialLoading';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
   loadFeed: (id: string, query?: FeedQuery) => Promise<SmartyFeed>;
-  openStream: (id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void }) => SmartyStream;
+  openStream: (id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void; onStatus?: (activity: SmartyActivity) => void }) => SmartyStream;
   send: (id: string, text: string, clientId: string) => Promise<void>;
   /** A block's text (the chat's Markdown renderer). */
   Text?: BlockText;
@@ -38,6 +39,7 @@ export function FeedView({ compact = false, services }: { onClose?: () => void; 
   const smarties = useFeedStore(state => state.smarties);
   const selectedId = useFeedStore(state => state.selectedId);
   React.useEffect(() => { void ensureSmartiesLoaded(); }, []);
+  useSmartiesRefresh(); // #1490: a phone has no nav, so the view keeps the statuses current too.
   if (smarties.state === 'failed') {
     return <div className="flex h-full flex-col bg-background"><FeedNotice alert action={<Button size="sm" variant="outline" onClick={() => void ensureSmartiesLoaded(undefined, true)}>{t('feed.retry')}</Button>}>{t('feed.smartiesFailed')}</FeedNotice></div>;
   }
@@ -129,6 +131,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
       stream = services.openStream(id, {
         onBlocks: next => { if (current) fromStream(next); },
         onReconnect: () => { if (current) catchUp(offset.current); },
+        onStatus: activity => { if (current) useFeedStore.getState().setActivity(id, activity); }, // #1490: live, at each change.
       });
       // A block appended between the first read and the stream attaching is in neither: read it now.
       catchUp(first.offset);
@@ -194,11 +197,15 @@ function SmartyPage({ smarty, all, me, compact, services }: {
           // A phone has no nav column: the Smarties are a row of their own, above the header's buttons.
           <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 basis-full flex-wrap items-center gap-1">
             {all.map(item => (
-              <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
-                <span className="truncate">{item.label}</span>
+              <Button key={item.id} size="sm" variant="chip" className="min-w-0 max-w-full" aria-pressed={item.id === smarty.id} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
+                <span className="min-w-0 truncate">{item.label}</span>
+                <SmartyStatusBadge activity={item.activity} time={false} />
               </Button>))}
           </div>
-        ) : <h1 className="truncate typography-ui-header font-semibold text-foreground">{smarty.label}</h1>}
+        ) : <>
+          <h1 className="min-w-0 truncate typography-ui-header font-semibold text-foreground">{smarty.label}</h1>
+          <SmartyStatusBadge activity={smarty.activity} />
+        </>}
         {smarty.writable ? null : <span className="shrink-0 typography-micro text-muted-foreground">{t('feed.viewOnly')}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {ownInbox ? (
@@ -210,6 +217,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
             <Button variant="ghost" size="sm" onClick={() => useFeedStore.getState().showClassic()}>{t('feed.classic.show')}</Button>) : null}
         </div>
       </header>
+      <SmartyWorkingLine activity={smarty.activity} />
       <div className="flex min-h-0 flex-1 flex-row">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {feed.state === 'failed'
