@@ -8,6 +8,8 @@ import { reloadSteerOutcomesForTest, useSteerOutcomes } from "../steer-outcomes"
 import { registerPendingSteer, reloadPendingSteersForTest, takePendingSteer } from "../pending-steers"
 import { SessionMessageLoader, setImperativeSessionMessageLoader } from "../session-message-loader"
 import { createEventRoutingIndex, handleEvent } from "../sync-context"
+import { stopPromptOutcomeChecksForTest } from "../prompt-outcome"
+import { sendUnconfirmed } from "@/lib/sendUnconfirmed"
 
 // Co-steer (MVP 1 G5): what finally became of a steered message arrives as smarty.prompt.outcome on the session's stream.
 const directory = "/repo"
@@ -37,7 +39,7 @@ beforeEach(() => {
   toasts.length = 0
   spyOn(toast, "error").mockImplementation(message => { toasts.push(String(message)); return "toast" })
 })
-afterEach(() => { setImperativeSessionMessageLoader(null); loader.dispose(); children.disposeAll() })
+afterEach(() => { stopPromptOutcomeChecksForTest(); setImperativeSessionMessageLoader(null); loader.dispose(); children.disposeAll() })
 
 const sent = (messageID: string, text: string) => {
   registerPendingSteer({ runtimeKey: getRuntimeKey(), directory, sessionID, messageID, text })
@@ -65,12 +67,93 @@ test("not delivered: the sender's copy goes and the sender is told, with the tex
   expect(takePendingSteer(getRuntimeKey(), sessionID, "msg_kate")).toBeUndefined()
 })
 
-test("unconfirmed: the copy bound to no entry goes, and the sender is told to check the session", async () => {
+// smarty-code#1514: 'unconfirmed' (the gateway's 'unknown') is checked against the session's messages the page holds.
+const shortWindow = () => { const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 30; return () => { sendUnconfirmed.ms = was } }
+const windowEnds = () => new Promise(done => setTimeout(done, 60))
+// The server's own record of a user message (not the page's copy), saved or still only in Pi's memory.
+const serverMessage = (id: string, text: string, created: number, unsaved = false) => {
+  const store = children.getChild(directory)!
+  const state = store.getState()
+  store.setState({
+    message: { ...state.message, [sessionID]: [...(state.message[sessionID] ?? []),
+      { id, role: "user", sessionID, time: { created }, ...(unsaved ? { metadata: { smartyCodeUnsaved: true } } : {}) } as unknown as Message] },
+    part: { ...state.part, [id]: [{ id: `prt_${id}`, messageID: id, sessionID, type: "text", text } as Part] },
+  })
+}
+const dropMessage = (id: string) => {
+  const store = children.getChild(directory)!
+  const state = store.getState()
+  store.setState({ message: { ...state.message, [sessionID]: (state.message[sessionID] ?? []).filter(message => message.id !== id) } })
+}
+
+test("unconfirmed with no matching message: 'Sent, checking…', then 'Not confirmed' after the window; the copy goes", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    await deliver("msg_kate", "unconfirmed")
+    expect(notices()).toEqual(["checking: what changed today?"])
+    expect(toasts).toHaveLength(0)
+    await windowEnds()
+    expect(notices()).toEqual(["unconfirmed: what changed today?"])
+    expect(toasts[0].startsWith("Not confirmed:")).toBe(true)
+    expect(toasts[0]).toContain("what changed today?")
+    await Promise.resolve()
+    expect(shown()).toEqual([])
+  } finally { restore() }
+})
+
+test("unconfirmed while the session holds our text: 'Sent, checking…', then 'Sent' when it is saved; never 'Not confirmed'", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    serverMessage("entry_1", "what changed today?", Date.now() + 1, true) // In Pi's memory, not yet in the session file.
+    await deliver("msg_kate", "unconfirmed")
+    expect(notices()).toEqual(["checking: what changed today?"])
+    expect(shown()).toEqual(["entry_1"]) // The server's message stands in for the page's copy.
+    await windowEnds()
+    expect(notices()).toEqual(["checking: what changed today?"])
+    expect(toasts).toHaveLength(0)
+    // It commits: the store's own update says so.
+    const store = children.getChild(directory)!
+    const state = store.getState()
+    store.setState({ message: { ...state.message, [sessionID]: state.message[sessionID]!.map(message =>
+      message.id === "entry_1" ? { ...message, metadata: {} } as unknown as Message : message) } })
+    expect(notices()).toEqual(["sent: what changed today?"])
+    expect(toasts).toHaveLength(0)
+  } finally { restore() }
+})
+
+test("unconfirmed: a message that appears within the window counts; an older one or other text does not", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    serverMessage("entry_old", "what changed today?", 1) // Before our send: an earlier message with the same words.
+    serverMessage("entry_other", "something else", Date.now() + 1)
+    await deliver("msg_kate", "unconfirmed")
+    expect(notices()).toEqual(["checking: what changed today?"])
+    serverMessage("entry_2", "what changed today?", Date.now() + 1, true)
+    await windowEnds()
+    expect(notices()).toEqual(["checking: what changed today?"])
+    expect(toasts).toHaveLength(0)
+  } finally { restore() }
+})
+
+test("unconfirmed: a matching message that is dropped before it is saved gives 'Not confirmed'", async () => {
+  sent("msg_kate", "what changed today?")
+  serverMessage("entry_3", "what changed today?", Date.now() + 1, true)
+  await deliver("msg_kate", "unconfirmed")
+  expect(notices()).toEqual(["checking: what changed today?"])
+  dropMessage("entry_3")
+  expect(notices()).toEqual(["unconfirmed: what changed today?"])
+  expect(toasts).toHaveLength(1)
+  expect(toasts[0].startsWith("Not confirmed:")).toBe(true)
+})
+
+test("a reload during the check says 'Not confirmed', not 'Sent, checking…' with nothing checking", async () => {
   sent("msg_kate", "what changed today?")
   await deliver("msg_kate", "unconfirmed")
-  expect(shown()).toEqual([])
-  expect(toasts[0].startsWith("Not confirmed:")).toBe(true)
-  expect(toasts[0]).toContain("what changed today?")
+  reloadSteerOutcomesForTest()
+  expect(notices()).toEqual(["unconfirmed: what changed today?"])
 })
 
 test("delivered: the record is settled and the page's copy stays for the server's entry to replace", async () => {
