@@ -2,10 +2,11 @@
 // which Smarties the person may see, which one is selected, and the message typed for each (in memory: it survives
 // switching views, not a reload). Every load lands on the person's own Smarty: the old view opens only from the bottom
 // button, for that visit, and is never restored from memory.
+import React from 'react';
 import { create } from 'zustand';
 import { useInboxStore } from '@/lib/smartyInbox';
 import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
-import { loadSmarties, type SmartiesResult } from '@/lib/smarties';
+import { loadSmarties, type SmartiesResult, type SmartyActivity } from '@/lib/smarties';
 
 export type SmartiesState = { state: 'loading' } | { state: 'failed' } | SmartiesResult;
 type View = 'smarty' | 'classic';
@@ -36,6 +37,8 @@ type FeedStore = {
   showClassic: () => void;
   selectSmarty: (id: string) => void;
   setSmarties: (smarties: SmartiesState) => void;
+  /** #1490: one Smarty's activity, from its open stream. */
+  setActivity: (id: string, activity: SmartyActivity) => void;
   setDraftAt: (key: string, text: string) => void;
   addFailedSend: (key: string, failed: FailedSend) => void;
   removeFailedSend: (key: string, clientId: string) => void;
@@ -65,6 +68,8 @@ export const useFeedStore = create<FeedStore>(set => {
       const selectedId = next.state !== 'ready' ? state.selectedId : state.selectedId && ids.includes(state.selectedId) ? state.selectedId : ids[0] ?? null;
       return { smarties: next, selectedId, pageOpen: isPageOpen(state.view, next) };
     }),
+    setActivity: (id, activity) => { liveAt.set(id, ++liveSeq); set(state => state.smarties.state !== 'ready' ? {}
+      : { smarties: { ...state.smarties, smarties: state.smarties.smarties.map(smarty => smarty.id === id ? { ...smarty, activity } : smarty) } }); },
     setDraftAt: (key, text) => set(state => ({ drafts: { ...state.drafts, [key]: text } })),
     addFailedSend: (key, failed) => set(state => ({ failedSends: { ...state.failedSends, [key]: [...(state.failedSends[key] ?? []), failed] } })),
     removeFailedSend: (key, clientId) => set(state => ({ failedSends: { ...state.failedSends, [key]: (state.failedSends[key] ?? []).filter(item => item.clientId !== clientId) } })),
@@ -87,6 +92,41 @@ export function ensureSmartiesLoaded(load: () => Promise<SmartiesResult> = loadS
     .finally(() => { if (pending === request) pending = null; });
   pending = request;
   return request;
+}
+/** #1490: how often a shown Smarties list re-reads its activity (the open Smarty's also comes live on its stream). */
+export const REFRESH_MS = 15_000;
+/** A quiet re-read of a ready list: no loading state. A failed read keeps the list but marks each status unknown (its
+ * last activity stays): an old answer is never shown as current. */
+let refreshing: Promise<void> | undefined;
+/** Each Smarty's last stream status, by sequence: a list read never overwrites a status newer than itself. */
+const liveAt = new Map<string, number>(); let liveSeq = 0;
+export function refreshSmarties(load: () => Promise<SmartiesResult> = loadSmarties): Promise<void> {
+  if (pending || useFeedStore.getState().smarties.state !== 'ready') return pending ?? Promise.resolve();
+  // Single flight: a slow re-read is never overlapped, so an older answer cannot land after a newer one.
+  if (refreshing) return refreshing;
+  const scope = captureRuntimeRequestScope();
+  const since = liveSeq;
+  return refreshing = load().then(result => {
+    if (!isRuntimeRequestScopeCurrent(scope)) return;
+    // A stream status that arrived while this read was in flight is newer than the read's snapshot: keep it (#578 review).
+    const now = useFeedStore.getState().smarties;
+    const live = now.state === 'ready' ? new Map(now.smarties.filter(s => (liveAt.get(s.id) ?? 0) > since).map(s => [s.id, s.activity])) : new Map();
+    useFeedStore.getState().setSmarties(result.state === 'ready' && live.size
+      ? { ...result, smarties: result.smarties.map(s => live.has(s.id) ? { ...s, activity: live.get(s.id) } : s) } : result);
+  }, () => {
+    const now = useFeedStore.getState().smarties;
+    if (!isRuntimeRequestScopeCurrent(scope) || now.state !== 'ready') return;
+    useFeedStore.getState().setSmarties({ ...now, smarties: now.smarties.map(smarty => smarty.activity
+      ? { ...smarty, activity: { ...smarty.activity, state: 'unknown', startedAt: null } } : smarty) });
+  }).finally(() => { refreshing = undefined; });
+}
+let refreshers = 0, refreshTimer: ReturnType<typeof setInterval> | undefined;
+/** Mounted by the nav and the view: one timer however many are shown, paused while the page is hidden. */
+export function useSmartiesRefresh(load?: () => Promise<SmartiesResult>): void {
+  React.useEffect(() => {
+    if (refreshers++ === 0) refreshTimer = setInterval(() => { if (globalThis.document?.visibilityState !== 'hidden') void refreshSmarties(load); }, REFRESH_MS);
+    return () => { if (--refreshers === 0) clearInterval(refreshTimer); };
+  }, [load]);
 }
 subscribeRuntimeEndpointChanged(() => { pending = null; useFeedStore.getState().setSmarties({ state: 'loading' }); void ensureSmartiesLoaded(); });
 
