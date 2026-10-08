@@ -13,6 +13,7 @@ import {
   type SessionActivityTimingMutation,
 } from './session-activity-timing';
 import { countSyncPerformance } from './performance-diagnostics';
+import { nextChangeOrder } from '@/lib/herdrSession';
 
 // Shared live busy/retry index for every directory. Global events update it
 // incrementally and authoritative directory snapshots reconcile it, so each
@@ -29,6 +30,13 @@ type GlobalSessionStatusEntry = { status: SessionStatus; directory: string };
 type GlobalSessionStatusState = {
   statusById: Map<string, GlobalSessionStatusEntry>;
   activeSessionIds: ReadonlySet<string>;
+  /**
+   * smarty-code#1234: per session, the order (`nextChangeOrder`) of its last native status change: busy/retry starting,
+   * an idle event, or a snapshot clearing an entry. Idle is recorded although statusById keeps no idle entry, so a row
+   * can tell a native idle newer than Herdr's state from "no native status". A repeated busy is no change; a snapshot
+   * that finds an absent session still idle records nothing (it would bury Herdr's newer state every poll).
+   */
+  nativeAtById: ReadonlyMap<string, number>;
 };
 
 const EMPTY_ACTIVE_SESSION_IDS: ReadonlySet<string> = new Set();
@@ -36,6 +44,16 @@ const EMPTY_ACTIVE_SESSION_IDS: ReadonlySet<string> = new Set();
 const initialState: GlobalSessionStatusState = {
   statusById: new Map(),
   activeSessionIds: EMPTY_ACTIVE_SESSION_IDS,
+  nativeAtById: new Map(),
+};
+
+const withNativeOrder = (current: ReadonlyMap<string, number>, changed: readonly string[], removed: readonly string[] = []):
+  ReadonlyMap<string, number> => {
+  if (changed.length === 0 && removed.length === 0) return current;
+  const next = new Map(current);
+  for (const sessionId of changed) next.set(sessionId, nextChangeOrder());
+  for (const sessionId of removed) next.delete(sessionId);
+  return next;
 };
 
 export const useGlobalSessionStatusStore = create<GlobalSessionStatusState>(() => initialState);
@@ -61,6 +79,7 @@ export const replaceGlobalSessionStatusById = (statusById: Map<string, GlobalSes
   useGlobalSessionStatusStore.setState({
     statusById,
     activeSessionIds: sameMembership ? current.activeSessionIds : nextActiveSessionIds,
+    nativeAtById: new Map(),
   });
 };
 
@@ -117,6 +136,7 @@ export const applyFleetSessionStatuses = (
   useGlobalSessionStatusStore.setState((state) => {
     let next: Map<string, GlobalSessionStatusEntry> | null = null;
     let active: Set<string> | null = null;
+    const changed: string[] = [];
     for (const session of considered) {
       const current = (next ?? state.statusById).get(session.id);
       const type = normalizeStatusType(raw[session.id]?.type);
@@ -124,6 +144,7 @@ export const applyFleetSessionStatuses = (
         if (!current) continue;
         (next ??= new Map(state.statusById)).delete(session.id);
         (active ??= new Set(state.activeSessionIds)).delete(session.id);
+        changed.push(session.id);
         continue;
       }
       // SAFETY: normalizeStatusType has narrowed this entry to the SDK's busy/retry status discriminator.
@@ -132,8 +153,11 @@ export const applyFleetSessionStatuses = (
       if (current && current.directory === directory && statusesEqual(current.status, status)) continue;
       (next ??= new Map(state.statusById)).set(session.id, { status, directory });
       if (!current) (active ??= new Set(state.activeSessionIds)).add(session.id);
+      if (current?.status.type !== type) changed.push(session.id);
     }
-    return next ? { statusById: next, activeSessionIds: active ?? state.activeSessionIds } : state;
+    return next
+      ? { statusById: next, activeSessionIds: active ?? state.activeSessionIds, nativeAtById: withNativeOrder(state.nativeAtById, changed) }
+      : state;
   });
 };
 
@@ -145,11 +169,14 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
   let activeSessionIds: Set<string> | null = null;
   const orderingMutations: SessionOrderingMutation[] = [];
   const timingMutations: SessionActivityTimingMutation[] = [];
+  const nativeChanged: string[] = [];
+  const nativeRemoved: string[] = [];
   const currentStatuses = (): ReadonlyMap<string, GlobalSessionStatusEntry> => statusById ?? state.statusById;
   const draftStatuses = (): Map<string, GlobalSessionStatusEntry> => (statusById ??= new Map(state.statusById));
   const draftActiveIds = (): Set<string> => (activeSessionIds ??= new Set(state.activeSessionIds));
   const settle = (sessionId: string): void => {
     bumpStatusEventVersion(sessionId);
+    nativeChanged.push(sessionId);
     if (currentStatuses().has(sessionId)) {
       draftStatuses().delete(sessionId);
       draftActiveIds().delete(sessionId);
@@ -172,6 +199,7 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
       const status = { ...(props.status ?? {}), type } as SessionStatus;
       bumpStatusEventVersion(props.sessionID);
       const current = currentStatuses().get(props.sessionID);
+      if (current?.status.type !== type) nativeChanged.push(props.sessionID);
       if (!current || current.directory !== normalizedDirectory || !statusesEqual(current.status, status)) {
         draftStatuses().set(props.sessionID, { status, directory: normalizedDirectory });
         if (!current) draftActiveIds().add(props.sessionID);
@@ -195,6 +223,7 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
       if (!sessionId) continue;
       // Even an already-absent deletion must fence a status read that could resurrect it.
       bumpStatusEventVersion(sessionId);
+      nativeRemoved.push(sessionId);
       if (currentStatuses().has(sessionId)) {
         draftStatuses().delete(sessionId);
         draftActiveIds().delete(sessionId);
@@ -204,10 +233,12 @@ export const applyGlobalSessionStatusEvents = (directory: string, payloads: read
     }
   }
 
-  if (statusById) {
+  const nativeAtById = withNativeOrder(state.nativeAtById, nativeChanged, nativeRemoved);
+  if (statusById || nativeAtById !== state.nativeAtById) {
     useGlobalSessionStatusStore.setState({
-      statusById,
+      statusById: statusById ?? state.statusById,
       activeSessionIds: activeSessionIds ?? state.activeSessionIds,
+      nativeAtById,
     });
   }
   applySessionOrderingMutations(orderingMutations);
@@ -260,6 +291,7 @@ export const applyGlobalSessionStatusSnapshot = (
   );
   useGlobalSessionStatusStore.setState((state) => {
     let changed = false;
+    const nativeChanged: string[] = [];
     const next = new Map(state.statusById);
     let nextActiveSessionIds: Set<string> | null = null;
     const hasActiveSession = (sessionId: string): boolean => (
@@ -281,6 +313,7 @@ export const applyGlobalSessionStatusSnapshot = (
       if ((entry.directory === directory || known.has(sessionId)) && !(sessionId in raw)) {
         next.delete(sessionId);
         removeActiveSession(sessionId);
+        nativeChanged.push(sessionId);
         changed = true;
       }
     }
@@ -293,6 +326,7 @@ export const applyGlobalSessionStatusSnapshot = (
         if (current && (current.directory === directory || known.has(sessionId))) {
           next.delete(sessionId);
           removeActiveSession(sessionId);
+          nativeChanged.push(sessionId);
           changed = true;
         }
         continue;
@@ -302,6 +336,7 @@ export const applyGlobalSessionStatusSnapshot = (
       if (!current || current.directory !== directory || !statusesEqual(current.status, normalizedStatus)) {
         next.set(sessionId, { status: normalizedStatus, directory });
         if (!current) addActiveSession(sessionId);
+        if (current?.status.type !== type) nativeChanged.push(sessionId);
         changed = true;
       }
     }
@@ -309,6 +344,7 @@ export const applyGlobalSessionStatusSnapshot = (
     return changed ? {
       statusById: next,
       activeSessionIds: nextActiveSessionIds ?? state.activeSessionIds,
+      nativeAtById: withNativeOrder(state.nativeAtById, nativeChanged),
     } : state;
   });
 };
