@@ -42,6 +42,14 @@ function Page() {
   return <SessionRevealEffect sections={sections} />;
 }
 const settle = () => act(async () => { await sleep(40); await sleep(0); });
+// Real HTTP reads/writes finish on their own schedule; wait for the observable condition, bounded.
+const until = async (label: string, condition: () => boolean, limitMs = 4000) => {
+  const deadline = Date.now() + limitMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error(`Timed out after ${limitMs} ms waiting for ${label}`);
+    await act(async () => { await sleep(5); });
+  }
+};
 const mount = async () => {
   root = createRoot(document.createElement('div'));
   await act(async () => root?.render(<Page />)); await settle();
@@ -90,6 +98,8 @@ for (const pending of [true, false]) {
     const initialRevision = useSessionUIStore.getState().sessionRevealRevision;
     try {
       await mount();
+      if (pending) await until('held initial read to reach the server', () => fixture.gets === 1);
+      else { await until('initial read to hydrate', () => personal.ready); await settle(); }
       if (pending) {
         expect(fixture.gets).toBe(1); expect(readCompleted).toBe(false);
         expect(receipt()).toBeNull(); expect(fixture.requests).toHaveLength(0);
@@ -104,6 +114,8 @@ for (const pending of [true, false]) {
         expect(readCompleted).toBe(false); expect(receipt()).toBeNull();
         await act(async () => held.resolve()); fixture.heldRead = undefined;
       }
+      await until('preference read to hydrate', () => readCompleted && personal.ready);
+      if (!pending) await until('pA collapse write', () => fixture.requests.some(patch => patch.projects?.pA === false));
       await settle(); await settle();
       expect(readStatus).toBe(200); expect(isPersonalSidebarAdmissionCurrent(admission)).toBe(true);
       expect(getRuntimeKey()).toBe(scopeKey);
@@ -124,7 +136,7 @@ for (const pending of [true, false]) {
       const revision = useSessionUIStore.getState().sessionRevealRevision;
       const writes = fixture.requests.length;
       // Own reload: same URL and exact same safe session storage, with no fabricated receipt/ticket.
-      await mount(); await settle(); await settle();
+      await mount(); await until('reload read to hydrate', () => personal.ready); await settle(); await settle();
       const stored = await fixture.stored(0);
       const observed = { afterReopenReceipt, selected: useSessionUIStore.getState().currentSessionId,
         url: win.location.search, revisionDelta: useSessionUIStore.getState().sessionRevealRevision - revision,
@@ -139,5 +151,5 @@ for (const pending of [true, false]) {
       held.resolve(); fixture.heldRead = undefined;
       await unmount();
     }
-  });
+  }, 15_000);
 }
