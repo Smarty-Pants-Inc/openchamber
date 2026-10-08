@@ -301,7 +301,7 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
   const copy = (message: FailedSend) => { void navigator.clipboard?.writeText(message.text).catch(() => undefined); };
 
   return (
-    <form className="shrink-0 border-t border-border px-4 py-3" onSubmit={event => { event.preventDefault(); submit(); }}>
+    <form className="oc-feed-message-box shrink-0 border-t border-border px-4 py-3" onSubmit={event => { event.preventDefault(); submit(); }}>
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-1">
         <div className="flex items-end gap-2">
           {/* smarty-code#1488 (Paul): a message box is prose, so phone spell check, autocorrect and sentence capitals stay on. */}

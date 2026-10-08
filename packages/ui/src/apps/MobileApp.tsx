@@ -75,6 +75,7 @@ import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
 import { FeedView } from '@/components/views/feed/FeedView';
+import { HomeScreenHint } from './HomeScreenHint';
 import { useFeedStore } from '@/components/views/feed/feedStore';
 import { StepsLayout } from '@/components/chat/steps/StepsLayout';
 import { useStepsSheetBack } from '@/components/chat/steps/useStepsSheetBack';
@@ -1319,6 +1320,7 @@ export function MobileApp({ apis }: MobileAppProps) {
               }} />
               <AppLinkConfirmDialog />
               <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
+              <HomeScreenHint />
               <PiVoiceCallBar />
               {isInitialized ? <ConfigUpdateOverlay /> : null}
             </div>

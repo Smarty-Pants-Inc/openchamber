@@ -715,7 +715,9 @@
     transition: padding-bottom 220ms cubic-bezier(0.33, 1, 0.68, 1);
   }
 
-  :root:not(.oc-capacitor-app):not(.oc-browser-keyboard-open) .oc-mobile-composer {
+  /* smarty-code#1489: the Smarties page's message box gets the same home-indicator room. */
+  :root:not(.oc-capacitor-app):not(.oc-browser-keyboard-open) .oc-mobile-composer,
+  :root:not(.oc-capacitor-app):not(.oc-browser-keyboard-open) .oc-feed-message-box {
     padding-bottom: calc(0.75rem + max(16px, var(--oc-safe-area-bottom, env(safe-area-inset-bottom, 0px)))) !important;
   }
 
