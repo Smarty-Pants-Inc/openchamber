@@ -25,6 +25,8 @@ export function SmartiesNavSection(): React.ReactNode {
         <p role="alert" className="flex items-center gap-2 px-1.5 py-1 typography-micro text-[var(--status-error)]">
           {t('feed.smartiesFailed')}<Button size="xs" variant="outline" onClick={() => void ensureSmartiesLoaded(undefined, true)}>{t('feed.retry')}</Button>
         </p>
+      ) : smarties.state === 'empty' ? (
+        <p className="px-1.5 py-1 typography-micro text-muted-foreground">{t('feed.smartiesEmpty')}</p>
       ) : (
         <ul>
           {smarties.smarties.map(smarty => {
