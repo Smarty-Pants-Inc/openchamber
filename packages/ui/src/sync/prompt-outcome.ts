@@ -123,14 +123,15 @@ function matchingMessage(loader: SessionMessageLoader, pending: PendingSteer) {
  * transcript all the same (#1502). So the page reads the session's messages it already holds, on that store's own
  * updates (no polling): while a server message with exactly our text, sent at or after ours, is there it says
  * "Sent, checking…"; once that message is saved, "Sent". "Not confirmed" only when none appears within the send
- * confirm window (sendUnconfirmed.ms), or when the one that appeared is dropped before it is saved.
+ * confirm window (sendUnconfirmed.ms), when the one that appeared is dropped before it is saved, or when it is still
+ * unsaved after a second window (never "checking" forever).
  */
 function checkTranscript(runtimeKey: string, pending: PendingSteer, loader: SessionMessageLoader, current: () => boolean): void {
   const key = failedKey(runtimeKey, pending.sessionID, pending.messageID)
   const notice = (outcome: 'checking' | 'sent') => useSteerOutcomes.getState().add({ runtimeKey, sessionID: pending.sessionID,
     directory: pending.directory, messageID: pending.messageID, outcome, text: pending.text, at: Date.now() })
-  let seen = false, windowOver = false
-  const stop = () => { unsubscribe?.(); clearTimeout(timer); checks.delete(key) }
+  let seen = false, windowOver = false, savedBy = false
+  const stop = () => { unsubscribe?.(); clearTimeout(timer); clearTimeout(deadline); checks.delete(key) }
   const evaluate = () => {
     if (!current() || !failed.has(key)) { stop(); return }
     const match = matchingMessage(loader, pending)
@@ -138,6 +139,7 @@ function checkTranscript(runtimeKey: string, pending: PendingSteer, loader: Sess
       if (!seen) removeCopy(pending, current, loader) // The server's message stands in for the page's copy.
       seen = true
       if (!isUnsaved(match)) { stop(); notice('sent') }
+      else if (savedBy) { stop(); fail(runtimeKey, pending, 'unconfirmed', current, loader) }
       return
     }
     if (seen || windowOver) { stop(); fail(runtimeKey, pending, 'unconfirmed', current, loader) }
@@ -145,6 +147,7 @@ function checkTranscript(runtimeKey: string, pending: PendingSteer, loader: Sess
   checks.get(key)?.()
   notice('checking')
   const timer = setTimeout(() => { windowOver = true; evaluate() }, sendUnconfirmed.ms)
+  const deadline = setTimeout(() => { savedBy = true; evaluate() }, 2 * sendUnconfirmed.ms)
   const unsubscribe: (() => void) | undefined = loader.messageStore(pending)?.subscribe(evaluate)
   checks.set(key, stop)
   evaluate()

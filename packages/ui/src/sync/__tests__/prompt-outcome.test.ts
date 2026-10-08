@@ -69,7 +69,9 @@ test("not delivered: the sender's copy goes and the sender is told, with the tex
 
 // smarty-code#1514: 'unconfirmed' (the gateway's 'unknown') is checked against the session's messages the page holds.
 const shortWindow = () => { const was = sendUnconfirmed.ms; sendUnconfirmed.ms = 30; return () => { sendUnconfirmed.ms = was } }
-const windowEnds = () => new Promise(done => setTimeout(done, 60))
+// After the 30 ms window, before the 60 ms deadline for a match that stays unsaved.
+const windowEnds = () => new Promise(done => setTimeout(done, 45))
+const deadlineEnds = () => new Promise(done => setTimeout(done, 40))
 // The server's own record of a user message (not the page's copy), saved or still only in Pi's memory.
 const serverMessage = (id: string, text: string, created: number, unsaved = false) => {
   const store = children.getChild(directory)!
@@ -135,6 +137,21 @@ test("unconfirmed: a message that appears within the window counts; an older one
     await windowEnds()
     expect(notices()).toEqual(["checking: what changed today?"])
     expect(toasts).toHaveLength(0)
+  } finally { restore() }
+})
+
+test("unconfirmed: a matching message still unsaved after a second window gives 'Not confirmed', never 'checking' forever", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    serverMessage("entry_4", "what changed today?", Date.now() + 1, true)
+    await deliver("msg_kate", "unconfirmed")
+    await windowEnds()
+    expect(notices()).toEqual(["checking: what changed today?"])
+    await deadlineEnds()
+    expect(notices()).toEqual(["unconfirmed: what changed today?"])
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0].startsWith("Not confirmed:")).toBe(true)
   } finally { restore() }
 })
 
