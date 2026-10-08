@@ -25,8 +25,8 @@
     {
       "path": "packages/web/server/lib/opencode/pwa-manifest-routes.js",
       "predecessorSha256": "f69504925960cb89a98c7398ace98e18b3d2fa822ebef668cbde2bedc6db8108",
-      "sha256": "2a4aedaa49b982e4b544814285501cc5f97f5077ee3c7610c4944392c8f2edd3",
-      "note": "Preserve only validated policy cache control; stock no-store fallback unchanged."
+      "sha256": "4df4d8e5d990b2cb975415c11ce0135028760ed4d1be5c081385a7ec3019bf86",
+      "note": "Preserve only validated policy cache control; stock no-store fallback unchanged. smarty-code#1489 successor (replaces #1190 output 2a4aedaa49b982e4b544814285501cc5f97f5077ee3c7610c4944392c8f2edd3): the default manifest short_name is the product name, not the 30-character cut of the long name."
     },
     {
       "path": "packages/web/server/lib/opencode/static-routes-runtime.js",

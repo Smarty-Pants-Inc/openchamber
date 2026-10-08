@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { configureRuntimeUrlResolver } from '../../lib/runtime-url';
 import { signInWithGoogle, useHumanAuth } from '../../lib/human-auth';
 
-const signInBody = z.object({ provider: z.literal('google'), disableRedirect: z.boolean() });
+const signInBody = z.object({ provider: z.literal('google'), disableRedirect: z.boolean(), callbackURL: z.string() });
 
 // Actual Better Auth client and product runtime modules; only the HTTP response is synthetic.
 test('delayed Google sign-in cannot navigate after runtime switch; current runtime can navigate', async () => {
@@ -14,6 +14,7 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
   const window = new Window({ url: 'https://ui.example.test/' });
   Object.assign(globalThis, { window });
   const requests: { url: string; body: z.infer<typeof signInBody> }[] = [];
+  const popup = spyOn(window, 'open');
   try {
     for (const mode of ['switched', 'returned', 'current']) {
       const stale = mode !== 'current';
@@ -42,7 +43,11 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
       expect(request.url).toBe('https://runtime-a.example.test/api/auth/sign-in/social');
       expect(request.body.provider).toBe('google');
       expect(request.body.disableRedirect).toBe(true);
+      // smarty-code#1489: Google returns to the page the person was on (in the app's scope), in the same window, so a
+      // home-screen app signs itself in rather than a Safari tab.
+      expect(request.body.callbackURL).toBe('https://ui.example.test/');
     }
+    expect(popup).not.toHaveBeenCalled();
   } finally {
     fetchSpy.mockRestore();
     Object.assign(globalThis, { window: originalWindow });

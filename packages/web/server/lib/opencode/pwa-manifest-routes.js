@@ -214,7 +214,8 @@ export const registerPwaManifestRoute = (app, dependencies) => {
       hasOrientationOverride ? queryOverrideOrientation : storedOrientation
     );
 
-    const shortName = appName.length > 30 ? appName.slice(0, 30) : appName;
+    // smarty-code#1489: the home-screen label is the product name, never a truncated "<name> - AI Coding Assist".
+    const shortName = appName === DEFAULT_PWA_APP_NAME ? PRODUCT_NAME : appName.slice(0, 30);
     const recentSessionShortcuts = await getRecentPwaSessionShortcuts(req);
 
     const manifest = {
