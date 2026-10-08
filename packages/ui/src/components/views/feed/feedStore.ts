@@ -97,15 +97,18 @@ export function ensureSmartiesLoaded(load: () => Promise<SmartiesResult> = loadS
 export const REFRESH_MS = 15_000;
 /** A quiet re-read of a ready list: no loading state. A failed read keeps the list but marks each status unknown (its
  * last activity stays): an old answer is never shown as current. */
+let refreshing: Promise<void> | undefined;
 export function refreshSmarties(load: () => Promise<SmartiesResult> = loadSmarties): Promise<void> {
   if (pending || useFeedStore.getState().smarties.state !== 'ready') return pending ?? Promise.resolve();
+  // Single flight: a slow re-read is never overlapped, so an older answer cannot land after a newer one.
+  if (refreshing) return refreshing;
   const scope = captureRuntimeRequestScope();
-  return load().then(result => { if (isRuntimeRequestScopeCurrent(scope)) useFeedStore.getState().setSmarties(result); }, () => {
+  return refreshing = load().then(result => { if (isRuntimeRequestScopeCurrent(scope)) useFeedStore.getState().setSmarties(result); }, () => {
     const now = useFeedStore.getState().smarties;
     if (!isRuntimeRequestScopeCurrent(scope) || now.state !== 'ready') return;
     useFeedStore.getState().setSmarties({ ...now, smarties: now.smarties.map(smarty => smarty.activity
       ? { ...smarty, activity: { ...smarty.activity, state: 'unknown', startedAt: null } } : smarty) });
-  });
+  }).finally(() => { refreshing = undefined; });
 }
 let refreshers = 0, refreshTimer: ReturnType<typeof setInterval> | undefined;
 /** Mounted by the nav and the view: one timer however many are shown, paused while the page is hidden. */

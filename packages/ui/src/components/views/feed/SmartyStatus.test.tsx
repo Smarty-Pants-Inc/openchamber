@@ -143,3 +143,16 @@ test('the list parses the gateway\'s durations against the browser clock; a fail
   const now = useFeedStore.getState().smarties;
   expect(now.state === 'ready' && now.smarties.map(s => s.activity?.state)).toEqual(['unknown', 'unknown']);
 });
+
+test('a refresh never overlaps itself: a second call while one is in flight shares it (no stale overwrite)', async () => {
+  const smarty = { id: 'paul', label: 'P', own: true, writable: true, activity: { state: 'idle', startedAt: null, lastActiveAt: T } };
+  useFeedStore.getState().setSmarties({ state: 'ready', me: 'paul', smarties: [smarty] } as never);
+  let calls = 0, release!: () => void;
+  const slow = () => { calls++; return new Promise<never>((_, reject) => { release = () => reject(new Error('late')); }); };
+  const first = refreshSmarties(slow), second = refreshSmarties(slow);
+  expect(second).toBe(first);
+  expect(calls).toBe(1);
+  release(); await first;
+  await refreshSmarties(async () => { throw new Error('again'); });
+  expect(calls).toBe(1);
+});
