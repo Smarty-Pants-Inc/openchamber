@@ -37,6 +37,10 @@ queue_rules:
     queue_conditions:
       - base = smarty-code
       - -draft
+      # `hold` and DO NOT LAND keep a PR out on every base, so a held ready PR retargeted from main
+      # cannot queue here (smarty-dev#6793 security P1).
+      - -label = hold
+      - -title ~= (?i)do not land
       - check-success = checks
       - check-success = review/astra
       # A PR labelled needs-security-pass waits for the named security pass (smarty-dev#2630;
