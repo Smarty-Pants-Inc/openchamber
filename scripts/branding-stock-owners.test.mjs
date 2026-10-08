@@ -27,8 +27,8 @@ test('PR486 status-read provenance binds exactly six source records and retains 
   const expected = [
     ['packages/ui/src/hooks/useTraySync.ts', '0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d'],
     ['packages/ui/src/sync/bootstrap.ts', '90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49'],
-    ['packages/ui/src/sync/global-session-status.ts', '44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df'],
-    ['packages/ui/src/sync/sync-context.tsx', '83b1aecfcb7569ba0375610efe60de179a7e60225fc6bd23d0d46ad1e54de79c'],
+    ['packages/ui/src/sync/global-session-status.ts', '7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646'],
+    ['packages/ui/src/sync/sync-context.tsx', '575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d'],
     ['packages/ui/src/sync/session-status-read.ts', '638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1'],
     ['packages/ui/src/sync/sync-context-status-provenance.test.ts', 'ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36'],
   ];

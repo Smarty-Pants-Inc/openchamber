@@ -22,7 +22,7 @@ const { Window } = await import('happy-dom');
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
 
-const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'].replace(' {id}', '');
+const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'];
 const blocking = (id: string, expiresIn: number): NativeCreationState => ({ operationId: id, directory: '/project', generation: 'g',
   revision: 2, phase: 'unavailable', expiresAt: Date.now() + expiresIn, canInitialReady: false, clientRequestId: `req-${id}` });
 const native = (operations: NativeCreationState[], refreshed: string[]): ReturnType<typeof useNativeCreation> => ({
@@ -147,8 +147,9 @@ test('after a Send the blocking start refused, the notice still offers to stop i
   } finally { opencodeClient.abandonNativeCreation = original; }
 });
 
-// Review of #298: the control names the start it stops, and stays bound to the one it shows.
-test('the stop names its start, and when the blocking start changes it names and stops the new one', async () => {
+// Review of #298: the control is bound to the start it stops, and stays bound to the one it shows. smarty-code#1491: its
+// visible label is plain ("Stop the stuck start"); the start's id is kept in its title and data attribute, not shown.
+test('the stop is bound to its start, and when the blocking start changes it binds to and stops the new one', async () => {
   const calls: string[] = [];
   const original = opencodeClient.abandonNativeCreation;
   // SAFETY: a test double with the client method's own call shape.
@@ -156,10 +157,12 @@ test('the stop names its start, and when the blocking start changes it names and
   try {
     const first = blocking('1111aaaa-first', -1), second = blocking('2222bbbb-second', -1);
     await show(native([first], []));
-    expect(stopButton()!.textContent).toBe(`${STOP} 1111aaaa`);
+    expect(stopButton()!.textContent).toBe(STOP);
+    expect(stopButton()!.getAttribute('title')).toBe(first.operationId);
     expect(stopButton()!.getAttribute('data-operation-id')).toBe(first.operationId);
     await show(native([second], [])); // The first settled elsewhere; another start now blocks.
-    expect(stopButton()!.textContent).toBe(`${STOP} 2222bbbb`);
+    expect(stopButton()!.textContent).toBe(STOP);
+    expect(stopButton()!.getAttribute('data-operation-id')).toBe(second.operationId);
     await act(async () => { stopButton()!.click(); await new Promise(done => setTimeout(done, 10)); });
     expect(calls).toEqual([second.operationId]); // Never the stale one.
   } finally { opencodeClient.abandonNativeCreation = original; }
