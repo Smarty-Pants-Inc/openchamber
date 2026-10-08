@@ -65,7 +65,8 @@ const failure = async (response: Response) => {
  */
 export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = runtimeFetch, principal?: string): Promise<InboxListResult> {
   const query = principal === undefined ? '' : `&person=${encodeURIComponent(principal)}`;
-  const response = await fetcher(`/api/inbox?state=${state}${query}`, { credentials: 'include', headers: { accept: 'application/json' } });
+  // smarty-code#1480 review: never from the browser cache (another person's inbox, or your own).
+  const response = await fetcher(`/api/inbox?state=${state}${query}`, { credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } });
   if (response.status === 403) return { available: false, items: [] };
   if (!response.ok) throw await failure(response);
   // A shared (read-only) answer carries `capabilities: {}`: it grants nothing (smarty-code#1476).
@@ -96,7 +97,7 @@ export async function actOnInboxItem(id: string, action: InboxAction, body: Reco
 }
 
 export async function loadInboxItem(id: string, fetcher: Fetcher = runtimeFetch): Promise<InboxItem> {
-  const response = await fetcher(`/api/inbox/${encodeURIComponent(id)}`, { credentials: 'include', headers: { accept: 'application/json' } });
+  const response = await fetcher(`/api/inbox/${encodeURIComponent(id)}`, { credentials: 'include', cache: 'no-store', headers: { accept: 'application/json' } });
   if (!response.ok) throw await failure(response);
   return z.object({ item: itemSchema }).parse(await response.json()).item;
 }

@@ -92,3 +92,11 @@ describe('#365 review: the badge survives a transient failure', () => {
     expect(calls).toBe(1);
   });
 });
+
+test('#1480 review: the inbox list, shared or own, is never read from the browser cache', async () => {
+  const seen: RequestInit[] = [];
+  const fetcher = async (_url: string, init: RequestInit) => { seen.push(init); return new Response(JSON.stringify({ person: 'kate', items: [], readOnly: true, capabilities: {} }), { status: 200 }); };
+  await loadInbox('open', fetcher, 'kate');
+  await loadInbox('open', async (_u, init) => { seen.push(init); return new Response(JSON.stringify({ person: 'paul', items: [], capabilities: {} }), { status: 200 }); });
+  expect(seen.map(init => init.cache)).toEqual(['no-store', 'no-store']);
+});
