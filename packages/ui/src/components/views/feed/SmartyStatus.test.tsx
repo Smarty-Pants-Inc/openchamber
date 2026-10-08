@@ -70,7 +70,7 @@ test('the nav shows each Smarty\'s state as a dot and a word, with its last acti
     { id: 'ann', activity: act0('idle') }, { id: 'bo', activity: act0('blocked', null, T - 3 * 3_600_000) }, { id: 'cy', activity: act0('offline', null, null) },
     { id: 'di', activity: act0('unknown') }, { id: 'ed' }]));
   const { host, unmount } = await mount(<SmartiesNavSection />);
-  expect(rowStatus(host)).toEqual([['working', 'Working'], ['waiting', 'Waiting· Last active 2m ago'], ['idle', 'Idle· Last active 2m ago'],
+  expect(rowStatus(host)).toEqual([['working', 'Working· Last active now'], ['waiting', 'Waiting· Last active 2m ago'], ['idle', 'Idle· Last active 2m ago'],
     ['blocked', 'Blocked· Last active 3h ago'], ['offline', 'Offline'], ['unknown', 'Status unknown· Last active 2m ago'], [undefined, undefined]]);
   // Not colour alone: the dot is hidden from assistive tech, the word is text; the visible time reads "2m ago".
   const waiting = host.querySelector('[data-smarty-status="waiting"]')!;
@@ -105,7 +105,7 @@ test('an open Smarty takes its status live from its stream: the working line com
   expect(host.querySelector('[data-smarty-working]')).toBeNull();
   await act(async () => { onStatus!({ state: 'working', startedAt: Date.now() - 4_000, lastActiveAt: Date.now() }); });
   expect(host.querySelector('[data-smarty-working]')?.textContent).toBe('Working…4s');
-  expect(host.querySelector('header [data-smarty-status]')?.textContent).toBe('Working');
+  expect(host.querySelector('header [data-smarty-status]')?.textContent).toBe('Working· Last active now');
   await act(async () => { onStatus!({ state: 'idle', startedAt: null, lastActiveAt: Date.now() }); });
   expect(host.querySelector('[data-smarty-working]')).toBeNull();
   expect(host.querySelector('header [data-smarty-status]')?.textContent).toBe('Idle· Last active now');

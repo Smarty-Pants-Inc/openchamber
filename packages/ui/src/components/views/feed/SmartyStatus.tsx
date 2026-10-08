@@ -53,7 +53,8 @@ export function SmartyStatusBadge({ activity, time = true, className }: { activi
   const now = useNow(30_000, Boolean(activity && time));
   if (!activity) return null;
   const { state, lastActiveAt } = activity;
-  const ago = time && state !== 'working' && lastActiveAt !== null ? relativeTime(lastActiveAt, now) : null;
+  // Every state shows its last activity, working too ("now"); the open view's ticking line stays separate (#578 review).
+  const ago = time && lastActiveAt !== null ? relativeTime(lastActiveAt, now) : null;
   return (
     <span data-smarty-status={state} title={state === 'waiting' ? t('feed.status.waitingHint') : undefined}
       className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap typography-micro text-muted-foreground', className)}>
