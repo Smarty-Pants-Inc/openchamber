@@ -88,13 +88,29 @@ beforeEach(async () => {
 
 test('1–2: the nav lists the Smarties the person may see, own first, and selects the own one on load', async () => {
   const { host, unmount } = await mount(<SmartiesNavSection />);
-  expect(host.querySelector('h2')?.textContent).toBe('Smarties');
+  // smarty-code#1477: the own Smarty under "Your Smarty", named as theirs for keyboard and screen-reader users; the others under "Smarties".
+  expect(Array.from(host.querySelectorAll('h2')).map(h => h.textContent)).toEqual(['Your Smarty', 'Smarties']);
+  expect(Array.from(host.querySelectorAll('[data-smarty-own]')).map(row => [row.getAttribute('data-smarty-row'), row.getAttribute('aria-label')]))
+    .toEqual([['paul', 'Your Smarty: Paul’s Smarty']]);
+  expect(host.querySelector('[data-smarty-row="kate"]')?.getAttribute('aria-label')).toBeNull();
   expect(Array.from(host.querySelectorAll('[data-smarty-row]')).map(row => row.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
   expect(host.querySelector('[aria-current="page"]')?.getAttribute('data-smarty-row')).toBe('paul');
   await act(async () => { host.querySelector<HTMLButtonElement>('[data-smarty-row="kate"]')!.click(); });
   expect(useFeedStore.getState().selectedId).toBe('kate');
   expect(host.querySelector('[aria-current="page"]')?.getAttribute('data-smarty-row')).toBe('kate');
   await unmount();
+});
+
+test('smarty-code#1477: the own Smarty comes first even when the server lists it last; no own Smarty means only "Smarties"', async () => {
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'paul', smarties: [...(paul.state === 'ready' ? paul.smarties : [])].reverse() }), true);
+  const own = await mount(<SmartiesNavSection />);
+  expect(Array.from(own.host.querySelectorAll('h2, [data-smarty-row]')).map(e => e.textContent)).toEqual(['Your Smarty', 'Paul’s Smarty', 'Smarties', 'Kate’s Smarty']);
+  await own.unmount();
+  await ensureSmartiesLoaded(async () => ({ state: 'ready', me: 'ann', smarties: [{ id: 'kate', label: 'Kate’s Smarty', own: false, writable: false }] }), true);
+  const none = await mount(<SmartiesNavSection />);
+  expect(Array.from(none.host.querySelectorAll('h2')).map(h => h.textContent)).toEqual(['Smarties']);
+  expect(none.host.querySelector('[data-smarty-own]')).toBeNull();
+  await none.unmount();
 });
 
 test('1: a server without Smarties shows no section and keeps the old view', async () => {

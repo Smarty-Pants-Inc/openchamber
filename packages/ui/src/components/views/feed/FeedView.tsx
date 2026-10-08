@@ -194,7 +194,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
           // A phone has no nav column: the Smarties are a row of their own, above the header's buttons.
           <div role="group" aria-label={t('feed.nav.label')} className="flex min-w-0 basis-full flex-wrap items-center gap-1">
             {all.map(item => (
-              <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
+              <Button key={item.id} size="sm" variant="chip" aria-pressed={item.id === smarty.id}
+                aria-label={item.own ? t('feed.nav.ownRow', { name: item.label }) : undefined} onClick={() => useFeedStore.getState().selectSmarty(item.id)}>
                 <span className="truncate">{item.label}</span>
               </Button>))}
           </div>
