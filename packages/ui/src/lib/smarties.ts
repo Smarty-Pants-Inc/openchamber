@@ -5,7 +5,12 @@ import { z } from 'zod';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 
-const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean() });
+// smarty-code#1490: what the Smarty's agent is doing, as the gateway saw it (Herdr's status and the feed's last write).
+// Durations, not clock times: the browser anchors them when the answer arrives. A value it does not know reads unknown.
+const STATES = ['working', 'waiting', 'idle', 'blocked', 'offline', 'unknown'] as const;
+const activitySchema = z.object({ state: z.enum(STATES).catch('unknown'), workingForMs: z.number().nonnegative().nullable().catch(null),
+  lastActiveAgoMs: z.number().nonnegative().nullable().catch(null) });
+const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean(), activity: activitySchema.optional() });
 // `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): no Smarties, not a failure.
 const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) });
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
@@ -13,7 +18,14 @@ const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1),
 // of appended blocks (`after`) omits it.
 const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative(), earlier: z.number().int().nonnegative().nullable().optional() });
 
-export type Smarty = z.infer<typeof smartySchema>;
+export type SmartyState = (typeof STATES)[number];
+/** Browser-clock times; null: not known (a turn already running when the gateway first saw it, or no feed yet). */
+export type SmartyActivity = { state: SmartyState; startedAt: number | null; lastActiveAt: number | null };
+/** No `activity`: a gateway that does not report it, so the view shows no status rather than a guess. */
+export type Smarty = Omit<z.infer<typeof smartySchema>, 'activity'> & { activity?: SmartyActivity };
+export const toActivity = (wire: z.infer<typeof activitySchema>, now = Date.now()): SmartyActivity => ({ state: wire.state,
+  startedAt: wire.state === 'working' && wire.workingForMs !== null ? now - wire.workingForMs : null,
+  lastActiveAt: wire.lastActiveAgoMs === null ? null : now - wire.lastActiveAgoMs });
 export type SmartyBlock = z.infer<typeof blockSchema>;
 export type SmartyFeed = z.infer<typeof feedSchema>;
 /**
@@ -75,7 +87,8 @@ export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<Sma
   const body = listSchema.parse(await response.json());
   if (body.smarties.length === 0 || body.me === null) return { state: 'empty' };
   // Own first, whatever order the server sent.
-  return { state: 'ready', me: body.me, smarties: [...body.smarties].sort((a, b) => Number(b.own) - Number(a.own)) };
+  const now = Date.now(), smarties = body.smarties.map(({ activity, ...smarty }) => activity ? { ...smarty, activity: toActivity(activity, now) } : smarty);
+  return { state: 'ready', me: body.me, smarties: smarties.sort((a, b) => Number(b.own) - Number(a.own)) };
 }
 
 /** The newest blocks (no `after`/`before`), the blocks appended after a byte offset, or a page that ends before one. */
@@ -101,13 +114,18 @@ export type SmartyStream = { close: () => void };
  * Appended blocks, live (SSE `event: blocks`). `onReconnect` runs when the stream comes back after a drop, so the
  * caller can fetch what it missed. A malformed event is dropped, never applied.
  */
-export function openSmartyStream(id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void }): SmartyStream {
+export function openSmartyStream(id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void; onStatus?: (activity: SmartyActivity) => void }): SmartyStream {
   if (!globalThis.EventSource) return { close: () => undefined };
   const source = new EventSource(getRuntimeUrlResolver().sse(`${smartyPath(id)}/stream`), { withCredentials: true });
   let dropped = false;
   source.addEventListener('blocks', (event: MessageEvent<string>) => {
     const parsed = feedSchema.safeParse(parseJson(event.data));
     if (parsed.success) handlers.onBlocks(parsed.data);
+  });
+  // #1490: the Smarty's activity at connect and at each change.
+  source.addEventListener('status', (event: MessageEvent<string>) => {
+    const parsed = activitySchema.safeParse(parseJson(event.data));
+    if (parsed.success) handlers.onStatus?.(toActivity(parsed.data));
   });
   source.onerror = () => { dropped = true; };
   source.onopen = () => { if (dropped) { dropped = false; handlers.onReconnect(); } };
