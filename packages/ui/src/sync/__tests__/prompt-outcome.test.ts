@@ -155,6 +155,38 @@ test("unconfirmed: a matching message still unsaved after a second window gives 
   } finally { restore() }
 })
 
+test("a reconnect (a new loader) during the check ends it as 'Not confirmed', never 'checking' forever", async () => {
+  const restore = shortWindow()
+  try {
+    sent("msg_kate", "what changed today?")
+    serverMessage("entry_5", "what changed today?", Date.now() + 1, true)
+    await deliver("msg_kate", "unconfirmed")
+    expect(notices()).toEqual(["checking: what changed today?"])
+    newLoader()
+    await windowEnds()
+    await deadlineEnds()
+    expect(notices()).toEqual(["unconfirmed: what changed today?"])
+  } finally { restore() }
+})
+
+test("a save that lands after the expiry, before a late timer fires, never reads as 'Sent'", async () => {
+  const restore = shortWindow()
+  const realNow = Date.now
+  try {
+    sent("msg_kate", "what changed today?")
+    serverMessage("entry_6", "what changed today?", Date.now() + 1, true)
+    await deliver("msg_kate", "unconfirmed")
+    expect(notices()).toEqual(["checking: what changed today?"])
+    const late = realNow() + 10_000
+    Date.now = () => late // A background tab: the clock passed the expiry, the timers haven't fired yet.
+    const store = children.getChild(directory)!
+    const state = store.getState()
+    store.setState({ message: { ...state.message, [sessionID]: state.message[sessionID]!.map(message =>
+      message.id === "entry_6" ? { ...message, metadata: {} } as unknown as Message : message) } })
+    expect(notices()).toEqual(["unconfirmed: what changed today?"])
+  } finally { Date.now = realNow; restore() }
+})
+
 test("unconfirmed: a matching message that is dropped before it is saved gives 'Not confirmed'", async () => {
   sent("msg_kate", "what changed today?")
   serverMessage("entry_3", "what changed today?", Date.now() + 1, true)

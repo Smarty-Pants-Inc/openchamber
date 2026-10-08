@@ -131,15 +131,20 @@ function checkTranscript(runtimeKey: string, pending: PendingSteer, loader: Sess
   const notice = (outcome: 'checking' | 'sent') => useSteerOutcomes.getState().add({ runtimeKey, sessionID: pending.sessionID,
     directory: pending.directory, messageID: pending.messageID, outcome, text: pending.text, at: Date.now() })
   let seen = false, windowOver = false, savedBy = false
+  // An absolute expiry, not only the timers: a late timer (a background tab) never lets a save after it read as "Sent".
+  const expiresAt = Date.now() + 2 * sendUnconfirmed.ms
   const stop = () => { unsubscribe?.(); clearTimeout(timer); clearTimeout(deadline); checks.delete(key) }
   const evaluate = () => {
-    if (!current() || !failed.has(key)) { stop(); return }
+    // The loader went (a reconnect or another runtime): this check can't go on, so its notice says not confirmed.
+    if (!current()) { stop(); useSteerOutcomes.getState().settleChecking(runtimeKey, pending.messageID); return }
+    if (!failed.has(key)) { stop(); return }
+    if (Date.now() >= expiresAt) savedBy = windowOver = true
     const match = matchingMessage(loader, pending)
     if (match) {
       if (!seen) removeCopy(pending, current, loader) // The server's message stands in for the page's copy.
       seen = true
-      if (!isUnsaved(match)) { stop(); notice('sent') }
-      else if (savedBy) { stop(); fail(runtimeKey, pending, 'unconfirmed', current, loader) }
+      if (savedBy) { stop(); fail(runtimeKey, pending, 'unconfirmed', current, loader) } // Expired first: never "Sent" late.
+      else if (!isUnsaved(match)) { stop(); notice('sent') }
       return
     }
     if (seen || windowOver) { stop(); fail(runtimeKey, pending, 'unconfirmed', current, loader) }

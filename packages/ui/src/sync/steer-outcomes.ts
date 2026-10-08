@@ -47,6 +47,8 @@ type SteerOutcomeState = {
   items: SettledSteer[]
   add: (item: SettledSteer) => void
   dismiss: (runtimeKey: string, messageID: string) => void
+  /** A check that can no longer run (its loader went, e.g. a reconnect) says what is known: not confirmed. */
+  settleChecking: (runtimeKey: string, messageID: string) => void
 }
 
 export const useSteerOutcomes = create<SteerOutcomeState>()((set) => ({
@@ -56,6 +58,10 @@ export const useSteerOutcomes = create<SteerOutcomeState>()((set) => ({
   })),
   dismiss: (runtimeKey, messageID) => set(state => ({
     items: persist(state.items.filter(existing => !same(existing, runtimeKey, messageID))),
+  })),
+  settleChecking: (runtimeKey, messageID) => set(state => ({
+    items: persist(state.items.map(existing => same(existing, runtimeKey, messageID) && existing.outcome === 'checking'
+      ? { ...existing, outcome: 'unconfirmed' as const } : existing)),
   })),
 }))
 
