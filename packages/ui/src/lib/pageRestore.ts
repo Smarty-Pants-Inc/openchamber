@@ -6,19 +6,22 @@ import React from 'react';
 
 let epoch = 0;
 const listeners = new Set<() => void>();
-const bump = () => { epoch += 1; for (const listener of listeners) listener(); };
-const onVisibility = () => { if (document.visibilityState === 'visible') bump(); };
-const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) bump(); };
+/** The page was brought back: every reader of another person's possible data starts over. Exported for tests. */
+export const noteRestore = () => { epoch += 1; for (const listener of [...listeners]) listener(); };
+const onVisibility = () => { if (document.visibilityState === 'visible') noteRestore(); };
+const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) noteRestore(); };
+const dom = () => typeof document !== 'undefined' && typeof window !== 'undefined';
 
-function subscribe(listener: () => void): () => void {
-  if (listeners.size === 0) {
+/** Calls `listener` each time the page is brought back (also the hook's subscription). */
+export function subscribeRestore(listener: () => void): () => void {
+  if (listeners.size === 0 && dom()) {
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onPageShow as EventListener);
   }
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) {
+    if (listeners.size === 0 && dom()) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow as EventListener);
     }
@@ -27,5 +30,5 @@ function subscribe(listener: () => void): () => void {
 
 /** How many times this page was brought back while a reader was mounted (see above). */
 export function useRestoreEpoch(): number {
-  return React.useSyncExternalStore(subscribe, () => epoch, () => 0);
+  return React.useSyncExternalStore(subscribeRestore, () => epoch, () => 0);
 }

@@ -6,6 +6,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged, type RuntimeRequestScope } from '@/lib/runtime-switch';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
+import { subscribeRestore } from './pageRestore';
 
 const itemSchema = z.object({
   id: z.string().min(1), to: z.string(), title: z.string(),
@@ -210,12 +211,12 @@ export const INBOX_RETRY_MS = [5_000, 15_000, 60_000];
  * loads retry; a 403 (this account has no inbox) is an answer, and ends bootstrap.
  */
 export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_MS): () => void {
-  let scope = captureRuntimeRequestScope();
+  let scope = captureRuntimeRequestScope(), run = 0;
   let source: EventSource | undefined, closed = false, timer: ReturnType<typeof setTimeout> | undefined;
   useInboxStore.getState().setItems(false, []);
   const attempt = (n: number) => {
-    const revision = useInboxStore.getState().revision, requestScope = scope;
-    const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
+    const revision = useInboxStore.getState().revision, requestScope = scope, mine = run;
+    const current = () => !closed && mine === run && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
     void loadWatchSnapshot(load, current).then(snapshot => {
       if (!snapshot || !current()) return;
       if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
@@ -224,8 +225,9 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
     }, () => { if (current()) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
   };
+  // A restart drops every earlier read (its run ends) and clears the store before reading again.
   const restart = () => {
-    source?.close(); clearTimeout(timer);
+    run += 1; source?.close(); source = undefined; clearTimeout(timer);
     scope = captureRuntimeRequestScope();
     useInboxStore.getState().setItems(false, []);
     attempt(0);
@@ -234,6 +236,9 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
   const unsubscribeAuth = useAuthSessionStore.subscribe((state, before) => {
     if (state.recoveryGeneration !== before.recoveryGeneration) restart();
   });
+  // #574 security review: a tab brought back may now be another person's (an account switch in another tab): the store
+  // clears at once, every pending read (badge refreshes included: the clear bumps the revision) is dropped, and it reads anew.
+  const unsubscribeRestore = subscribeRestore(restart);
   attempt(0);
-  return () => { closed = true; unsubscribe(); unsubscribeAuth(); clearTimeout(timer); source?.close(); };
+  return () => { closed = true; unsubscribe(); unsubscribeAuth(); unsubscribeRestore(); clearTimeout(timer); source?.close(); };
 }

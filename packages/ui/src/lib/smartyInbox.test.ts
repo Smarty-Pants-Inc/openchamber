@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { actOnInboxItem, inboxItemState, loadInbox, sortInboxItems, useInboxStore, watchInbox, type InboxItem } from './smartyInbox';
+import { noteRestore } from './pageRestore';
 
 const item = (over: Partial<InboxItem>): InboxItem => ({ id: 'a', to: 'paul', title: 'T', actions: ['accept', 'respond', 'ignore'],
   links: [], priority: 'normal', created: '2026-09-28T10:00:00.000Z', updated: '2026-09-28T10:00:00.000Z', ...over });
@@ -99,4 +100,23 @@ test('#1480 review: the inbox list, shared or own, is never read from the browse
   await loadInbox('open', fetcher, 'kate');
   await loadInbox('open', async (_u, init) => { seen.push(init); return new Response(JSON.stringify({ person: 'paul', items: [], capabilities: {} }), { status: 200 }); });
   expect(seen.map(init => init.cache)).toEqual(['no-store', 'no-store']);
+});
+
+test('#574 security review: a tab brought back clears the inbox store at once and drops the read from before', async () => {
+  const answers: ((r: { available: boolean; items: InboxItem[] }) => void)[] = [];
+  const load = () => new Promise<{ available: boolean; items: InboxItem[] }>(resolve => { answers.push(resolve); });
+  const stop = watchInbox(load, [5]);
+  answers[0]!({ available: true, items: [item({ id: 'mine' })] });
+  for (let i = 0; i < 50 && !useInboxStore.getState().available; i++) await new Promise(r => setTimeout(r, 2));
+  expect(useInboxStore.getState()).toMatchObject({ available: true, openCount: 1 });
+  noteRestore(); // Another person may have signed in from another tab.
+  expect(useInboxStore.getState()).toMatchObject({ available: false, openCount: 0, items: [] });
+  noteRestore(); // A second return while the first re-read is pending: that read is now old too.
+  answers[1]!({ available: true, items: [item({ id: 'before' }), item({ id: 'before2' })] });
+  await new Promise(r => setTimeout(r, 10));
+  expect(useInboxStore.getState()).toMatchObject({ available: false, openCount: 0 });
+  answers[2]!({ available: true, items: [] });
+  for (let i = 0; i < 50 && !useInboxStore.getState().available; i++) await new Promise(r => setTimeout(r, 2));
+  expect(useInboxStore.getState()).toMatchObject({ available: true, openCount: 0 });
+  stop();
 });
