@@ -667,6 +667,12 @@ export class SessionMessageLoader {
     return () => entry.listeners.delete(listener)
   }
 
+  /** The store holding a session's messages and parts, if this page has it (its updates are the store's own). */
+  messageStore(target: SessionMessageTarget): ReturnType<ChildStoreManager["getChild"]> {
+    const normalized = this.normalizeTarget(target)
+    return normalized ? this.childStores.getChild(normalized.directory) : undefined
+  }
+
   optimisticAdd(input: SessionMessageTarget & { message: Message; parts: Part[] }): void {
     const target = this.normalizeTarget(input)
     if (!target) return
