@@ -14,7 +14,8 @@ const knownPhase = (value: string | undefined) => PHASES.find(phase => phase ===
  * not the one in view, and End voice call. Every app shell that can hold a call mounts it above its
  * layout and view gates: App.tsx (web, with MainLayout), its embedded session chat, and the
  * dedicated mobile app (MobileApp, beside MobileShell). So a running call always has a visible End,
- * whatever composer, banner or panel is showing. It renders nothing without a call.
+ * whatever composer, banner or panel is showing. It renders nothing without a call. It sits above the phone's
+ * full-screen surfaces (z-50, portaled after the app root), so End stays reachable from the Smarty page (smarty-code#1192).
  */
 export function PiVoiceCallBar() {
   const { t } = useI18n();
@@ -33,7 +34,7 @@ export function PiVoiceCallBar() {
     ? t(state.transcript.role === 'user' ? 'chat.piVoice.you' : 'chat.piVoice.agent', { text: state.transcript.text }) : undefined;
   return (
     <div role="status" aria-label={t('chat.piVoice.live')} title={line}
-      className="pointer-events-auto fixed left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-sm shadow-md"
+      className="pointer-events-auto fixed left-1/2 z-[70] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-sm shadow-md"
       style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top)) + var(--oc-safe-area-top, 0px))' }}>
       {phase ? <span aria-live="polite" className="whitespace-nowrap">{t(`chat.piVoice.phase.${phase}`)}</span> : null}
       {elsewhere ? <span className="min-w-0 truncate">{t('chat.piVoice.inSession', { title: title ?? call.sessionId.slice(0, 8) })}</span> : null}

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
 import { NativeCreationError } from '@/lib/opencode/nativeCreation';
 import { checkContinue, continueEndedSession, useContinueStatus } from '@/sync/native-session-resume';
+import { PiVoiceControl } from './PiVoiceControl';
 
 /** Smarty gateway (#181): an unenrolled fleet session is shown read-only until it is enrolled. */
 export const FLEET_ENROLLMENT_URL = 'https://github.com/Smarty-Pants-Inc/smarty-code/issues/116';
@@ -12,9 +13,12 @@ export const FLEET_ENROLLMENT_URL = 'https://github.com/Smarty-Pants-Inc/smarty-
  * `noIdentity`: a Pi without a reported session identity is still starting (smarty-code#126 (c)3, #863).
  * `ended`: a Code-created session whose Pi has ended is read from its transcript; say so plainly and, with `resume`,
  * offer to continue it in a new Pi (smarty-code#365), following that start until the view turns live.
+ * `voice`: the session's Voice call control (smarty-code#1192). A session Code only reads may still take a call; the
+ * gateway's per-session voice status decides, and a "no" shows as the disabled chip with its plain reason.
  */
 export const FleetViewOnlyBanner: React.FC<{ noIdentity?: boolean; ended?: boolean; reloading?: boolean;
-    resume?: { directory: string; sessionID: string; project: string; available: boolean } }> = ({ noIdentity = false, ended = false, reloading = false, resume }) => {
+    resume?: { directory: string; sessionID: string; project: string; available: boolean };
+    voice?: { sessionId: string; directory: string } }> = ({ noIdentity = false, ended = false, reloading = false, resume, voice }) => {
     const { t } = useI18n();
     const status = useContinueStatus(resume?.sessionID, resume?.directory);
     const run = (work: (directory: string, sessionID: string) => Promise<void>) => {
@@ -57,6 +61,9 @@ export const FleetViewOnlyBanner: React.FC<{ noIdentity?: boolean; ended?: boole
                             </a>
                         </>
                     )}
+                    {voice && !ended && !status ? <div className="mt-2 flex justify-center empty:hidden">
+                        <PiVoiceControl sessionId={voice.sessionId} directory={voice.directory} />
+                    </div> : null}
                 </div>
             </div>
         </div>
