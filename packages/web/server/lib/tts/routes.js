@@ -1,10 +1,11 @@
 import express from 'express';
+import { memberExecutionRefused, refuseMemberExecution } from '../security/node-member-execution.js';
 import { normalizeCustomOpenAIBaseURL } from './base-url.js';
 import { summarizeText, sanitizeForTTS, sanitizeForNote } from '../text/summarization.js';
 
 import { detectTextLanguage, languageOfLocale, pickVoiceForLanguage } from './language-detect.js';
 
-export function registerTtsRoutes(app, { sayTTSCapability }) {
+export function registerTtsRoutes(app, { sayTTSCapability, env = process.env }) {
   let ttsModulePromise = null;
   const getTtsModule = async () => {
     if (!ttsModulePromise) {
@@ -155,6 +156,8 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
 
   // macOS 'say' command TTS speak endpoint
   app.post('/api/tts/say/speak', async (req, res) => {
+    // Node mode: `say` runs through a shell with member-supplied voice and rate (smarty-code#1356).
+    if (memberExecutionRefused(env)) return refuseMemberExecution(res);
     try {
       const { text, rate = 200, language, languageSample } = req.body || {};
       let voice = typeof req.body?.voice === 'string' && req.body.voice.trim() ? req.body.voice.trim() : 'Samantha';

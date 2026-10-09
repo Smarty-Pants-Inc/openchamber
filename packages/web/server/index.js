@@ -14,6 +14,7 @@ import { PRODUCT_NAME } from '../brand.generated.js';
 import { exposedProxyResponseHeaders } from './proxy-headers.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createConfiguredHumanAuth } from './lib/ui-auth/human-auth-config.js';
+import { disableGitHooksInNodeMode } from './lib/security/node-member-execution.js';
 import { createResponsePolicyMiddleware } from './lib/http-response-policy.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
@@ -1493,6 +1494,7 @@ async function main(options = {}) {
   if (responsePolicy !== undefined && !(responsePolicy instanceof Function)) {
     throw new TypeError('responsePolicy must be a function');
   }
+  disableGitHooksInNodeMode(process.env); // Before any Git child (smarty-code#1356).
   const humanAuth = await createConfiguredHumanAuth(process.env);
   try {
     return await startConfiguredWebUiServer(options, humanAuth, createResponsePolicyMiddleware(responsePolicy, humanAuth));

@@ -42,6 +42,13 @@ HTTP remains the authenticated command plane for create, resize, appearance upda
 
 ## Security And Relay
 
+Node mode (`SMARTY_CODE_NODE_ID` set) refuses terminal create (interactive and
+command), restart and the terminal socket upgrade (attach and write) with 403
+"Terminal and commands aren't available for members on this Node yet.", before any
+child exists; `/api/fs/exec` refuses the same way. Members share the server's OS
+account, so a member shell could read the gateway credential (smarty-code#1356).
+The member binding below stays for the isolated execution that lifts this refusal.
+
 Human terminal sockets keep the private authority established by the raw upgrade.
 Each attach or write frame rechecks that same session and member binding before
 accessing the terminal. Human frames are serialized so delayed authorization does

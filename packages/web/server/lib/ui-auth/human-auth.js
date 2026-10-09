@@ -151,7 +151,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     status: async (req, res) => {
       res.setHeader('Cache-Control', 'no-store');
       const session = await resolve(req);
-      return session ? res.json({ authenticated: true, humanAuth: true, user: actor(session) }) : unauthorized(res);
+      // Node members are read-only on shared agents until isolation lands (smarty-code#1442); the UI hides the composer.
+      return session ? res.json({ authenticated: true, humanAuth: true, agentReadOnly: members.required, user: actor(session) })
+        : unauthorized(res);
     },
     dispose: () => connections.dispose(),
   };

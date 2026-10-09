@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { gitEnvForCaller } from '../security/node-member-execution.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,10 +27,11 @@ export async function runGit(args, options = {}) {
   const normalizedArgs = Array.isArray(args) ? args.slice() : [];
 
   // Non-interactive git (avoid prompts / hangs)
-  const env = {
+  // Node mode: a member's install gets no system or global config and no executable env (smarty-code#1356).
+  const env = gitEnvForCaller({
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
-  };
+  });
 
   if (identity?.sshKey) {
     const sshKeyPath = String(identity.sshKey).trim();

@@ -188,7 +188,8 @@ test('runtime recovery binds only the reviewed auth gate donor overlap', () => {
   assert.equal(entry.behaviorSha256, '9ea67125fd0167f5322d775fe2a574ad345518be8a5fa1838491f4a85062cc1b');
   assert.equal(entry.preHumanAuthCombinedSha256, entry.behaviorSha256);
   assert.equal(entry.combinedSha256, entry.humanAuthSha256);
-  assert.equal(sha256(read(file)), entry.humanAuthSha256);
+  // Later successor ledgers (Node member read-only, smarty-code#1442) bind the current output.
+  assert.equal(sha256(read(file)), currentOutput(file, entry.humanAuthSha256));
 });
 
 test('human auth successor retains both earlier overlapping behavior hashes', () => {
@@ -719,7 +720,8 @@ test('the shared worktree root binds its exact fix commit as a new overlay entry
   assert.deepEqual(added.map(entry => entry.path), ['packages/web/server/lib/git/service.js']);
   for (const entry of added) {
     assert.equal(entry.worktreeRootSha256, entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), entry.combinedSha256);
+    // Later successor ledgers (Node member execution, smarty-code#1356) bind the current output.
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.combinedSha256));
   }
 });
 

@@ -1,0 +1,25 @@
+{
+  "issue": "smarty-code#1356 / openchamber#564",
+  "sourceHead": "499d02b97f1d2ffff615e7a6e120fd76342801b6",
+  "note": "Node-mode member execution refusal successor; earlier ledgers and their digests stay byte-identical. These hashes bind source, not security or activation acceptance.",
+  "files": [
+    {
+      "path": "packages/web/server/index.js",
+      "predecessorSha256": "3f69448c539eaa06b0fce94256f1c5b98ea97de126c741fd020d7a204eda84b6",
+      "sha256": "1159884f76ca800396ffb500a8f16b93207c9250b7cfe5bb3161d482cc093d8a",
+      "note": "main() adds the Node-mode Git hook and fsmonitor overrides to process.env before any Git child; no presentation change."
+    },
+    {
+      "path": "packages/web/server/lib/git/service.js",
+      "predecessorSha256": "b9caf4a961ad78951bcc1b9a70e99571fb42ab299d2da0063e3020df46f81154",
+      "sha256": "9350dac176412e382a064a9263368446f8b35de7bb29dc8e5532e8789e8c5109",
+      "note": "Node mode: member-initiated Git (runGitCommand and simple-git, whose env is now applied) gets an isolated env that also clears the repository's own drivers, plus --no-ext-diff/--no-textconv; a member's worktree start command is refused; no presentation change. Request revisions (hash, from, to, base, head) are refused when Git would read them as options."
+    },
+    {
+      "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
+      "predecessorSha256": "56e3bb3d831bdaa066ac52655f4096e8a9fc3f16c3f91c096cccc7b5c8150a18",
+      "sha256": "3ed147046a5285038d8f53d29bf772296a5713516ad2048cfd5d310acfdad15c",
+      "note": "Reads agentReadOnly from the session status so the chat hides the composer for Node members (smarty-code#1442); no presentation change."
+    }
+  ]
+}

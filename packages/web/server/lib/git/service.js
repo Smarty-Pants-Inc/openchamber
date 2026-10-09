@@ -7,6 +7,8 @@ import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
+import { MEMBER_EXECUTION_REFUSED, gitEnvForCaller, memberExecutionRefused, memberInitiated, withoutDiffHelpersForMembers }
+  from '../security/node-member-execution.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -343,7 +345,7 @@ const resolveSshAuthSock = async () => {
   return null;
 };
 
-const buildGitEnv = async () => {
+const buildGitEnv = async (directory = null) => {
   const env = { ...process.env };
   if (!env.SSH_AUTH_SOCK || !env.SSH_AUTH_SOCK.trim()) {
     const resolved = await resolveSshAuthSock();
@@ -351,11 +353,17 @@ const buildGitEnv = async () => {
       env.SSH_AUTH_SOCK = resolved;
     }
   }
-  return env;
+  // Node mode: member-initiated Git gets no system or global config and no executable env (smarty-code#1356).
+  return gitEnvForCaller(env, directory);
 };
 
+const MEMBER_ENV_SIMPLE_GIT_OPT_INS = Object.fromEntries(['allowUnsafeEditor', 'allowUnsafePager',
+  'allowUnsafeConfigPaths', 'allowUnsafeConfigEnvCount', 'allowUnsafeHooksPath', 'allowUnsafeFsMonitor',
+  'allowUnsafeCredentialHelper', 'allowUnsafeAskPass', 'allowUnsafeFilter', 'allowUnsafeDiffTextConv',
+  'allowUnsafeDiffExternal', 'allowUnsafeMergeDriver'].map(key => [key, true]));
+
 const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
-  const env = await buildGitEnv();
+  const env = await buildGitEnv(directory);
   const spawnOptions = { windowsHide: true };
   const binary = getGitBinary();
   const hasCustomBinary = typeof binary === 'string' && binary.trim() && binary !== 'git' && binary !== 'git.exe';
@@ -374,13 +382,25 @@ const createGit = async (directory, { allowUnsafeSshCommand = false } = {}) => {
   if (typeof baseDir !== 'string' || !baseDir.trim()) {
     throw new Error('Git directory is required');
   }
-  return createSimpleGit({
+  // simple-git ignores an `env` option: the member env is applied with git.env() below. simple-git refuses env and
+  // config naming helper categories unless opted in, even when (as here) they switch helpers off; a member instance
+  // opts into exactly those categories (smarty-code#1356). ponytail: the opt-ins also lift simple-git's own checks on
+  // matching `-c` arguments for member calls; member input reaches Git only as refs and paths after server flags.
+  const member = memberInitiated();
+  const git = createSimpleGit({
     baseDir,
-    env,
     spawnOptions,
     binary,
-    unsafe,
+    unsafe: member ? { ...unsafe, ...MEMBER_ENV_SIMPLE_GIT_OPT_INS } : unsafe,
   });
+  if (member) git.env(env);
+  // Node mode: every diff, log and show this service runs goes through raw or show; member calls get the flags.
+  if (memberExecutionRefused(process.env)) {
+    const raw = git.raw.bind(git), show = git.show.bind(git);
+    git.raw = (args, ...rest) => raw(withoutDiffHelpersForMembers(args), ...rest);
+    git.show = (args, ...rest) => show(Array.isArray(args) ? withoutDiffHelpersForMembers(['show', ...args]).slice(1) : args, ...rest);
+  }
+  return git;
 };
 
 // Global config reads do not need a repository; use the home directory as a
@@ -928,9 +948,9 @@ const isMissingDirectoryError = (error) => {
 
 const runGitCommand = async (cwd, args) => {
   try {
-    const { stdout, stderr } = await execFileAsync(getGitBinary(), args, {
+    const { stdout, stderr } = await execFileAsync(getGitBinary(), withoutDiffHelpersForMembers(args), {
       cwd,
-      env: await buildGitEnv(),
+      env: await buildGitEnv(cwd),
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -1709,6 +1729,10 @@ const runWorktreeStartCommand = async (directory, command) => {
   const text = String(command || '').trim();
   if (!text) {
     return { success: true };
+  }
+  // Node mode: a member's start command (request or project setting) would run as the server account (smarty-code#1356).
+  if (memberInitiated()) {
+    return { success: false, message: MEMBER_EXECUTION_REFUSED };
   }
 
   if (process.platform === 'win32') {
@@ -2621,6 +2645,17 @@ const refResolvesToCommit = async (git, ref) => git
  * not exist locally. Say that plainly instead of letting git's "ambiguous
  * argument" surface as an opaque failure.
  */
+/** A revision from a request (hash, from, to, base, head) is a Git operand, never an option: Git would read a leading
+ *  `-` as one (`--output=<file>` writes a file). Refused before any Git child sees it (openchamber#564 round 15). */
+const revisionOperand = (value) => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text || text.startsWith('-') || /[\0-\x1f\x7f]/.test(text)) {
+    throw Object.assign(new Error('Invalid revision'), { statusCode: 400 });
+  }
+  return text;
+};
+const optionalRevisionOperand = value => (value === undefined || value === null || value === '' ? undefined : revisionOperand(value));
+
 async function assertRangeRefsResolve(git, refs) {
   for (const ref of refs) {
     if (!(await refResolvesToCommit(git, ref))) {
@@ -2630,6 +2665,8 @@ async function assertRangeRefsResolve(git, refs) {
 }
 
 export async function getRangeDiff(directory, { base, head, path: filePath, contextLines = 3 } = {}) {
+  base = revisionOperand(base);
+  head = revisionOperand(head);
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
   const baseRef = typeof base === 'string' ? base.trim() : '';
   const headRef = typeof head === 'string' ? head.trim() : '';
@@ -2755,6 +2792,8 @@ export async function getBranchBase(directory, branch) {
 }
 
 export async function getRangeFiles(directory, { base, head } = {}) {
+  base = revisionOperand(base);
+  head = revisionOperand(head);
   const { git } = await createRepositoryGitContext(directory);
   const baseRef = typeof base === 'string' ? base.trim() : '';
   const headRef = typeof head === 'string' ? head.trim() : '';
@@ -4605,6 +4644,7 @@ export async function resolveBaseRefForLog(from, checkRef) {
 }
 
 export async function getLog(directory, options = {}) {
+  options = { ...options, from: optionalRevisionOperand(options.from), to: optionalRevisionOperand(options.to) };
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
 
   try {
@@ -4934,6 +4974,7 @@ export async function canonicalizeWorktreeState(directory) {
 }
 
 export async function getCommitFiles(directory, commitHash) {
+  commitHash = revisionOperand(commitHash);
   const { git } = await createRepositoryGitContext(directory);
 
   try {
@@ -5346,6 +5387,7 @@ export async function getCommitFileDiff(directory, hash, filePath, isBinary) {
   if (!directory || !hash || !filePath) {
     throw new Error('directory, hash, and path are required for getCommitFileDiff');
   }
+  hash = revisionOperand(hash);
 
   if (isBinary) {
     return { original: '', modified: '', isBinary: true };
