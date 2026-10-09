@@ -11,7 +11,8 @@ export type SettledSteer = {
   /** The session's directory, to read its transcript again when the gateway corrects the outcome to delivered. */
   directory?: string
   messageID: string
-  outcome: 'not-delivered' | 'unconfirmed'
+  /** 'checking': the gateway could not bind it, and the session may hold it (Sent, checking…); 'sent': it does, saved. */
+  outcome: 'not-delivered' | 'unconfirmed' | 'checking' | 'sent'
   text: string
   at: number
 }
@@ -28,10 +29,12 @@ const read = (): SettledSteer[] => {
   try {
     const parsed: unknown = JSON.parse(storage()?.getItem(STORAGE_KEY) ?? '[]')
     const now = Date.now()
+    // A check a reload interrupted has no watcher any more: it says what is known, not confirmed.
     return Array.isArray(parsed) ? parsed.filter((item): item is SettledSteer => Boolean(item)
       && typeof item.runtimeKey === 'string' && typeof item.sessionID === 'string' && typeof item.messageID === 'string'
-      && (item.outcome === 'not-delivered' || item.outcome === 'unconfirmed') && typeof item.text === 'string'
-      && typeof item.at === 'number' && now - item.at < MAX_AGE_MS) : []
+      && ['not-delivered', 'unconfirmed', 'checking', 'sent'].includes(item.outcome) && typeof item.text === 'string'
+      && typeof item.at === 'number' && now - item.at < MAX_AGE_MS)
+      .map(item => item.outcome === 'checking' ? { ...item, outcome: 'unconfirmed' as const } : item) : []
   } catch { return [] }
 }
 const persist = (items: SettledSteer[]) => {
@@ -44,6 +47,8 @@ type SteerOutcomeState = {
   items: SettledSteer[]
   add: (item: SettledSteer) => void
   dismiss: (runtimeKey: string, messageID: string) => void
+  /** A check that can no longer run (its loader went, e.g. a reconnect) says what is known: not confirmed. */
+  settleChecking: (runtimeKey: string, messageID: string) => void
 }
 
 export const useSteerOutcomes = create<SteerOutcomeState>()((set) => ({
@@ -53,6 +58,10 @@ export const useSteerOutcomes = create<SteerOutcomeState>()((set) => ({
   })),
   dismiss: (runtimeKey, messageID) => set(state => ({
     items: persist(state.items.filter(existing => !same(existing, runtimeKey, messageID))),
+  })),
+  settleChecking: (runtimeKey, messageID) => set(state => ({
+    items: persist(state.items.map(existing => same(existing, runtimeKey, messageID) && existing.outcome === 'checking'
+      ? { ...existing, outcome: 'unconfirmed' as const } : existing)),
   })),
 }))
 
