@@ -15,16 +15,21 @@ export const SteerOutcomeNotices: React.FC<{ sessionId: string }> = ({ sessionId
   if (!sessionId || shown.length === 0) return null;
   return (
     <div className="chat-message-column">
-      {shown.map(item => (
+      {shown.map(item => {
+        const failed = item.outcome === 'not-delivered' || item.outcome === 'unconfirmed';
+        return (
         <div
           key={item.messageID}
           role="status"
-          className="mt-3 max-w-full break-words rounded-2xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-4 py-3 text-base leading-relaxed"
+          className={failed
+            ? "mt-3 max-w-full break-words rounded-2xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-4 py-3 text-base leading-relaxed"
+            : "mt-3 max-w-full break-words rounded-2xl border border-border px-4 py-3 text-base leading-relaxed text-muted-foreground"}
         >
           <div className="flex items-start gap-3">
-            <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
+            {failed && <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />}
             <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-foreground">
-              {t(item.outcome === 'not-delivered' ? 'chat.coSteer.notDelivered' : 'chat.coSteer.unconfirmed', { text: item.text })}
+              {t(item.outcome === 'not-delivered' ? 'chat.coSteer.notDelivered' : item.outcome === 'unconfirmed' ? 'chat.coSteer.unconfirmed'
+                : item.outcome === 'checking' ? 'chat.coSteer.checking' : 'chat.coSteer.sent', { text: item.text })}
             </div>
             <button
               type="button"
@@ -37,7 +42,8 @@ export const SteerOutcomeNotices: React.FC<{ sessionId: string }> = ({ sessionId
             </button>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
