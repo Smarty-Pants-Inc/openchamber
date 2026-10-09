@@ -1765,7 +1765,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                     <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={endedSession} reloading={isOrdinaryReloading(currentSession)}
                         resume={(endedSession || continueRecovery) && currentSessionId && effectiveSessionDirectory
                             ? { directory: effectiveSessionDirectory, sessionID: currentSessionId, available: continueAvailable,
-                                project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
+                                project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined}
+                        voice={currentSessionId && effectiveSessionDirectory ? { sessionId: currentSessionId, directory: effectiveSessionDirectory } : undefined} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (

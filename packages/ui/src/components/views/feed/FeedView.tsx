@@ -19,16 +19,21 @@ import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
 import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
 import { SmartyStatusBadge, SmartyWorkingLine } from './SmartyStatus';
 import { dismissInitialLoading } from './initialLoading';
+import { OrgAgentVoiceCall } from '@/components/chat/OrgAgentVoiceCall';
+import { loadOrgAgent, type OrgAgent } from '@/lib/orgAgent';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
   loadFeed: (id: string, query?: FeedQuery) => Promise<SmartyFeed>;
   openStream: (id: string, handlers: { onBlocks: (feed: SmartyFeed) => void; onReconnect: () => void; onStatus?: (activity: SmartyActivity) => void }) => SmartyStream;
   send: (id: string, text: string, clientId: string) => Promise<void>;
+  /** The viewer's own org agent session (GET /me/org-agent), for the header's Voice call (smarty-code#1192). */
+  loadOrgAgent: () => Promise<OrgAgent | null>;
   /** A block's text (the chat's Markdown renderer). */
   Text?: BlockText;
 };
-const defaultServices: FeedServices = { loadFeed: (id, query) => loadSmartyFeed(id, query), openStream: openSmartyStream, send: (id, text, clientId) => sendSmartyMessage(id, text, clientId) };
+const defaultServices: FeedServices = { loadFeed: (id, query) => loadSmartyFeed(id, query), openStream: openSmartyStream,
+  send: (id, text, clientId) => sendSmartyMessage(id, text, clientId), loadOrgAgent: () => loadOrgAgent() };
 
 /**
  * `onClose`: the host's close request. It is ignored on purpose: the Smarty view leaves only to the old view, through
@@ -209,6 +214,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         </>}
         {smarty.writable ? null : <span className="shrink-0 typography-micro text-muted-foreground">{t('feed.viewOnly')}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* smarty-code#1192: a voice call with the viewer's own org agent, on their own Smarty only. */}
+          {smarty.own ? <OrgAgentVoiceCall load={stableServices.loadOrgAgent} /> : null}
           {ownInbox ? (
             <Button ref={inboxButton} variant={inboxShown ? 'secondary' : 'outline'} size="sm" aria-expanded={inboxShown}
               aria-haspopup={compact ? 'dialog' : undefined} aria-pressed={compact ? undefined : inboxShown} onClick={() => setInboxShown(shown => !shown)}>
