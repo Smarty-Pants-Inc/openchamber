@@ -84,8 +84,15 @@ describe('#1140: liveHerdrState', () => {
 // the marker never bounces back. Native input is the status store's entry: native idle is NO entry (the store deletes a
 // settled session), so the steps say undefined where native is idle, as the row receives it (openchamber#484 round 2).
 describe('#1140: change order', () => {
+  // #1234: native changes are ordered by the status store, so each step drives the real reducer when native changes.
+  const nativeAt = (id: string) => useGlobalSessionStatusStore.getState().nativeAtById.get(id);
   const row = (id: string, h: ReturnType<typeof readHerdrState>, n: string | undefined) => {
-    const r = rowNativeStatus(id, h, n); return liveHerdrState(h, r.native, r.herdrIsNewer);
+    if (useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type !== n) {
+      // SAFETY: a session.status event carries the session ID and status type, which is all the reducer reads.
+      applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type: n ?? 'idle' } } } as Event]);
+    }
+    const r = rowNativeStatus(id, h, n, nativeAt(id));
+    return liveHerdrState(h, r.native, r.herdrIsNewer);
   };
   const run = (id: string, steps: Array<[ReturnType<typeof readHerdrState>, string | undefined]>) => steps.map(([h, n]) => row(id, h, n));
   test('a whole turn: Working at native busy, done at Herdr\'s earlier done, no bounce while native is still busy', () => {
@@ -126,7 +133,7 @@ describe('#1140: change order', () => {
     const id = 'remount-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;
     const status = (type: string) => applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type } } } as Event]);
     const mounted = (h: ReturnType<typeof readHerdrState>, first = false) => {
-      const r = rowNativeStatus(id, h, entry(), first); return liveHerdrState(h, r.native, r.herdrIsNewer);
+      const r = rowNativeStatus(id, h, entry(), nativeAt(id), first); return liveHerdrState(h, r.native, r.herdrIsNewer);
     };
     status('busy'); expect(mounted('working', true)).toBe('working'); expect(mounted('working')).toBe('working');
     status('idle'); status('busy'); // the group is collapsed: the turn ends and a new one starts, no row renders
@@ -138,11 +145,11 @@ describe('#1140: change order', () => {
   test('a remount after the turn ended while unmounted (native idle, Herdr done) shows done', () => {
     const id = 'remount-idle-1140', entry = () => useGlobalSessionStatusStore.getState().statusById.get(id)?.status.type;
     const status = (type: string) => applyGlobalSessionStatusEvents('/repo', [{ type: 'session.status', properties: { sessionID: id, status: { type } } } as Event]);
-    status('busy'); expect(liveHerdrState('working', rowNativeStatus(id, 'working', entry(), true).native)).toBe('working');
+    status('busy'); expect(liveHerdrState('working', rowNativeStatus(id, 'working', entry(), nativeAt(id), true).native)).toBe('working');
     status('idle');
-    const r = rowNativeStatus(id, 'done', entry(), true);
+    const r = rowNativeStatus(id, 'done', entry(), nativeAt(id), true);
     expect(r.native).toBe('idle'); expect(liveHerdrState('done', r.native, r.herdrIsNewer)).toBe('done');
-    const r2 = rowNativeStatus(id, 'working', entry(), true); // even a stale Herdr working: known idle wins on remount
+    const r2 = rowNativeStatus(id, 'working', entry(), nativeAt(id), true); // even a stale Herdr working: known idle wins on remount
     expect(liveHerdrState('working', r2.native, r2.herdrIsNewer)).toBe('done');
   });
 });

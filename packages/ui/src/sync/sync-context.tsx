@@ -298,6 +298,13 @@ export function useGlobalSessionStatus(sessionId: string): SessionStatus | undef
   )
 }
 
+/** smarty-code#1234: the order of the session's last native status change, idle included; undefined when none was seen. */
+export function useGlobalSessionNativeOrder(sessionId: string): number | undefined {
+  return useGlobalSessionStatusStore(
+    useCallback((state) => state.nativeAtById.get(sessionId), [sessionId]),
+  )
+}
+
 /** Read all session statuses (for sidebar) */
 export function useAllSessionStatuses(): Record<string, SessionStatus> {
   return useLiveSyncSelector(
