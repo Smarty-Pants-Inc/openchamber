@@ -40,5 +40,19 @@
       "sha256": "4bff87f4d0cc9096feb966f8014955406a55fe3631c4af0f21855a5ed653b30e",
       "note": "Own and idempotently regenerate embedded response-policy README section; all 142 controlled outputs preserved."
     }
-  ]
+  ],
+  "notificationProvenance": {
+    "issue": "smarty-code#1264 / openchamber#535",
+    "sourceHead": "edfae2b912c4533c4b785da4c4ed071953f7758f",
+    "baseHead": "d41518e48463b6231653def3585a3a59ad2ef870",
+    "note": "Astra round 1, https://github.com/Smarty-Pants-Inc/openchamber/pull/535#issuecomment-5970741370: record the reviewed notification behavior successor without replacing donor coverage or historical response-policy/behavior evidence. Source ownership only; exact-head CI and real browser/native acceptance remain separate gates.",
+    "files": [
+      {
+        "path": "packages/web/src/api/notifications.ts",
+        "predecessorSha256": "4ff0ddccb7eac46e3dec481ca462be3bdb1fe670d276a60109ce0d4ca1cbff49",
+        "sha256": "69d78c11a89c7ac2893d35aa0847fd3058fe63307297aeb53a421bd43ef81b23",
+        "note": "smarty-code#1264: the shared local service-worker showNotification call requests requireInteraction: true. Branded title/body/tag ownership, push suppression, dedupe, constructor/native fallbacks and click handling are unchanged; requireInteraction remains a browser hint. Original donor attribution and output hash remain historical evidence."
+      }
+    ]
+  }
 }

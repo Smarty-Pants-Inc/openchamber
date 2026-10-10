@@ -110,7 +110,7 @@ describe('web notifications API', () => {
     await expect(api.notifyAgentCompletion({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
 
     expect(showNotification).toHaveBeenCalledTimes(1);
-    expect(showNotification).toHaveBeenCalledWith('Ready', expect.objectContaining({ body: 'Done', tag: 'ready-session' }));
+    expect(showNotification).toHaveBeenCalledWith('Ready', expect.objectContaining({ body: 'Done', tag: 'ready-session', requireInteraction: true }));
     expect(created).toHaveLength(0);
   });
 });
