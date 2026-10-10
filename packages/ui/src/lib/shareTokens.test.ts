@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from 'bun:test';
 import { createShareToken, listShareTokens, resetShareTokensStore, ShareTokenRequestError, useShareTokensStore } from './shareTokens';
+import { useAuthSessionStore } from './runtime-auth-expiry';
 
 // smarty-dev#799 L2: the iPhone codes against fakes of the gateway's /api/me/share-tokens contract.
 type Wire = Record<string, string | null> | Record<string, string | null>[];
@@ -19,6 +20,12 @@ const gateway = (routes: Record<string, () => Response>) => {
 const a = { id: 'a', createdAt: '2026-10-01T10:00:00.000Z', lastUsedAt: '2026-10-09T08:00:00.000Z' };
 const b = { id: 'b', createdAt: '2026-10-05T10:00:00.000Z', lastUsedAt: null };
 const store = () => useShareTokensStore.getState();
+const deferredResponse = () => {
+  let resolve!: (response: Response) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<Response>((resolveResponse, rejectResponse) => { resolve = resolveResponse; reject = rejectResponse; });
+  return { promise, resolve, reject };
+};
 
 beforeEach(() => resetShareTokensStore());
 
@@ -49,6 +56,70 @@ test('creating a code keeps its secret for this page only and lists it first, ne
   expect(store().created).toBeNull();
   expect(JSON.stringify(store())).not.toContain('secret-code');
   expect(await createShareToken(gateway({ 'POST /api/me/share-tokens': () => json(created, 201) }).fetcher)).toEqual(created);
+});
+
+test('a creation that resolves after the page closes cannot show its code on a later visit', async () => {
+  const created = { id: 'c', token: 'secret-code', createdAt: '2026-10-10T09:00:00.000Z' };
+  const pending = deferredResponse();
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([a]) }).fetcher);
+  const creation = store().create(() => pending.promise);
+  expect(store().creating).toBe(true);
+  store().forgetCreated();
+  pending.resolve(json(created, 201));
+  await creation;
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([a, { id: created.id, createdAt: created.createdAt }]) }).fetcher);
+  expect(store()).toMatchObject({ created: null, creating: false, createFailed: false });
+  expect(JSON.stringify(store())).not.toContain(created.token);
+});
+
+test('switching accounts during creation discards the previous account code and allows a new one', async () => {
+  const created = { id: 'c', token: 'previous-code', createdAt: '2026-10-10T09:00:00.000Z' };
+  const pending = deferredResponse();
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([]) }).fetcher);
+  const creation = store().create(() => pending.promise);
+  useAuthSessionStore.getState().markReauthenticating();
+  useAuthSessionStore.getState().markAuthenticated();
+  pending.resolve(json(created, 201));
+  await creation;
+  expect(store()).toMatchObject({ created: null, creating: false, createFailed: false, list: { state: 'ready', tokens: [] } });
+  expect(JSON.stringify(store())).not.toContain(created.token);
+  const current = { id: 'd', token: 'current-code', createdAt: created.createdAt };
+  await store().create(gateway({ 'POST /api/me/share-tokens': () => json(current, 201) }).fetcher);
+  expect(store().created).toEqual(current);
+  store().forgetCreated();
+  expect(store().created).toBeNull();
+});
+
+test('an obsolete completion cannot clear or replace a new visit creation', async () => {
+  const previous = deferredResponse();
+  const current = deferredResponse();
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([]) }).fetcher);
+  const oldCreation = store().create(() => previous.promise);
+  store().forgetCreated();
+  const newCreation = store().create(() => current.promise);
+  previous.resolve(json({ id: 'c', token: 'previous-code', createdAt: a.createdAt }, 201));
+  await oldCreation;
+  expect(store()).toMatchObject({ created: null, creating: true, createFailed: false });
+  const created = { id: 'd', token: 'current-code', createdAt: a.createdAt };
+  current.resolve(json(created, 201));
+  await newCreation;
+  expect(store()).toMatchObject({ created, creating: false, createFailed: false });
+});
+
+test('an obsolete failure cannot mark a new visit creation as failed', async () => {
+  const previous = deferredResponse();
+  const current = deferredResponse();
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([]) }).fetcher);
+  const oldCreation = store().create(() => previous.promise);
+  store().forgetCreated();
+  const newCreation = store().create(() => current.promise);
+  previous.reject(new Error('request failed'));
+  await oldCreation;
+  expect(store()).toMatchObject({ created: null, creating: true, createFailed: false });
+  const created = { id: 'd', token: 'current-code', createdAt: a.createdAt };
+  current.resolve(json(created, 201));
+  await newCreation;
+  expect(store()).toMatchObject({ created, creating: false, createFailed: false });
 });
 
 test('a failed create says so and shows no code', async () => {
