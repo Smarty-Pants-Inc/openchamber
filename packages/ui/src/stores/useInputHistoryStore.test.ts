@@ -825,6 +825,49 @@ describe('useInputHistoryStore', () => {
       expect(texts(observer, feed).at(-1)).toBe('next');
     });
 
+    const reconcilePendingFeed = async (pendingLimit: number | undefined, failPending: boolean) => {
+      const storage = createFakeStorage();
+      installWindow(storage);
+      const tab = await importStoreModule();
+      const otherTab = await importStoreModule();
+      const write = storage.setItem;
+      if (failPending) storage.setItem = () => { throw new Error('write denied'); };
+      tab.useInputHistoryStore.getState().appendSubmissions(feed, [tab.createInputHistorySubmission('pending', [])], pendingLimit);
+      storage.setItem = write;
+      append(otherTab, feed, 55, 100);
+      tab.useInputHistoryStore.getState().applyScope('global');
+
+      const observer = await importStoreModule();
+      observer.useInputHistoryStore.getState().applyScope('session');
+      // SAFETY: the store under test just wrote this envelope; a missing session map fails the assertion below.
+      const envelope = JSON.parse(storage.getItem(STORAGE_KEY) ?? 'null') as { session: Record<string, { entryLimit?: number }> };
+      return {
+        observer,
+        persistedLimit: envelope.session[JSON.stringify([feed.runtimeKey, feed.directory, feed.sessionId])]?.entryLimit,
+      };
+    };
+
+    test('a pending default-cap append keeps a concurrent durable namespace cap', async () => {
+      const { observer, persistedLimit } = await reconcilePendingFeed(undefined, true);
+      expect(texts(observer, feed)).toEqual(['pending', ...Array.from({ length: 55 }, (_, index) => `entry-${index}`)]);
+      expect(persistedLimit).toBe(100);
+      expect(observer.useInputHistoryStore.getState().entryLimit).toBe(DEFAULT_INPUT_HISTORY_LIMIT);
+    });
+
+    test('control: a committed default-cap append keeps the concurrent namespace cap', async () => {
+      const { observer, persistedLimit } = await reconcilePendingFeed(undefined, false);
+      expect(texts(observer, feed)).toHaveLength(56);
+      expect(persistedLimit).toBe(100);
+      expect(observer.useInputHistoryStore.getState().entryLimit).toBe(DEFAULT_INPUT_HISTORY_LIMIT);
+    });
+
+    test('a pending explicit namespace cap wins over a concurrent durable cap', async () => {
+      const { observer, persistedLimit } = await reconcilePendingFeed(50, true);
+      expect(texts(observer, feed)).toHaveLength(50);
+      expect(texts(observer, feed).at(-1)).toBe('entry-54');
+      expect(persistedLimit).toBe(50);
+    });
+
     test('a failed non-quota write keeps the namespace override through reconciliation', async () => {
       const storage = createFakeStorage();
       installWindow(storage);

@@ -254,7 +254,7 @@ const reconcilePendingBuckets = (
     result[key] = withEntryLimit({
       touchedAt: Math.max(localBucket.touchedAt, durable[key]?.touchedAt ?? 0),
       entries,
-    }, localBucket.entryLimit);
+    }, localBucket.entryLimit ?? durable[key]?.entryLimit);
   }
   return result;
 };
