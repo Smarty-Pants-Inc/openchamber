@@ -52,6 +52,8 @@ export type PendingSend = FailedSend & { known: readonly string[] };
 const isPageOpen = (view: View, smarties: SmartiesState) => view === 'smarty' && smarties.state !== 'unavailable';
 /** The owner's own feed line: "you", as the backfill and the gateway write it, or the owner's id. */
 export const isOwnerLine = (block: { author: string }, owner: string) => block.author === 'you' || block.author === owner;
+/** smarty-code#1595: a Smarty block with nothing to read (empty, or only punctuation such as "." or "…") is not shown. */
+export const isTrivialSmartyBlock = (block: { author: string; text: string }) => block.author === 'org' && /^[\s\p{P}]*$/u.test(block.text);
 export const draftKey = (smartyId: string) => `${getRuntimeKey()}\u0000${smartyId}`;
 
 export const useFeedStore = create<FeedStore>(set => {

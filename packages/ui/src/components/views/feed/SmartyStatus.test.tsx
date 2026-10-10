@@ -49,9 +49,10 @@ const act0 = (state: SmartyActivity['state'], startedAt: number | null = null, l
 const ready = (smarties: { id: string; activity?: SmartyActivity }[]): SmartiesResult => ({ state: 'ready', me: 'paul',
   smarties: smarties.map(({ id, activity }, i) => ({ id, label: `${id[0]!.toUpperCase()}${id.slice(1)}’s Smarty`, own: i === 0, writable: i === 0, ...(activity ? { activity } : {}) })) });
 const feed = { blocks: [{ id: 'k1', author: 'org', at: '10:00 PM ET', text: 'Hello.' }], offset: 40 } satisfies SmartyFeed;
-let onStatus: ((activity: SmartyActivity) => void) | undefined;
-const services: Partial<FeedServices> = { loadFeed: async () => feed, send: async () => undefined, Text: ({ content }) => <p>{content}</p>,
-  openStream: (_id, handlers) => { onStatus = handlers.onStatus; return { close: () => undefined }; } };
+let onStatus: ((activity: SmartyActivity) => void) | undefined, onBlocks: ((next: SmartyFeed) => void) | undefined;
+let loads = 0, streams = 0;
+const services: Partial<FeedServices> = { loadFeed: async () => { loads++; return feed; }, send: async () => undefined, Text: ({ content }) => <p>{content}</p>,
+  openStream: (_id, handlers) => { streams++; onStatus = handlers.onStatus; onBlocks = handlers.onBlocks; return { close: () => undefined }; } };
 const settle = () => act(async () => { if (fake) jest.advanceTimersByTime(20); else await new Promise(r => setTimeout(r, 20)); });
 const mount = async (node: React.ReactNode, width?: number) => {
   const host = document.createElement('div'); if (width) host.style.width = `${width}px`; document.body.appendChild(host);
@@ -170,4 +171,88 @@ test('a list refresh never overwrites a stream status that arrived while it was 
   await read;
   const now = useFeedStore.getState().smarties;
   expect(now.state === 'ready' && now.smarties.map(s => s.activity?.state)).toEqual(['working', 'waiting']);
+});
+
+// smarty-code#1595: "Paul's Smarty is working…" at the bottom of the person's own feed while their Smarty takes a turn.
+const typingLine = (host: Element) => host.querySelector('[data-smarty-typing]');
+const working = () => ({ state: 'working' as const, startedAt: Date.now(), lastActiveAt: Date.now() });
+const idle = () => ({ state: 'idle' as const, startedAt: null, lastActiveAt: Date.now() });
+
+test('#1595: the own Smarty working shows "Paul\'s Smarty is working…" at the bottom of the feed; idle hides it', async () => {
+  useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }, { id: 'kate', activity: act0('idle') }]));
+  useFeedStore.getState().selectSmarty('paul');
+  const { host, unmount } = await mount(<FeedView services={services} />);
+  // The row is held empty while idle, so the line never moves the feed when it comes.
+  const row = host.querySelector('[role="status"].chat-message-column')!;
+  expect(row.textContent).toBe('');
+  expect(typingLine(host)).toBeNull();
+  await act(async () => { onStatus!(working()); });
+  expect(typingLine(host)).toBe(row);
+  expect(row.querySelector('.sr-only')?.textContent).toBe("Paul's Smarty is working…");
+  expect(row.querySelectorAll('.oc-typing-dots > span').length).toBe(3);
+  // At the bottom: after the transcript, before the message box.
+  const transcript = host.querySelector('ol[aria-label]')!.parentElement!, box = host.querySelector('form')!;
+  expect(transcript.nextElementSibling).toBe(row);
+  expect(row.nextElementSibling).toBe(box);
+  await act(async () => { onStatus!(idle()); });
+  expect(typingLine(host)).toBeNull();
+  await unmount();
+});
+
+test('#1595: a new reply from the Smarty hides the line while its turn still runs', async () => {
+  useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }]));
+  useFeedStore.getState().selectSmarty('paul');
+  const { host, unmount } = await mount(<FeedView services={services} />);
+  await act(async () => { onStatus!(working()); });
+  expect(typingLine(host)).not.toBeNull();
+  // The person's own line is not a reply: the line stays.
+  await act(async () => { onBlocks!({ blocks: [{ id: 'p2', author: 'paul', at: '10:01 PM ET', text: 'And?' }], offset: 60 }); });
+  expect(typingLine(host)).not.toBeNull();
+  await act(async () => { onBlocks!({ blocks: [{ id: 'k2', author: 'org', at: '10:02 PM ET', text: 'Done.' }], offset: 80 }); });
+  expect(typingLine(host)).toBeNull();
+  // The next turn shows it again, even when its start and the last turn's end land in one render (a queued message).
+  await act(async () => { onStatus!(idle()); onStatus!(working()); });
+  expect(typingLine(host)).not.toBeNull();
+  await act(async () => { onBlocks!({ blocks: [{ id: 'k4', author: 'org', at: '10:04 PM ET', text: 'Next.' }], offset: 100 }); });
+  expect(typingLine(host)).toBeNull();
+  await unmount();
+});
+
+test('#1595: another person\'s Smarty working shows no line', async () => {
+  useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }, { id: 'kate', activity: act0('working', T, T) }]));
+  useFeedStore.getState().selectSmarty('kate');
+  const { host, unmount } = await mount(<FeedView services={services} />);
+  await act(async () => { onStatus!(working()); });
+  expect(host.querySelector('[data-smarty-working]')).not.toBeNull(); // Kate's header status still shows.
+  expect(typingLine(host)).toBeNull();
+  expect(host.textContent).not.toContain('Smarty is working');
+  await unmount();
+});
+
+test('#1595: the line adds no reads, streams or timers: it comes only from the stream\'s status', async () => {
+  useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }]));
+  useFeedStore.getState().selectSmarty('paul');
+  // Every network read and timer started from here on is counted.
+  const calls = { fetch: 0, setInterval: 0, setTimeout: 0 };
+  const real = { fetch: globalThis.fetch, setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout };
+  const counting = {
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => { calls.fetch++; return real.fetch(input, init); },
+    setInterval: (handler: () => void, ms?: number): ReturnType<typeof setInterval> => { calls.setInterval++; return real.setInterval(handler, ms); },
+    setTimeout: (handler: () => void, ms?: number): ReturnType<typeof setTimeout> => { calls.setTimeout++; return real.setTimeout(handler, ms); },
+  };
+  const { host, unmount } = await mount(<FeedView services={services} />);
+  const before = { loads, streams };
+  for (const key of ['fetch', 'setInterval', 'setTimeout'] as const) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: counting[key] });
+  try {
+    await act(async () => { onStatus!({ state: 'working', startedAt: null, lastActiveAt: Date.now() }); });
+    expect(typingLine(host)).not.toBeNull();
+    await act(async () => { onBlocks!({ blocks: [{ id: 'k3', author: 'org', at: '10:03 PM ET', text: 'Here.' }], offset: 90 }); });
+    await act(async () => { onStatus!(idle()); });
+    expect(typingLine(host)).toBeNull();
+  } finally {
+    for (const key of ['fetch', 'setInterval', 'setTimeout'] as const) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: real[key] });
+  }
+  expect(calls).toEqual({ fetch: 0, setInterval: 0, setTimeout: 0 });
+  expect({ loads, streams }).toEqual(before);
+  await unmount();
 });
