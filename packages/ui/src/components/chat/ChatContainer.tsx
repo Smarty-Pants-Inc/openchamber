@@ -1481,9 +1481,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
 
     React.useEffect(() => {
         if (!messagesEnabled || !currentSessionId) return;
-        if (hasRenderableSessionSnapshot && !needsOrdinaryDetail) return;
+        // A pre-existing or streamed-only bucket is not loaded history: only the loader's resolved view is.
+        if (hasRenderableSessionSnapshot && sessionMessageLoadState.resolved && !needsOrdinaryDetail) return;
         void ensureSessionRenderable(currentSessionId);
-    }, [currentSessionId, ensureSessionRenderable, hasRenderableSessionSnapshot, messagesEnabled, needsOrdinaryDetail, currentSession]);
+    }, [currentSessionId, ensureSessionRenderable, hasRenderableSessionSnapshot, messagesEnabled, needsOrdinaryDetail, currentSession, sessionMessageLoadState.resolved]);
 
     const composerSlotRef = React.useRef<HTMLDivElement | null>(null);
     const previousComposerRectRef = React.useRef<DOMRect | null>(null);
