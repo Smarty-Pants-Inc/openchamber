@@ -320,6 +320,65 @@ describe('per-tab New session drafts (#461)', () => {
     expect(JSON.parse(storage.getItem(candidate)!).text).toBe('newer');
   });
 
+  // A duplicate B of A's tab asks for A's id, stages, and its request is answered only after A saved newer text and went.
+  const lateDuplicate = async (storage: ReturnType<typeof memory>) => {
+    const sa = memory(), locks = lockManager(), first = locks.page();
+    const a = createTabDrafts({ storage, session: sa, locks: first }); await a.ready;
+    a.writeSlot(RT, DIR, draft('A-old', 1)); a.writeSlot(RT, '/q', draft('Q-old', 1));
+    const candidate = a.newSessionSlotKey(RT, DIR), late = gatedPage(locks);
+    const b = createTabDrafts({ storage, session: copySession(sa), locks: late.locks });
+    expect(b.readSlot(RT, DIR)?.text).toBe('A-old');
+    expect(b.writeSlot(RT, DIR, draft('B-edit', 2))).toBeUndefined();
+    b.suspend();
+    return { a, b, candidate, locks, first, late };
+  };
+  test('a staged duplicate whose request is granted after the original saved newer text copies it, never overwrites it', async () => {
+    const storage = memory(), { a, b, candidate, locks, first, late } = await lateDuplicate(storage);
+    a.writeSlot(RT, DIR, draft('A-newer', 3)); locks.close(first);
+    late.release(); await b.ready;
+    expect(JSON.parse(storage.getItem(candidate)!).text).toBe('A-newer');
+    expect(b.newSessionSlotKey(RT, DIR)).not.toBe(candidate);
+    expect(b.readSlot(RT, DIR)?.text).toBe('B-edit');
+    expect(locks.isHeld(`openchamber.chatDraftTab:${a.tabId()}`)).toBe(false); // The declined grant went back.
+    expect(storage.removes).toEqual([]);
+  });
+  test('the check covers every project of the page: a newer save of another project also makes the late grant copy-only', async () => {
+    const storage = memory(), { a, b, candidate, locks, first, late } = await lateDuplicate(storage);
+    a.writeSlot(RT, '/q', draft('Q-newer', 3)); locks.close(first);
+    late.release(); await b.ready;
+    expect(b.newSessionSlotKey(RT, DIR)).not.toBe(candidate);
+    expect(JSON.parse(storage.getItem(a.newSessionSlotKey(RT, '/q'))!).text).toBe('Q-newer');
+    expect(JSON.parse(storage.getItem(candidate)!).text).toBe('A-old');
+    expect(b.readSlot(RT, DIR)?.text).toBe('B-edit');
+  });
+  test('a newer edit after staging wins in the fresh id; the original\'s newer text is kept', async () => {
+    const storage = memory(), { a, b, candidate, locks, first, late } = await lateDuplicate(storage);
+    expect(b.writeSlot(RT, DIR, draft('B-newer', 4))).toBe(true); // Durable in the staged copy.
+    a.writeSlot(RT, DIR, draft('A-newer', 3)); locks.close(first);
+    late.release(); await b.ready;
+    expect(JSON.parse(storage.getItem(b.newSessionSlotKey(RT, DIR))!).text).toBe('B-newer');
+    expect(JSON.parse(storage.getItem(candidate)!).text).toBe('A-newer');
+  });
+  test('a refused copy into the fresh id stays owed; the original\'s newer text is kept', async () => {
+    const backing = memory(), { a, b, candidate, locks, first, late } = await lateDuplicate(backing);
+    a.writeSlot(RT, DIR, draft('A-newer', 3)); locks.close(first);
+    const set = backing.setItem; backing.setItem = (k: string, v: string) => (k === candidate ? set(k, v) : false);
+    late.release(); await b.ready;
+    expect(b.hasUnsaved()).toBe(true);
+    expect(b.readSlot(RT, DIR)?.text).toBe('B-edit');
+    expect(JSON.parse(backing.getItem(candidate)!).text).toBe('A-newer');
+    backing.setItem = set; b.retryUnsaved();
+    expect([b.hasUnsaved(), JSON.parse(backing.getItem(b.newSessionSlotKey(RT, DIR))!).text]).toEqual([false, 'B-edit']);
+  });
+  test('a staged page whose source is unchanged at its late grant reclaims its id with its latest held edit (same-tab reload)', async () => {
+    const storage = memory(), { b, candidate, locks, first, late } = await lateDuplicate(storage);
+    expect(b.writeSlot(RT, DIR, draft('B-latest', 4))).toBe(true);
+    locks.close(first);
+    late.release(); await b.ready;
+    expect(b.newSessionSlotKey(RT, DIR)).toBe(candidate);
+    expect(JSON.parse(storage.getItem(candidate)!).text).toBe('B-latest');
+  });
+
   for (const inherit of [false, true]) test(`failing Web Locks write an unlocked id an opener with working locks only copies${inherit ? ' (inherited)' : ''}`, async () => {
     const storage = memory(), locks = lockManager(), failing = { request: () => Promise.reject(new Error('denied')) };
     let session = memory();

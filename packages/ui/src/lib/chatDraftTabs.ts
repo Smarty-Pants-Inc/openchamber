@@ -19,7 +19,9 @@ import { getSafeSessionStorage, getSafeStorage } from '@/stores/utils/safeStorag
  *   If the page is hidden, frozen or leaving before its grant, it writes the source copy and its held writes at once
  *   under a STAGED id (the unpublished id it would own) and records it beside the published one in the same
  *   sessionStorage value, so the composer's lifecycle save that follows is stored. A later load (a reload or a copy)
- *   only reads and copies a staged id, never claims or writes it. The grant then places the newest held writes.
+ *   only reads and copies a staged id, never claims or writes it. The grant then places the newest held writes; a late
+ *   grant of the inherited id is declined when any of its slots changed since staging (its owner saved after this page
+ *   copied them), and the page copies into its own id instead.
  * Accepted limits: a fresh tab does not restore another tab's draft, nor does a copy made before the source's first
  *   grant; a page that cannot take the lock (a reload racing its old page's release, no Web Locks) or that staged
  *   leaves the source or staged slots behind as retained drafts.
@@ -50,13 +52,15 @@ const hasDraft = (slot: PersistedSlot | undefined) => !!slot && (!!slot.text || 
 
 /**
  * Asks for `tab`'s exclusive lock and holds it for this page's life when granted. Never waits for another holder.
+ * `accept` runs when the browser grants it; declining releases the lock at once and reports it 'held'.
  * 'failed': Web Locks could not answer (the request threw or rejected).
  */
-const claim = (locks: TabLocks, tab: string) => new Promise<'granted' | 'held' | 'failed'>((resolve) => {
+const claim = (locks: TabLocks, tab: string, accept = () => true) => new Promise<'granted' | 'held' | 'failed'>((resolve) => {
   try {
     locks.request(LOCK + tab, { mode: 'exclusive', ifAvailable: true }, (lock) => {
-      resolve(lock === null ? 'held' : 'granted');
-      return lock === null ? undefined : new Promise<void>(() => {}); // Released by the browser when the page goes.
+      const taken = lock !== null && accept();
+      resolve(taken ? 'granted' : 'held');
+      return taken ? new Promise<void>(() => {}) : undefined; // Released by the browser when the page goes.
     }).catch(() => resolve('failed'));
   } catch { resolve('failed'); }
 });
@@ -208,9 +212,32 @@ export function createTabDrafts(env: Env) {
       return own();
     });
   };
+  /** The source's slots (every project) when this page staged: their exact stored bytes, by key. */
+  let stagedSource: Map<string, string> | undefined;
+  const sourceSlots = () => {
+    const slots = new Map<string, string>();
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key === null || slotOwner(key)?.[2] !== source) continue;
+      const raw = storage.getItem(key);
+      if (raw !== null) slots.set(key, raw);
+    }
+    return slots;
+  };
+  /**
+   * Whether a late grant of the candidate may still be settled. After staging, another page (the id's owner, still
+   * live when this page staged) may have saved newer drafts there; any change to its slots since staging makes this
+   * page take its own id and copy them instead.
+   */
+  const sourceUnchanged = () => {
+    const before = stagedSource;
+    if (before === undefined) return true;
+    const now = sourceSlots();
+    return now.size === before.size && [...now].every(([key, raw]) => before.get(key) === raw);
+  };
   // A staged record never claims its published id, even when free: that id's owner may have saved newer drafts there.
   const ready: Promise<void> = candidate === undefined || inheritedStage !== undefined || !locks ? own()
-    : claim(locks, candidate).then(result => (result === 'granted' ? settle(candidate, true) : own()));
+    : claim(locks, candidate, sourceUnchanged).then(result => (result === 'granted' ? settle(candidate, true) : own()));
   /**
    * The page may stop before its grant: stage the source copy and held writes, synchronously, under the id it would
    * own and record it as staged. A staged id is never claimed by a later load: copies and reloads only read it.
@@ -218,6 +245,7 @@ export function createTabDrafts(env: Env) {
   function suspend() {
     if (id !== undefined || stage !== undefined) return;
     stage = fresh;
+    stagedSource = sourceSlots();
     place(stage);
   }
   return { tabId, readSlot, writeSlot, adoptLegacy, owes, retryUnsaved, hasUnsaved: () => unsaved.size > 0, suspend,
