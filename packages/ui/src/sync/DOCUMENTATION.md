@@ -546,6 +546,21 @@ The global sessions store persists and hydrates one bounded, runtime-scoped star
 
 VS Code intentionally has no managed Chats mode. It neither reads nor writes the managed Chats startup cache, regular drafts continue to target the open workspace, and the global session store rejects managed chat sessions from both snapshots and live upserts before any VS Code surface can consume them. Sidebar and switcher filters repeat that exclusion defensively.
 
+### Restoring this tab's session selection
+
+`last-session-cache.ts` keeps each tab's latest selection per runtime in
+sessionStorage. A session choice records its ID and directory; a draft choice
+records `null`. Reload uses that tab choice before the shared
+`oc.lastSession.v1` startup fallback, so another tab's accepted Send cannot hide
+this tab's New-session draft. An automatic startup draft does not replace the
+choice. Explicit session navigation does.
+
+A fresh tab with no choice still uses the shared fallback, and every session
+restore requires the existing authoritative session and directory checks.
+Malformed tab records also fall back. Duplicated tabs inherit sessionStorage,
+as they already do for composer draft slots. Storage failure remains best
+effort; memory-only state cannot guarantee continuity after a reload.
+
 ### Remembering the last draft target
 
 `session-ui-store.ts` persists the side of the composer's target selector the user last worked on under `oc.chatInput.lastDraftTarget`, so a plain new session reopens there instead of always landing on Chat. The record holds a project id, a directory, and `target`, which is `"chat"`, `"project"`, or `null`.
