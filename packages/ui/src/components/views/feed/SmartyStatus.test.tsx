@@ -218,6 +218,21 @@ test('#1595: a new reply from the Smarty hides the line while its turn still run
   await unmount();
 });
 
+test('#1595: a "." or "…" from the Smarty is not a reply (the line stays); "?", "!", an emoji or "ok" is (it hides)', async () => {
+  useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }]));
+  useFeedStore.getState().selectSmarty('paul');
+  const { host, unmount } = await mount(<FeedView services={services} />);
+  let n = 0;
+  const reply = (text: string) => act(async () => { n++; onBlocks!({ blocks: [{ id: `t${n}`, author: 'org', at: '10:05 PM ET', text }], offset: 200 + n }); });
+  for (const text of ['?', '!', '👍', 'ok']) {
+    await act(async () => { onStatus!(idle()); onStatus!(working()); });
+    for (const trivial of ['.', '…', ' . ']) { await reply(trivial); expect(typingLine(host)).not.toBeNull(); }
+    await reply(text);
+    expect(typingLine(host)).toBeNull();
+  }
+  await unmount();
+});
+
 test('#1595: another person\'s Smarty working shows no line', async () => {
   useFeedStore.getState().setSmarties(ready([{ id: 'paul', activity: act0('idle') }, { id: 'kate', activity: act0('working', T, T) }]));
   useFeedStore.getState().selectSmarty('kate');
