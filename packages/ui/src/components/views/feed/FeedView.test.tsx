@@ -46,6 +46,7 @@ const { useUIStore } = await import('@/stores/useUIStore');
 // Imported after the Window globals so the real input-history store reads and writes the test's localStorage.
 const { useInputHistoryStore, selectInputHistoryEntries, createInputHistoryIdentity } = await import('@/stores/useInputHistoryStore');
 const { getRuntimeKey } = await import('@/lib/runtime-switch');
+const { DEFAULT_INPUT_HISTORY_LIMIT, MIN_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT } = await import('@/lib/inputHistoryScope');
 
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -812,16 +813,19 @@ const sendText = async (box: HTMLTextAreaElement, text: string) => {
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), text); });
   await pressEnter(box); await settle();
 };
-/** Everything Up recalls from an empty box, newest first, then Down back to the empty box. */
-const recallAll = async (box: HTMLTextAreaElement) => {
+/** Everything Up recalls from an empty box (at most `limit` presses), newest first, then Down back to the empty box. */
+const recallAll = async (box: HTMLTextAreaElement, limit = 10) => {
   await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), ''); });
   const recalled: string[] = [];
-  for (let i = 0; i < 10; i += 1) {
+  for (let i = 0; i < limit; i += 1) {
     await press(box, 'ArrowUp');
     if (box.value === '' || box.value === recalled.at(-1)) break;
     recalled.push(box.value);
   }
-  for (let i = 0; i < 10 && box.value !== ''; i += 1) await press(box, 'ArrowDown');
+  for (let i = 0; i < limit && box.value !== ''; i += 1) {
+    await press(box, 'ArrowDown');
+    expect(box.value).toBe(recalled[recalled.length - 2 - i] ?? '');
+  }
   expect(box.value).toBe('');
   return recalled;
 };
@@ -907,6 +911,31 @@ test('feed history: sends survive a remount and a reload that rereads the stored
   });
   await withBox(async box => { expect(await recallAll(box)).toEqual(['second', 'first']); });
 });
+
+// The feed keeps at least its newest 50 sends whatever the Chat history limit says (default, min and max).
+for (const limit of [MIN_INPUT_HISTORY_LIMIT, DEFAULT_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT]) {
+  test(`feed history (Chat limit ${limit}): 55 sends survive a reload; Up recalls the newest 50 newest first, Down walks back to empty`, async () => {
+    expect([MIN_INPUT_HISTORY_LIMIT, DEFAULT_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT]).toEqual([1, 40, 100]);
+    await act(async () => { useInputHistoryStore.getState().applyEntryLimit(limit); });
+    expect(useInputHistoryStore.getState().entryLimit).toBe(limit);
+    const prompts = Array.from({ length: 55 }, (_, i) => `prompt ${i + 1}`);
+    await withBox(async box => { for (const text of prompts) await sendText(box, text); });
+    expect(sent.map(({ text }) => text)).toEqual(prompts);
+    // A reload: the in-memory buckets are emptied, then a scope round-trip rereads the durable envelope.
+    await act(async () => {
+      useInputHistoryStore.setState({ globalBuckets: {}, sessionBuckets: {} });
+      useInputHistoryStore.getState().applyScope('global');
+      useInputHistoryStore.getState().applyScope('session');
+    });
+    expect(useInputHistoryStore.getState().entryLimit).toBe(limit);
+    await withBox(async box => {
+      const recalled = await recallAll(box, 60);
+      expect(recalled.length).toBeGreaterThanOrEqual(50);
+      expect(recalled.slice(0, 50)).toEqual(prompts.slice(-50).reverse());
+      expect(recalled).toEqual(prompts.slice(-recalled.length).reverse());
+    });
+  }, 60_000);
+}
 
 for (const scope of ['session', 'global'] as const) {
   test(`feed history (Chat recall setting "${scope}"): another signed-in person on the same writable Smarty id sees none of it`, async () => {

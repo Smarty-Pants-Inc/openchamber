@@ -742,4 +742,108 @@ describe('useInputHistoryStore', () => {
     expect(observer.selectInputHistoryEntries(observer.useInputHistoryStore.getState(), retained).map((entry) => entry.text)).toEqual(['B']);
   });
 
+  describe('namespace entry limit', () => {
+    const chat = { runtimeKey: 'runtime-a', directory: '/repo', sessionId: 'chat' };
+    const feed = { runtimeKey: 'runtime-a|feed', directory: 'feed', sessionId: 'smarty' };
+    const texts = (mod: Awaited<ReturnType<typeof importStoreModule>>, identity: typeof chat) => (
+      mod.selectInputHistoryEntries(mod.useInputHistoryStore.getState(), identity).map((entry) => entry.text)
+    );
+    const append = (
+      mod: Awaited<ReturnType<typeof importStoreModule>>,
+      identity: typeof chat,
+      count: number,
+      entryLimit?: number,
+    ) => mod.useInputHistoryStore.getState().appendSubmissions(identity, Array.from({ length: count }, (_, index) => (
+      mod.createInputHistorySubmission(`entry-${index}`, [])
+    )), entryLimit);
+
+    test('chat keeps the configured cap while a namespace override survives reloads and Chat mutations', async () => {
+      installWindow(createFakeStorage());
+      const mod = await importStoreModule();
+      append(mod, chat, 45);
+      append(mod, feed, 55, 100);
+      expect(texts(mod, chat)).toHaveLength(DEFAULT_INPUT_HISTORY_LIMIT);
+      expect(texts(mod, feed)).toHaveLength(55);
+
+      mod.useInputHistoryStore.getState().applyEntryLimit(1);
+      mod.useInputHistoryStore.getState().applyScope('global');
+      append(mod, chat, 3);
+      mod.useInputHistoryStore.getState().clearSession(chat);
+
+      const observer = await importStoreModule();
+      observer.useInputHistoryStore.getState().applyScope('session');
+      expect(observer.useInputHistoryStore.getState().entryLimit).toBe(1);
+      expect(texts(observer, feed)).toHaveLength(55);
+      expect(texts(observer, feed).at(-1)).toBe('entry-54');
+      append(observer, chat, 3);
+      expect(texts(observer, chat)).toEqual(['entry-2']);
+      append(observer, feed, 1);
+      expect(texts(observer, feed)).toHaveLength(56);
+    });
+
+    test('a namespace override stays bounded at one hundred and ignores invalid caps', async () => {
+      installWindow(createFakeStorage());
+      const mod = await importStoreModule();
+      append(mod, feed, 120, 100);
+      expect(texts(mod, feed)).toHaveLength(100);
+      expect(texts(mod, feed)[0]).toBe('entry-20');
+      append(mod, chat, 45, 500);
+      expect(texts(mod, chat)).toHaveLength(DEFAULT_INPUT_HISTORY_LIMIT);
+    });
+
+    test('drops an invalid persisted namespace cap but keeps the namespace', async () => {
+      const localStorage = createFakeStorage();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 1,
+        entryLimit: 1,
+        session: {
+          [JSON.stringify(['runtime-a', '/repo', 'chat'])]: {
+            touchedAt: 1,
+            entryLimit: 1000,
+            entries: [1, 2].map((index) => ({ text: `entry-${index}`, attachmentKeys: [], restorableAttachments: [], submittedAt: index })),
+          },
+        },
+      }));
+      installWindow(localStorage);
+      const mod = await importStoreModule();
+      expect(texts(mod, chat)).toEqual(['entry-2']);
+    });
+
+    test('quota retries shrink an overridden namespace without changing either cap', async () => {
+      installWindow(createQuotaStorage(25));
+      const mod = await importStoreModule();
+      mod.useInputHistoryStore.getState().applyEntryLimit(1);
+      append(mod, feed, 30, 100);
+
+      const observer = await importStoreModule();
+      expect(observer.useInputHistoryStore.getState().entryLimit).toBe(1);
+      expect(texts(observer, feed)).toHaveLength(25);
+      expect(texts(observer, feed)[0]).toBe('entry-5');
+      expect(texts(observer, feed).at(-1)).toBe('entry-29');
+      observer.useInputHistoryStore.getState().appendSubmissions(feed, [observer.createInputHistorySubmission('next', [])]);
+      expect(texts(observer, feed)).toHaveLength(25);
+      expect(texts(observer, feed).at(-1)).toBe('next');
+    });
+
+    test('a failed non-quota write keeps the namespace override through reconciliation', async () => {
+      const storage = createFakeStorage();
+      installWindow(storage);
+      const tab = await importStoreModule();
+      const otherTab = await importStoreModule();
+      tab.useInputHistoryStore.getState().applyEntryLimit(1);
+      const write = storage.setItem;
+      storage.setItem = () => { throw new Error('write denied'); };
+      append(tab, feed, 55, 100);
+      storage.setItem = write;
+      otherTab.useInputHistoryStore.getState().appendSubmissions(chat, [otherTab.createInputHistorySubmission('other tab', [])]);
+      tab.useInputHistoryStore.getState().applyScope('global');
+
+      const observer = await importStoreModule();
+      observer.useInputHistoryStore.getState().applyScope('session');
+      expect(observer.useInputHistoryStore.getState().entryLimit).toBe(1);
+      expect(texts(observer, feed)).toHaveLength(55);
+      expect(texts(observer, chat)).toEqual(['other tab']);
+    });
+  });
+
 });

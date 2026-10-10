@@ -6,6 +6,8 @@ import {
   DEFAULT_INPUT_HISTORY_SCOPE,
   isInputHistoryLimit,
   isInputHistoryScope,
+  MAX_INPUT_HISTORY_LIMIT,
+  MIN_INPUT_HISTORY_LIMIT,
   type InputHistoryScope,
 } from '@/lib/inputHistoryScope';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -39,6 +41,8 @@ export type InputHistoryEntry = InputHistorySubmission & {
 type InputHistoryNamespace = {
   touchedAt: number;
   entries: InputHistoryEntry[];
+  // A caller-owned cap for this namespace that the configured Chat limit does not change.
+  entryLimit?: number;
 };
 
 type InputHistorySnapshot = {
@@ -59,7 +63,11 @@ type PersistedInputHistoryEnvelope = {
 type InputHistoryStoreState = InputHistorySnapshot & {
   applyEntryLimit: (limit: number) => void;
   applyScope: (scope: InputHistoryScope) => void;
-  appendSubmissions: (identity: InputHistoryIdentity, submissions: readonly InputHistorySubmission[]) => void;
+  appendSubmissions: (
+    identity: InputHistoryIdentity,
+    submissions: readonly InputHistorySubmission[],
+    entryLimit?: number,
+  ) => void;
   clearSession: (identity: InputHistoryIdentity) => void;
 };
 
@@ -135,7 +143,12 @@ const entrySchema = z.object({
 const namespaceSchema = z.object({
   touchedAt: z.number().finite().nonnegative(),
   entries: z.array(z.unknown()),
+  entryLimit: z.number().int().min(MIN_INPUT_HISTORY_LIMIT).max(MAX_INPUT_HISTORY_LIMIT).optional().catch(undefined),
 });
+
+const withEntryLimit = (namespace: InputHistoryNamespace, entryLimit: number | undefined): InputHistoryNamespace => (
+  entryLimit === undefined ? namespace : { ...namespace, entryLimit }
+);
 
 const parseBucketKey = (value: string, expectedLength: 1 | 3): string[] | null => {
   try {
@@ -168,7 +181,7 @@ const parseNamespaces = (
       .map((entry) => entrySchema.safeParse(entry))
       .filter((result) => result.success)
       .map((result) => result.data);
-    parsedEntries.push([key, { touchedAt: namespaceResult.data.touchedAt, entries }]);
+    parsedEntries.push([key, withEntryLimit({ touchedAt: namespaceResult.data.touchedAt, entries }, namespaceResult.data.entryLimit)]);
   }
   return Object.fromEntries(parsedEntries);
 };
@@ -238,10 +251,10 @@ const reconcilePendingBuckets = (
       if (!baseEntries.has(identity) && !present.has(identity)) entries.push(entry);
     }
     entries.sort((left, right) => left.submittedAt - right.submittedAt);
-    result[key] = {
+    result[key] = withEntryLimit({
       touchedAt: Math.max(localBucket.touchedAt, durable[key]?.touchedAt ?? 0),
       entries,
-    };
+    }, localBucket.entryLimit);
   }
   return result;
 };
@@ -263,18 +276,20 @@ const trimEntriesToLimit = (entries: readonly InputHistoryEntry[], limit: number
   entries.slice(Math.max(0, entries.length - limit))
 );
 
+// A quota retry limit overrides every namespace cap; otherwise a namespace's own cap wins over the configured one.
 const limitNamespaces = (
   buckets: Record<string, InputHistoryNamespace>,
   namespaceLimit: number,
-  entryLimit: number,
+  configuredLimit: number,
+  quotaLimit: number | undefined,
 ): Record<string, InputHistoryNamespace> => {
   const ranked = Object.entries(buckets)
     .map(([key, namespace]) => [
       key,
-      {
+      withEntryLimit({
         touchedAt: namespace.touchedAt,
-        entries: trimEntriesToLimit(namespace.entries, entryLimit),
-      },
+        entries: trimEntriesToLimit(namespace.entries, quotaLimit ?? namespace.entryLimit ?? configuredLimit),
+      }, namespace.entryLimit),
     ] as const)
     .sort((left, right) => right[1].touchedAt - left[1].touchedAt)
     .slice(0, namespaceLimit);
@@ -283,12 +298,12 @@ const limitNamespaces = (
 
 const normalizeSnapshotLimits = (
   snapshot: InputHistorySnapshot,
-  entryLimit = snapshot.entryLimit,
+  quotaLimit?: number,
 ): InputHistorySnapshot => ({
   entryLimit: snapshot.entryLimit,
   scope: snapshot.scope,
-  globalBuckets: limitNamespaces(snapshot.globalBuckets, GLOBAL_NAMESPACE_LIMIT, entryLimit),
-  sessionBuckets: limitNamespaces(snapshot.sessionBuckets, SESSION_NAMESPACE_LIMIT, entryLimit),
+  globalBuckets: limitNamespaces(snapshot.globalBuckets, GLOBAL_NAMESPACE_LIMIT, snapshot.entryLimit, quotaLimit),
+  sessionBuckets: limitNamespaces(snapshot.sessionBuckets, SESSION_NAMESPACE_LIMIT, snapshot.entryLimit, quotaLimit),
 });
 
 const toEnvelope = (snapshot: InputHistorySnapshot): PersistedInputHistoryEnvelope => ({
@@ -468,8 +483,10 @@ const appendToNamespace = (
   namespace: InputHistoryNamespace | undefined,
   submissions: readonly InputHistorySubmission[],
   touchedAt: number,
-  entryLimit: number,
+  configuredLimit: number,
+  entryLimit: number | undefined,
 ): InputHistoryNamespace => {
+  const namespaceLimit = entryLimit ?? namespace?.entryLimit;
   const entries = namespace ? [...namespace.entries] : [];
   for (const submission of submissions) {
     const previous = entries.at(-1);
@@ -481,10 +498,10 @@ const appendToNamespace = (
       submittedAt: getNextTimestamp(),
     });
   }
-  return {
+  return withEntryLimit({
     touchedAt,
-    entries: trimEntriesToLimit(entries, entryLimit),
-  };
+    entries: trimEntriesToLimit(entries, namespaceLimit ?? configuredLimit),
+  }, namespaceLimit);
 };
 
 const initialSnapshot = writeSnapshot(readSnapshot());
@@ -519,8 +536,9 @@ export const useInputHistoryStore = create<InputHistoryStoreState>((set) => ({
       return { ...state, ...nextSnapshot };
     });
   },
-  appendSubmissions: (identity, submissions) => {
+  appendSubmissions: (identity, submissions, requestedLimit) => {
     if (submissions.length === 0) return;
+    const entryLimit = isInputHistoryLimit(requestedLimit) ? requestedLimit : undefined;
     set((state) => {
       const latest = readSnapshot();
       const touchedAt = getNextTimestamp();
@@ -531,11 +549,11 @@ export const useInputHistoryStore = create<InputHistoryStoreState>((set) => ({
         scope: latest.scope,
         globalBuckets: {
           ...latest.globalBuckets,
-          [globalKey]: appendToNamespace(latest.globalBuckets[globalKey], submissions, touchedAt, latest.entryLimit),
+          [globalKey]: appendToNamespace(latest.globalBuckets[globalKey], submissions, touchedAt, latest.entryLimit, entryLimit),
         },
         sessionBuckets: {
           ...latest.sessionBuckets,
-          [sessionKey]: appendToNamespace(latest.sessionBuckets[sessionKey], submissions, touchedAt, latest.entryLimit),
+          [sessionKey]: appendToNamespace(latest.sessionBuckets[sessionKey], submissions, touchedAt, latest.entryLimit, entryLimit),
         },
       });
       return { ...state, ...nextSnapshot };

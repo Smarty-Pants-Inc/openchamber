@@ -14,6 +14,7 @@ import { useInboxStore } from '@/lib/smartyInbox';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyActivity, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { MAX_INPUT_HISTORY_LIMIT } from '@/lib/inputHistoryScope';
 import { createInputHistoryIdentity, createInputHistorySubmission, selectInputHistoryEntries, useInputHistoryStore, type InputHistoryIdentity } from '@/stores/useInputHistoryStore';
 import { useMessageHistory, type MessageHistoryValue } from '@/components/chat/composer/state/useMessageHistory';
 import { ascendingId } from '@/sync/session-actions';
@@ -292,7 +293,8 @@ const tooOld = (message: FailedSend) => Date.now() - message.at >= DEDUPE_MS;
 /**
  * Feed recall: the person's own successful sends, in the shared input-history store under a namespace of its own
  * (runtime, signed-in person, "feed"), always that Smarty's session bucket whatever the Chat recall setting says. So
- * the chat never recalls feed messages, and another person on this device never recalls them either.
+ * the chat never recalls feed messages, and another person on this device never recalls them either. The bucket keeps
+ * its own cap of 100 sends, so the Chat history limit setting never shortens feed recall.
  */
 const feedHistoryIdentity = (me: string, smartyId: string) => createInputHistoryIdentity(JSON.stringify([getRuntimeKey(), me, 'feed']), 'feed', smartyId);
 const NO_HISTORY: readonly MessageHistoryValue<never>[] = [];
@@ -358,7 +360,7 @@ function FeedMessageBox({ smarty, me, send, knownOwnerLines }: { smarty: Smarty;
       setSending(n => n - 1);
     }
     // Only a delivered message is recalled, in the bucket of the person and Smarty it was sent as.
-    if (historyIdentity) useInputHistoryStore.getState().appendSubmissions(historyIdentity, [createInputHistorySubmission(message.text, [])]);
+    if (historyIdentity) useInputHistoryStore.getState().appendSubmissions(historyIdentity, [createInputHistorySubmission(message.text, [])], MAX_INPUT_HISTORY_LIMIT);
   };
   const submit = () => {
     const text = readDraftAt(key);
