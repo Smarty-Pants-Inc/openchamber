@@ -73,7 +73,7 @@ for (const failure of ['storage', 'transport'] as const) for (const kind of ['cr
         expect(fixture.requests).toHaveLength(0); expect(fixture.gets).toBe(beforeGets);
         expect(await fixture.stored(0)).toEqual(beforeA);
         expect(await fixture.stored(1)).toEqual(beforeB);
-        expect(notices).toBe(1); expect(isRuntimeRequestScopeCurrent(scope)).toBe(true);
+        expect(notices).toBe(0); expect(isRuntimeRequestScopeCurrent(scope)).toBe(true);
         await act(async () => { expect(await save({ projects: { freshB: false } })).toBe('accepted'); });
         expect((await fixture.stored(1)).projects).toEqual({ freshB: false });
         expect((await fixture.stored(1)).groups).toEqual({});

@@ -72,7 +72,6 @@ async function hydrate(captured: typeof entry): Promise<void> {
     captured.load = null;
     if (current(captured) && !captured.owner) {
       // Failed admission retires all queued choices and optimistic values.
-      notifyFailure();
       retire();
     }
     throw error;
@@ -164,7 +163,8 @@ export async function readPersonalSidebarOwner(scope: ReturnType<typeof captureR
 
 function hydrateCurrent() {
   const captured = entry;
-  void hydrate(captured).catch(() => { if (current(captured)) notifyFailure(); });
+  // Background reads keep defaults; only rejected writes report save failures.
+  void hydrate(captured).catch(() => undefined);
 }
 
 let dispose = () => {};
