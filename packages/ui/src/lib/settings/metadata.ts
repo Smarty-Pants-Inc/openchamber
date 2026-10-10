@@ -26,7 +26,8 @@ export type SettingsPageSlug =
   | 'voice'
   | 'tunnel'
   | 'about'
-  | 'integrations';
+  | 'integrations'
+  | 'connect-iphone';
 
 type SettingsPageGroup =
   | 'general'
@@ -202,6 +203,8 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
   { slug: 'voice', title: 'Voice', group: 'general', kind: 'single', keywords: ['tts', 'speech', 'voice'], isAvailable: (ctx) => !ctx.isVSCode },
   { slug: 'tunnel', title: 'External Tunnel', group: 'projects', kind: 'single', keywords: ['tunnel', 'external', 'cloudflare', 'qr', 'remote', 'mobile', 'share'], isAvailable: (ctx) => !ctx.isVSCode },
   { slug: 'about', title: 'About', group: 'general', kind: 'single', keywords: ['about', 'version', 'updates', 'release', 'changelog'], isAvailable: (ctx) => ctx.isMobile && !ctx.isVSCode },
+  // smarty-dev#799: the iPhone "Send to my Smarty" Shortcut's private code and connected devices.
+  { slug: 'connect-iphone', title: 'Connect your iPhone', group: 'general', kind: 'single', keywords: ['iphone', 'phone', 'shortcut', 'share', 'call', 'transcript', 'smarty', 'device'], isAvailable: (ctx) => !ctx.isVSCode },
   { slug: 'integrations', title: 'Integrations', group: 'general', kind: 'single', keywords: ['integration', 'connect', 'oauth', 'github', 'linear'], isAvailable: (ctx) => !ctx.isVSCode },
 ] as const;
 
@@ -290,6 +293,8 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
 
     case 'integrations':
       return 'plug';
+    case 'connect-iphone':
+      return 'smartphone';
 
     case 'usage':
       return 'bar-chart-2';

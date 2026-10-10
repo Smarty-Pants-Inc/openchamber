@@ -19,6 +19,7 @@ import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
 import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
 import { SmartyStatusBadge, SmartyWorkingLine } from './SmartyStatus';
 import { dismissInitialLoading } from './initialLoading';
+import { openConnectIphone } from '@/components/sections/connect-iphone/openConnectIphone';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
 export type FeedServices = {
@@ -204,7 +205,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
               </Button>))}
           </div>
         ) : <>
-          <h1 className="min-w-0 truncate typography-ui-header font-semibold text-foreground">{smarty.label}</h1>
+          <h1 className={cn('min-w-0 truncate typography-ui-header font-semibold text-foreground', compact && 'flex-1 basis-0')}>{smarty.label}</h1>
           <SmartyStatusBadge activity={smarty.activity} />
         </>}
         {smarty.writable ? null : <span className="shrink-0 typography-micro text-muted-foreground">{t('feed.viewOnly')}</span>}
@@ -213,6 +214,11 @@ function SmartyPage({ smarty, all, me, compact, services }: {
             <Button ref={inboxButton} variant={inboxShown ? 'secondary' : 'outline'} size="sm" aria-expanded={inboxShown}
               aria-haspopup={compact ? 'dialog' : undefined} aria-pressed={compact ? undefined : inboxShown} onClick={() => setInboxShown(shown => !shown)}>
               {inboxLabel}
+            </Button>) : null}
+          {compact && smarty.own ? (
+            // smarty-dev#799: a phone has no nav, so its "Connect your iPhone" is here, by the person's own Smarty.
+            <Button variant="ghost" size="sm" className="w-8 px-0" data-connect-iphone aria-label={t('connectIphone.nav')} title={t('connectIphone.nav')} onClick={openConnectIphone}>
+              <Icon name="smartphone" className="size-4" />
             </Button>) : null}
           {compact ? (
             <Button variant="ghost" size="sm" onClick={() => useFeedStore.getState().showClassic()}>{t('feed.classic.show')}</Button>) : null}
