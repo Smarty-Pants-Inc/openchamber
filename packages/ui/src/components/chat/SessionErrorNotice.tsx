@@ -1,7 +1,8 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
-import { lastRealMessage } from './message/systemNote';
+import { isSystemNoteMessage, lastRealMessage } from './message/systemNote';
+import { isHerdrEnded, isPiDisconnected } from '@/lib/herdrSession';
 import { useLatestSessionError } from '@/sync/notification-store';
 import { useDirectoryStore, useSessionStatus } from '@/sync/sync-context';
 import { usePromptsInFlight } from '@/sync/prompts-in-flight';
@@ -19,6 +20,8 @@ type LastMessageState = {
   role: string;
   timestamp: number;
   hasError: boolean;
+  incomplete: boolean;
+  ownerGone: boolean;
 } | null;
 
 // The last message of a session, with whether it already carries an error of
@@ -29,24 +32,38 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
   const cacheRef = React.useRef<LastMessageState>(null);
   const getSnapshot = React.useCallback((): LastMessageState => {
     if (!sessionId) return null;
-    const messages = store.getState().message[sessionId];
+    const state = store.getState();
+    const messages = state.message[sessionId];
     // A system note (a voice call started or ended) is no reply and no request: judge the last real message.
-    const last = lastRealMessage(messages);
-    // SAFETY: store messages are SDK `Message` records; `error` is the optional
-    // assistant-message error the SDK types carry, read here only for presence.
-    const info = last as { role?: string; time?: { completed?: number; created?: number }; error?: unknown } | null;
+    let info = lastRealMessage(messages);
+    if (info?.role === 'user') {
+      // Reloaded records can share a timestamp and sort the reply before its prompt.
+      // The persisted parent ID, not array order or live streaming state, identifies that turn's reply.
+      const userId = info.id;
+      for (let index = (messages?.length ?? 0) - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role === 'assistant' && message.parentID === userId && !isSystemNoteMessage(message)) {
+          info = message;
+          break;
+        }
+      }
+    }
     if (!info) {
       cacheRef.current = null;
       return null;
     }
+    const session = state.session?.find(session => session.id === sessionId);
     const next: LastMessageState = {
-      role: typeof info.role === 'string' ? info.role : '',
+      role: info.role,
       // An optimistic user message has `completed: 0` (session-actions): its time is when it was created (#902 review).
-      timestamp: info.time?.completed || info.time?.created || 0,
-      hasError: Boolean(info.error),
+      timestamp: (info.role === 'assistant' ? info.time.completed : 0) || info.time.created || 0,
+      hasError: info.role === 'assistant' && Boolean(info.error),
+      incomplete: info.role === 'assistant' && !info.time.completed,
+      ownerGone: isHerdrEnded(session) || isPiDisconnected(session),
     };
     const cached = cacheRef.current;
-    if (cached && cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError) {
+    if (cached && cached.role === next.role && cached.timestamp === next.timestamp && cached.hasError === next.hasError
+      && cached.incomplete === next.incomplete && cached.ownerGone === next.ownerGone) {
       return cached;
     }
     cacheRef.current = next;
@@ -60,9 +77,9 @@ const useLastMessageState = (sessionId: string, directory?: string): LastMessage
 };
 
 /**
- * Shows what OpenCode reported when it stopped a turn without producing a
- * reply. Rendered under the last message, only while that turn is the latest
- * one: sending again moves the last message past the error and hides it.
+ * Shows why the latest turn stopped, including an unfinished reply loaded
+ * after its Pi disconnected. Rendered under the last message, only while that
+ * turn is the latest one: sending again hides the previous turn's notice.
  */
 export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionId, directory }) => {
   const { t } = useI18n();
@@ -111,7 +128,10 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
       </div>
     );
   }
-  if (!reportedError && !unanswered) return null;
+  // A cold page has no session.error event, but its loaded unfinished reply and
+  // disconnected session record still prove that the reply began and then stopped.
+  const interrupted = isIdle && lastMessage?.incomplete && lastMessage.ownerGone && !lastMessage.hasError;
+  if (!reportedError && !unanswered && !interrupted) return null;
 
   const detail = reportedError
     ? (reportedError.error?.message ?? t('chat.sessionError.noDetails'))
@@ -121,7 +141,7 @@ export const SessionErrorNotice: React.FC<SessionErrorNoticeProps> = ({ sessionI
     ? 'chat.send.notSent'
     : reportedError?.sendOutcome === 'unconfirmed'
       ? 'chat.send.unconfirmedTitle'
-      : reportedError ? 'chat.sessionError.title' : 'chat.sessionError.noReply';
+      : reportedError || interrupted ? 'chat.sessionError.title' : 'chat.sessionError.noReply';
 
   return (
     <div className="chat-message-column">
