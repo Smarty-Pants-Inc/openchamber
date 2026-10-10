@@ -9,6 +9,7 @@ import { Icon } from '@/components/icon/Icon';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
+import { openConnectIphone } from '@/components/sections/connect-iphone/openConnectIphone';
 import type { Smarty } from '@/lib/smarties';
 import { ensureSmartiesLoaded, openFeedPage, useFeedStore, useSmartiesRefresh } from './feedStore';
 import { SmartyStatusBadge } from './SmartyStatus';
@@ -29,6 +30,18 @@ function SmartyRow({ smarty, selected }: { smarty: Smarty; selected: boolean }):
         <SmartyStatusBadge activity={smarty.activity} />
       </button>
     </li>
+  );
+}
+
+/** smarty-dev#799: the way to the "Connect your iPhone" page (Settings), under the person's own Smarty. */
+function ConnectIphoneRow(): React.ReactNode {
+  const { t } = useI18n();
+  return (
+    <button type="button" data-connect-iphone className={cn(rowClass, 'mt-1 text-muted-foreground hover:text-foreground')}
+      onClick={openConnectIphone}>
+      <Icon name="smartphone" className="h-4 w-4 flex-shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{t('connectIphone.nav')}</span>
+    </button>
   );
 }
 
@@ -55,6 +68,7 @@ export function SmartiesNavSection(): React.ReactNode {
       ) : <>
         {own.length ? <><h2 className={headingClass}>{t('feed.nav.own')}</h2><ul>{own.map(row)}</ul></> : null}
         {others.length ? <><h2 className={headingClass}>{t('feed.nav.label')}</h2><ul>{others.map(row)}</ul></> : null}
+        {own.length ? <ConnectIphoneRow /> : null}
       </>}
     </nav>
   );

@@ -6,6 +6,8 @@ const filteredRequestHeaders = new Set([
   // so a forwarded client bearer turns every upstream response into a 401.
   'authorization',
   'x-smarty-human-identity',
+  // smarty-dev#799: only the generic proxy's POST /api/me/share forwards it (lib/opencode/share-route.js).
+  'x-smarty-share-token',
   'host',
   'connection',
   'content-length',
