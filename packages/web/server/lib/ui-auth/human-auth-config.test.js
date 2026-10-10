@@ -177,6 +177,7 @@ test('unsafe database permissions and symlinks are refused without changing exis
     assert.equal(await readFile(target, 'utf8'), 'preserve');
     await rm(env.OPENCHAMBER_HUMAN_AUTH_DB);
     await writeFile(env.OPENCHAMBER_HUMAN_AUTH_DB, '', { mode: 0o644 });
+    await chmod(env.OPENCHAMBER_HUMAN_AUTH_DB, 0o644);
     await assert.rejects(createConfiguredHumanAuth(env), /private regular/);
     await chmod(root, 0o755);
     await assert.rejects(createConfiguredHumanAuth(env), /private database directory/);
