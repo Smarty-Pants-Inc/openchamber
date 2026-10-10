@@ -378,6 +378,13 @@ session bucket, which adds attachments and keeps prompts a revert hid from the
 timeline. A prompt present in both collapses to the persisted entry. Global
 scope reads the persisted runtime bucket only.
 
+The feed's plain textarea in `components/views/feed/FeedView.tsx` uses these
+same owners. Its separate namespace includes the runtime and the gateway's
+signed-in person identity, with one bucket per target Smarty. Feed recall always
+reads that bucket, independent of the Chat scope setting. Only successful sends
+enter history. Up applies on the first line and Down on the last line; selections,
+modified arrows and IME composition keep normal textarea behavior.
+
 ## Mobile
 
 `state/useMobileComposerShell.ts` and `state/useMobileViewportPin.ts` are
