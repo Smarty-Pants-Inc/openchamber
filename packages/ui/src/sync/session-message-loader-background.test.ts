@@ -77,3 +77,39 @@ test('a background refresh that times out on a loaded session keeps its messages
   await fixture.loader.refreshTail(target, 50, { background: true });
   expect(fixture.loader.getSnapshot(target).status).toBe('ready');
 });
+
+test('a new SDK while a background refresh is queued: the reconnect refresh reads again and updates the cache', async () => {
+  fixture = nativeDraftFixture();
+  const ids = ['ses_a', 'ses_b', 'ses_c'];
+  fixture.handlers.history = async () => page(sessionOf(fixture!.requests.at(-1)!));
+  for (const id of ids) await fixture.loader.ensure({ directory, sessionID: id }, { reason: 'navigation' });
+  const target = { directory, sessionID: 'ses_c' };
+
+  // Two slow reads hold both slots; ses_c's refresh waits in the queue.
+  const releases: Array<() => void> = [];
+  fixture.handlers.history = async () => {
+    const id = sessionOf(fixture!.requests.at(-1)!);
+    await new Promise<void>(resolve => releases.push(resolve));
+    return page(id);
+  };
+  const old = ids.map(id => fixture!.loader.refreshTail({ directory, sessionID: id }, 50, { background: true }));
+  await new Promise(resolve => setTimeout(resolve, 5));
+
+  const { opencodeClient } = await import('@/lib/opencode/client');
+  const current = opencodeClient.getSdkClient();
+  // SAFETY: a copy of the client with the same prototype and fields: a distinct client, as after a same-runtime reconnect.
+  const replaced = Object.assign(Object.create(Object.getPrototypeOf(current)), current) as typeof current;
+  fixture.loader.configure({ sdk: replaced, runtimeKey: fixture.runtimeA });
+
+  const fresh = { info: { id: 'msg_fresh', sessionID: target.sessionID, role: 'user', time: { created: 2 } },
+    parts: [{ id: 'prt_fresh', sessionID: target.sessionID, messageID: 'msg_fresh', type: 'text', text: 'new' }] };
+  fixture.handlers.history = async () => Response.json([message(target.sessionID), fresh]);
+  const before = reads().length;
+  const reconnect = fixture.loader.refreshTail(target, 50, { background: true }); // The reconnect resync.
+  releases.splice(0).forEach(release => release());
+  await reconnect;
+  await Promise.all(old);
+
+  expect(reads().slice(before).map(sessionOf)).toContain(target.sessionID);
+  expect(fixture.children.ensureChild(directory).getState().message[target.sessionID]?.map(m => m.id)).toContain('msg_fresh');
+});

@@ -416,10 +416,12 @@ export class SessionMessageLoader {
   }
 
   private refreshInBackground(target: SessionMessageTarget, limit: number): Promise<void> {
-    const key = this.keyFor(target)
-    const pending = this.backgroundPending.get(key)
+    const key = this.keyFor(target), entry = this.getEntry(target), commits = entry.commits, sdkEpoch = this.sdkEpoch
+    // Shared only within one connection and one history: a new SDK (configure) or a reset of this session (a window
+    // generation bump; a tail refresh's own bump keeps it) made the pending refresh stale, so a new one reads again.
+    const pendingKey = `${sdkEpoch}\n${entry.windowGeneration}\n${key}`
+    const pending = this.backgroundPending.get(pendingKey)
     if (pending) return pending
-    const entry = this.getEntry(target), commits = entry.commits, sdkEpoch = this.sdkEpoch
     const run = async () => {
       if (this.backgroundActive < BACKGROUND_REFRESH_CONCURRENCY) this.backgroundActive++
       else await new Promise<void>((resolve) => { this.backgroundQueue.push(resolve) }) // Its slot is handed over.
@@ -435,9 +437,9 @@ export class SessionMessageLoader {
       }
     }
     const promise = run().finally(() => {
-      if (this.backgroundPending.get(key) === promise) this.backgroundPending.delete(key)
+      if (this.backgroundPending.get(pendingKey) === promise) this.backgroundPending.delete(pendingKey)
     })
-    this.backgroundPending.set(key, promise)
+    this.backgroundPending.set(pendingKey, promise)
     return promise
   }
 
