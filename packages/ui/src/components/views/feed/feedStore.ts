@@ -6,7 +6,7 @@ import React from 'react';
 import { create } from 'zustand';
 import { useInboxStore } from '@/lib/smartyInbox';
 import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
-import { loadSmarties, type SmartiesResult, type SmartyActivity } from '@/lib/smarties';
+import { loadSmarties, SmartiesRequestError, type SmartiesResult, type SmartyActivity } from '@/lib/smarties';
 
 export type SmartiesState = { state: 'loading' } | { state: 'failed' } | SmartiesResult;
 type View = 'smarty' | 'classic';
@@ -100,8 +100,8 @@ export function ensureSmartiesLoaded(load: () => Promise<SmartiesResult> = loadS
 }
 /** #1490: how often a shown Smarties list re-reads its activity (the open Smarty's also comes live on its stream). */
 export const REFRESH_MS = 15_000;
-/** A quiet re-read of a ready list: no loading state. A failed read keeps the list but marks each status unknown (its
- * last activity stays): an old answer is never shown as current. */
+/** A quiet re-read of a ready list: no loading state. A transient failure keeps the list but marks each status unknown
+ * (its last activity stays). A 403 revokes the list and shows the existing error with Try again. */
 let refreshing: Promise<void> | undefined;
 /** Each Smarty's last stream status, by sequence: a list read never overwrites a status newer than itself. */
 const liveAt = new Map<string, number>(); let liveSeq = 0;
@@ -118,9 +118,13 @@ export function refreshSmarties(load: () => Promise<SmartiesResult> = loadSmarti
     const live = now.state === 'ready' ? new Map(now.smarties.filter(s => (liveAt.get(s.id) ?? 0) > since).map(s => [s.id, s.activity])) : new Map();
     useFeedStore.getState().setSmarties(result.state === 'ready' && live.size
       ? { ...result, smarties: result.smarties.map(s => live.has(s.id) ? { ...s, activity: live.get(s.id) } : s) } : result);
-  }, () => {
+  }, error => {
     const now = useFeedStore.getState().smarties;
     if (!isRuntimeRequestScopeCurrent(scope) || now.state !== 'ready') return;
+    if (error instanceof SmartiesRequestError && error.status === 403) {
+      useFeedStore.getState().setSmarties({ state: 'failed' });
+      return;
+    }
     useFeedStore.getState().setSmarties({ ...now, smarties: now.smarties.map(smarty => smarty.activity
       ? { ...smarty, activity: { ...smarty.activity, state: 'unknown', startedAt: null } } : smarty) });
   }).finally(() => { refreshing = undefined; });
