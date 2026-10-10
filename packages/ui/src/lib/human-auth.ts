@@ -22,6 +22,25 @@ export function humanAuthClient() {
   });
 }
 
+/**
+ * A refused Google sign-in returns to the app with `?error=<code>` (smarty-code#1391). The description parameter is
+ * never shown: anyone can craft it.
+ */
+export function readGoogleSignInError(): 'notMember' | 'failed' | null {
+  const code = new URL(window.location.href).searchParams.get('error');
+  if (code === null) return null;
+  return code === 'account_not_allowed' ? 'notMember' : 'failed';
+}
+
+/** Remove the error from the address once shown, so a reload does not repeat the message. */
+export function clearGoogleSignInError() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('error')) return;
+  url.searchParams.delete('error');
+  url.searchParams.delete('error_description');
+  window.history.replaceState(window.history.state, '', url.href);
+}
+
 export async function signInWithGoogle() {
   const scope = captureRuntimeRequestScope();
   const result = await humanAuthClient().signIn.social({
