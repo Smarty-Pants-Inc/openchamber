@@ -38,6 +38,24 @@ test('smarty-code#1484: no person with a nonempty valid Smarty list is a malform
   await expect(loadSmarties(fake(() => json('{"me":null,"smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true}]}')))).rejects.toThrow();
 });
 
+for (const [name, body] of [
+  ['own true on another person', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":true,"writable":true}]}'],
+  ['own false on the signed-in person', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":false,"writable":false}]}'],
+  ['two own rows with the same self id', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":true,"writable":true},{"id":"ann","label":"Ann’s other Smarty","own":true,"writable":true}]}'],
+  ['own true but writable false', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":true,"writable":false}]}'],
+  ['own false but writable true', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false,"writable":true}]}'],
+] as const) {
+  test(`openchamber#611: the list rejects ${name}`, async () => {
+    await expect(loadSmarties(fake(() => json(body)))).rejects.toThrow();
+  });
+}
+
+test('openchamber#611: a person may have only a shared Smarty, with no own row', async () => {
+  expect(await loadSmarties(fake(() => json('{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false,"writable":false}]}')))).toEqual({
+    state: 'ready', me: 'ann', smarties: [{ id: 'kate', label: 'Kate’s Smarty', own: false, writable: false }],
+  });
+});
+
 test('the feed reads the last blocks, or those after an offset; a send posts text and clientId', async () => {
   const feed = { blocks: [{ id: 'b1', author: 'org', at: '11:55 PM ET', text: 'Hi' }], offset: 10 };
   expect(await loadSmartyFeed('paul', {}, fake(() => json(JSON.stringify(feed))))).toEqual(feed);

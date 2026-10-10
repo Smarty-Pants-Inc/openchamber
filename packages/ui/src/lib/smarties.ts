@@ -13,7 +13,10 @@ const activitySchema = z.object({ state: z.enum(STATES).catch('unknown'), workin
 const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean(), activity: activitySchema.optional() });
 // `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): valid only with no Smarties.
 const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) })
-  .refine(body => body.me !== null || body.smarties.length === 0);
+  .refine(body => body.me !== null || body.smarties.length === 0)
+  // Shared-only lists are valid; ownership and write permission must still agree with the signed-in person.
+  .refine(body => body.smarties.every(smarty => smarty.own === (smarty.id === body.me) && smarty.writable === smarty.own))
+  .refine(body => body.smarties.filter(smarty => smarty.own).length <= 1);
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
 // `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
 // of appended blocks (`after`) omits it.
