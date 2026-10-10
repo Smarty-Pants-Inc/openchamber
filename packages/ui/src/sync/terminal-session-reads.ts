@@ -10,6 +10,9 @@ import { getRuntimeKey } from "@/lib/runtime-switch"
 export const TERMINAL_SESSION_READ_BACKOFF_MS = 60_000
 const TERMINAL_STATUSES = new Set([404, 409, 410])
 const suppressedUntil = new Map<string, number>()
+// smarty-code#1575: a 404 ("Unknown Pi session in requested project") stays gone, with no expiry, until a 200 or a
+// managed listing names the session again. Only the viewed session consults it; other sessions keep the 60 s back-off.
+const gone = new Set<string>()
 
 const keyFor = (directory: string, sessionID: string, runtimeKey = getRuntimeKey()) =>
   JSON.stringify([runtimeKey, directory, sessionID])
@@ -20,12 +23,24 @@ export function recordSessionReadFailure(directory: string, sessionID: string, e
   const status = (error as { status?: unknown } | null)?.status
   if (typeof status === "number" && TERMINAL_STATUSES.has(status)) {
     suppressedUntil.set(keyFor(directory, sessionID, runtimeKey), now + TERMINAL_SESSION_READ_BACKOFF_MS)
+    if (status === 404) gone.add(keyFor(directory, sessionID, runtimeKey))
   }
 }
 
 /** A successful read (for example after enrollment) makes the session readable again at once. */
 export function clearSessionReadFailure(directory: string, sessionID: string, runtimeKey = getRuntimeKey()): void {
   suppressedUntil.delete(keyFor(directory, sessionID, runtimeKey))
+  gone.delete(keyFor(directory, sessionID, runtimeKey))
+}
+
+/** A managed listing named the session again: no longer gone (its 60 s back-off, if any, still runs out on its own). */
+export function clearSessionGone(directory: string, sessionID: string, runtimeKey = getRuntimeKey()): void {
+  gone.delete(keyFor(directory, sessionID, runtimeKey))
+}
+
+/** Answered 404 and not listed or read successfully since: not read again in the background, even while viewed. */
+export function isSessionGone(directory: string, sessionID: string, runtimeKey = getRuntimeKey()): boolean {
+  return gone.has(keyFor(directory, sessionID, runtimeKey))
 }
 
 export function isSessionReadSuppressed(directory: string, sessionID: string, now = Date.now(),
@@ -40,4 +55,5 @@ export function isSessionReadSuppressed(directory: string, sessionID: string, no
 
 export function clearSessionReadFailures(): void {
   suppressedUntil.clear()
+  gone.clear()
 }

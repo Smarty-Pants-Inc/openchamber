@@ -10,7 +10,8 @@ import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectorySelectionStore } from '@/stores/useDirectoryStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { clearSessionReadFailure, isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
+import { clearSessionReadFailure, isSessionGone, isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
+import { noteGoneSession } from "./gone-session-notice"
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
 import type { Event, Message, Part } from "@opencode-ai/sdk/v2/client"
@@ -1711,10 +1712,11 @@ async function resyncDirectoryAfterReconnect(
   const candidateSessionIds = getActiveSessionCandidateIds(directory, current)
   if (candidateSessionIds.length === 0) return
   // Per-session reads skip sessions the server just answered with a terminal status; the directory-wide
-  // status and blocking-request passes still see every candidate, and the viewed session is never skipped.
+  // status and blocking-request passes still see every candidate, and the viewed session is skipped only once it answered
+  // 404 (gone, smarty-code#1575: until a 200 or a listing names it again).
   const viewedSessionID = getViewedSessionMaterializationTarget(directory)?.sessionId
-  const readSessionIds = candidateSessionIds.filter((sessionId) => sessionId === viewedSessionID
-    || !isSessionReadSuppressed(directory, sessionId))
+  const readSessionIds = candidateSessionIds.filter((sessionId) => (sessionId === viewedSessionID
+    && !isSessionGone(directory, sessionId)) || !isSessionReadSuppressed(directory, sessionId))
   const runtimeKey = getRuntimeKey()
   const recordFailure = (sessionId: string, error: unknown) => {
     if (isRuntimeRequestScopeCurrent(scope)) recordSessionReadFailure(directory, sessionId, error, runtimeKey)
@@ -1777,10 +1779,31 @@ async function resyncDirectoryAfterReconnect(
 export async function refreshSessionRecord(sessionId: string, directory: string): Promise<void> {
   let store: StoreApi<DirectoryStore>
   try { store = getSyncChildStores().ensureChild(directory, { bootstrap: false }) } catch { return } // Sync is not mounted.
+  if (isSessionGone(directory, sessionId)) return
   const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
+  const runtimeKey = getRuntimeKey()
   const response = await opencodeClient.getScopedSdkClient(directory).session.get({ sessionID: sessionId }).catch(() => null)
+  if (getRuntimeKey() !== runtimeKey) return
+  if (response?.response?.status === 404) {
+    // smarty-code#1575: the gateway does not know this session ("Unknown Pi session in requested project"); asking again
+    // every 2 s (about every 45 s in a hidden tab) answered the same forever. It is gone until a listing names it again:
+    // mark its global row ended (#811/#913's "no longer available" state, which also stops this refresh) and say so once.
+    if (isSessionGone(directory, sessionId, runtimeKey)) return
+    recordSessionReadFailure(directory, sessionId, { status: 404 }, runtimeKey)
+    // ponytail: a snapshot of the store's own rows, not a mutation, so a later listing that names it again wins outright.
+    const globals = useGlobalSessionsStore.getState()
+    const row = globals.entityById.get(sessionId)
+    if (row && !row.time?.archived) {
+      const ended: Session & { herdrState: "ended" } = { ...row, herdrState: "ended" }
+      globals.applySnapshot(globals.activeSessions.map((entry) => entry.id === sessionId ? ended : entry),
+        globals.archivedSessions, globals.status)
+    }
+    void noteGoneSession(sessionId, directory, false)
+    return
+  }
   const session = response?.data
   if (!session || session.id !== sessionId) return
+  clearSessionReadFailure(directory, sessionId, runtimeKey)
   const nextSession = stripSessionDiffSnapshots(session)
   store.setState((state: DirectoryStore) => {
     const sessions = upsertSessionRecord(state.session, nextSession, {

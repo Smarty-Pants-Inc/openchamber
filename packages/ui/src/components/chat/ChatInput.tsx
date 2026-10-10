@@ -201,6 +201,7 @@ import {
     mergeSessionInputHistory,
 } from './inputHistory';
 import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { isSessionGone } from '@/sync/terminal-session-reads';
 import { useStatusUnavailable } from '@/sync/status-unavailable';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -1125,7 +1126,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const timer = setInterval(() => {
             recheckOrdinary();
             tick += 1;
-            if (tick % 2 === 0 && directory && sessionID) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
+            // A session that answered 404 is gone until a listing names it again (smarty-code#1575): not read again.
+            if (tick % 2 === 0 && directory && sessionID && !isSessionGone(directory, sessionID)) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);

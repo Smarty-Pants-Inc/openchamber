@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
 import {
+  clearSessionGone,
   clearSessionReadFailure,
   clearSessionReadFailures,
+  isSessionGone,
   isSessionReadSuppressed,
   recordSessionReadFailure,
   TERMINAL_SESSION_READ_BACKOFF_MS,
@@ -23,4 +25,24 @@ test("a terminal answer suppresses background re-reads of that session for a bou
 test("transient or unknown failures are not suppressed", () => {
   for (const error of [{ status: 503 }, { status: 500 }, new Error("network"), null]) recordSessionReadFailure("/p", "s", error)
   expect(isSessionReadSuppressed("/p", "s")).toBe(false)
+})
+
+// smarty-code#1575: the watchdog always re-read the viewed session, so its 404 repeated every pass forever. A 404 is gone
+// with no expiry (the viewed session is skipped while gone); a 200 or a listing that names it again clears it.
+test("a 404 marks the session gone with no expiry until a 200 or a listing clears it; other terminal answers do not", () => {
+  const now = 1_000
+  recordSessionReadFailure("/p", "s", { status: 404 }, "rt", now)
+  for (const status of [409, 410, 503]) recordSessionReadFailure("/p", `s${status}`, { status }, "rt", now)
+  expect(isSessionGone("/p", "s", "rt")).toBe(true)
+  for (const status of [409, 410, 503]) expect(isSessionGone("/p", `s${status}`, "rt")).toBe(false)
+  expect(isSessionGone("/other", "s", "rt")).toBe(false)
+  expect(isSessionGone("/p", "s", "other-runtime")).toBe(false)
+  // The bounded back-off for other sessions runs out as before; gone does not.
+  expect(isSessionReadSuppressed("/p", "s", now + TERMINAL_SESSION_READ_BACKOFF_MS, "rt")).toBe(false)
+  expect(isSessionGone("/p", "s", "rt")).toBe(true)
+  clearSessionGone("/p", "s", "rt")
+  expect(isSessionGone("/p", "s", "rt")).toBe(false)
+  recordSessionReadFailure("/p", "s", { status: 404 }, "rt", now)
+  clearSessionReadFailure("/p", "s", "rt")
+  expect(isSessionGone("/p", "s", "rt")).toBe(false)
 })
