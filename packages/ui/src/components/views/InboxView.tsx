@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
-import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState } from '@/lib/smartyInbox';
+import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState, type InboxSummary } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
@@ -29,6 +29,7 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
   const [tab, setTab] = React.useState<InboxState>('open');
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [summary, setSummary] = React.useState<InboxSummary | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved). reload
   // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
@@ -38,7 +39,7 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
     const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
     return loadInbox(listedTab).then(r => {
       if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
-      if (mine === request.current) { setItems(r.items); setError(null); }
+      if (mine === request.current) { setItems(r.items); setSummary(r.summary ?? null); setError(null); }
     },
       e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
@@ -66,6 +67,12 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
           </button>
         ))}
       </div>
+      {/* smarty-code#1615: the gateway's summary, at most 3 lines, as plain text above the full list. */}
+      {summary?.lines.length ? (
+        <div data-inbox-summary className="border-b border-border px-4 py-2 typography-ui-label text-foreground">
+          {summary.lines.slice(0, 3).map((line, i) => <p key={i}>{line}</p>)}
+          {summary.current === false ? <p className="typography-micro text-muted-foreground">{t('inbox.summary.updating')}</p> : null}
+        </div>) : null}
       {error ? <p role="alert" className="px-4 py-3 typography-ui-label text-destructive">{error}</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-label={`${tab} inbox items`}>
         {items?.length === 0 ? <li className="px-4 py-6 typography-ui-label text-muted-foreground">Nothing here.</li> : null}
