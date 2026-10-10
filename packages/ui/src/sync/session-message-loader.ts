@@ -66,11 +66,16 @@ export type SessionMessageLoadState = {
 
 export type SessionPositions = { total: number; ranges: Range[]; epoch?: string }
 
+/** Whether a read is (still) a background one (smarty-code#867); mutable, so a joining person action promotes it. */
+type ReadDemand = { background: boolean }
+
 type LoaderEntry = {
   target: SessionMessageTarget
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
+  /** The background tail read now out, if any: a person's open or send that joins it promotes it to a foreground read. */
+  backgroundRead: ReadDemand | null
   /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
    * reloads of one failed open are one error, however often they fail. */
   reportId: string
@@ -332,8 +337,10 @@ export class SessionMessageLoader {
     if (!force && options?.reason !== "navigation" && this.openUnanswered(entry)) return Promise.resolve()
     // smarty-code#1501: opening (or sending to) a session shown from a journal-only answer reads its newest page again.
     if (!force && options?.reason === "navigation" && entry.journalWait && entry.snapshot.resolved) {
+      this.promoteBackgroundRead(entry)
       return entry.inflight ?? this.refreshTail(normalized, getInitialPageSize())
     }
+    if (options?.reason !== "prefetch") this.promoteBackgroundRead(entry)
     if (!force && materialization.renderable && entry.snapshot.resolved
       && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
@@ -479,11 +486,17 @@ export class SessionMessageLoader {
     return promise
   }
 
+  /** A person's open or send joins the background read already out: from now on it retries and fails as theirs. */
+  private promoteBackgroundRead(entry: LoaderEntry): void {
+    if (entry.backgroundRead) entry.backgroundRead.background = false
+  }
+
   private refreshTailNow(normalized: SessionMessageTarget, limit: number, background: boolean): Promise<void> {
     const entry = this.getEntry(normalized)
     // Nothing loaded to refresh, and the open timed out (also a refresh queued behind that open): wait for Try again.
     if (this.openUnanswered(entry)) return Promise.resolve()
     if (entry.inflight) {
+      if (!background) this.promoteBackgroundRead(entry)
       entry.queuedRefreshLimit = Math.max(entry.queuedRefreshLimit, limit)
       entry.demand++
       if (entry.queuedRefresh) return entry.queuedRefresh
@@ -515,12 +528,14 @@ export class SessionMessageLoader {
     }
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     this.bumpGeneration(entry, true)
-    return this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
+    const demand: ReadDemand = { background }
+    if (background) entry.backgroundRead = demand
+    const load = this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
       const previousCoverage = entry.snapshot.resolved
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
         : null
       const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance, undefined,
-        undefined, undefined, background)
+        undefined, undefined, demand)
       if (!isCurrent()) return
       // smarty-code#1501: a journal-only answer after a normal one is stale: nothing is applied, and it is read again.
       if (page.journalOnly && journalOnlyIsStale(entry)) {
@@ -570,7 +585,9 @@ export class SessionMessageLoader {
         updatedAt: Date.now(),
       })
       this.persistCoverage(normalized, entry.snapshot)
-    }, background)
+    }, demand)
+    if (background) void load.catch(() => undefined).finally(() => { if (entry.backgroundRead === demand) entry.backgroundRead = null })
+    return load
   }
 
   /**
@@ -885,6 +902,7 @@ export class SessionMessageLoader {
         : createDefaultState(),
       listeners: new Set(),
       inflight: null,
+      backgroundRead: null,
       reportId: newOperationId(),
       openUnanswered: false,
       loadedOnce: false,
@@ -936,7 +954,7 @@ export class SessionMessageLoader {
     store: { getState: () => DirectoryStore; setState: DirectoryStoreSetter },
     kind: SessionMessageLoadKind,
     run: (isCurrent: () => boolean, performance: LoadPerformanceDetails) => Promise<void>,
-    background = false,
+    demand?: ReadDemand,
   ): Promise<void> {
     entry.demand++
     const generation = entry.snapshot.generation
@@ -975,7 +993,7 @@ export class SessionMessageLoader {
           return
         }
         finishPerformanceEvent("error", performance)
-        if (background) {
+        if (demand?.background) {
           // smarty-code#867: nobody is looking at it. Its loaded messages, coverage and view stay as they were (now
           // stale: updatedAt is unchanged) and no error view replaces them; the next resync or an open reads it again.
           const failure = error instanceof Error ? error : new Error(formatSdkError(error))
@@ -1096,7 +1114,7 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
     at?: number,
     epoch?: string,
-    background = false,
+    demand?: ReadDemand,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
@@ -1139,7 +1157,7 @@ export class SessionMessageLoader {
         }
         return { data, response: response.response }
       // A background refresh that timed out is not retried at once either (smarty-code#867): its retries were the ~40 s burst.
-      }, { retryIf: error => isTransientError(error) && !((opening || background) && error instanceof Error && unanswered(error)) })
+      }, { retryIf: error => isTransientError(error) && !((opening || demand?.background) && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
@@ -1163,7 +1181,6 @@ export class SessionMessageLoader {
       const journalOnly = before === undefined && at === undefined
         && result.response?.headers?.get?.("x-smarty-journal-only") === "1"
       if (journalOnly) {
-        finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
         return { session, partsByMessageID, cursor: undefined, complete: false, ordinaryView: undefined, readOnly: false,
           viewEpoch, eventsAtRead, journalOnly }
       }
