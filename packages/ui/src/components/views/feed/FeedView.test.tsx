@@ -43,6 +43,10 @@ const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
 const { SmartiesRequestError } = await import('@/lib/smarties');
 const { useUIStore } = await import('@/stores/useUIStore');
+// Imported after the Window globals so the real input-history store reads and writes the test's localStorage.
+const { useInputHistoryStore, selectInputHistoryEntries, createInputHistoryIdentity } = await import('@/stores/useInputHistoryStore');
+const { getRuntimeKey } = await import('@/lib/runtime-switch');
+const { DEFAULT_INPUT_HISTORY_LIMIT, MIN_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT } = await import('@/lib/inputHistoryScope');
 
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -79,7 +83,18 @@ const pressEnter = (target: Element) => act(async () => {
 });
 const button = (host: Element, text: string) => Array.from(host.querySelectorAll('button')).find(b => b.textContent?.trim() === text);
 
+// The input-history store's persisted envelope (its durable contract).
+const HISTORY_KEY = 'openchamber-input-history.v1';
+/** Empties the real history store and its persisted copy, leaving the Chat recall setting at `scope`. */
+const resetHistory = (scope: 'global' | 'session') => {
+  const other = scope === 'global' ? 'session' : 'global';
+  localStorage.setItem(HISTORY_KEY, JSON.stringify({ version: 1, scope: other, global: {}, session: {} }));
+  // A scope change rereads the durable envelope (now empty) and writes it back with `scope`.
+  useInputHistoryStore.getState().applyScope(scope);
+};
+
 beforeEach(async () => {
+  resetHistory('session');
   localStorage.clear();
   useFeedStore.setState({ view: 'smarty', selectedId: null, pageOpen: true, smarties: { state: 'loading' }, drafts: {}, failedSends: {}, pendingSends: {} });
   await ensureSmartiesLoaded(async () => paul, true);
@@ -772,6 +787,201 @@ test('the own Smarty mounts exactly one inbox list: N cards for N items, at desk
     expect(document.querySelectorAll('[aria-label$="inbox items"]')).toHaveLength(1);
     await phone.unmount();
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
+
+// Feed composer history: the person's own successful sends, recalled with Up/Down like the chat's composer, kept per
+// runtime, signed-in person and Smarty, always in that Smarty's own bucket (whatever the Chat recall setting says).
+/** A key press on the box through React's handler; `caret` places the caret first. Returns whether the default was prevented. */
+const press = async (box: HTMLTextAreaElement, key: 'ArrowUp' | 'ArrowDown', caret: 'start' | 'end' | number = key === 'ArrowUp' ? 'start' : 'end') => {
+  const at = caret === 'start' ? 0 : caret === 'end' ? box.value.length : caret;
+  box.setSelectionRange(at, at);
+  let prevented = false;
+  await act(async () => {
+    const props = Object.entries(box).find(([name]) => name.startsWith('__reactProps$'))?.[1];
+    props?.onKeyDown({ key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, currentTarget: box, target: box,
+      preventDefault: () => { prevented = true; }, isDefaultPrevented: () => prevented, nativeEvent: { isComposing: false } });
+  });
+  return prevented;
+};
+/** Typing: the box's own change handler, as the browser would call it. */
+const type = (box: HTMLTextAreaElement, text: string) => act(async () => {
+  box.value = text;
+  const props = Object.entries(box).find(([name]) => name.startsWith('__reactProps$'))?.[1];
+  props?.onChange({ target: box, currentTarget: box });
+});
+const sendText = async (box: HTMLTextAreaElement, text: string) => {
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), text); });
+  await pressEnter(box); await settle();
+};
+/** Everything Up recalls from an empty box (at most `limit` presses), newest first, then Down back to the empty box. */
+const recallAll = async (box: HTMLTextAreaElement, limit = 10) => {
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), ''); });
+  const recalled: string[] = [];
+  for (let i = 0; i < limit; i += 1) {
+    await press(box, 'ArrowUp');
+    if (box.value === '' || box.value === recalled.at(-1)) break;
+    recalled.push(box.value);
+  }
+  for (let i = 0; i < limit && box.value !== ''; i += 1) {
+    await press(box, 'ArrowDown');
+    expect(box.value).toBe(recalled[recalled.length - 2 - i] ?? '');
+  }
+  expect(box.value).toBe('');
+  return recalled;
+};
+/** Mounts the view, runs `body` with its message box, and always unmounts, also when an assertion fails. */
+const withBox = async (body: (box: HTMLTextAreaElement, host: HTMLElement) => Promise<void>) => {
+  const { host, unmount } = await mount(view());
+  try { await body(host.querySelector('textarea')!, host); } finally { await unmount(); }
+};
+
+test('feed history: Up recalls the last successful sends newest first; Down walks back to the stashed live draft', async () => {
+  await withBox(async box => {
+    for (const text of ['first', 'second', 'third']) await sendText(box, text);
+    expect(sent.map(({ text }) => text)).toEqual(['first', 'second', 'third']);
+    await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'half typed'); });
+    expect(await press(box, 'ArrowUp')).toBe(true);
+    expect(box.value).toBe('third');
+    await press(box, 'ArrowUp');
+    expect(box.value).toBe('second');
+    await press(box, 'ArrowUp');
+    expect(box.value).toBe('first');
+    // The oldest stays put.
+    await press(box, 'ArrowUp');
+    expect(box.value).toBe('first');
+    expect(await press(box, 'ArrowDown')).toBe(true);
+    expect(box.value).toBe('second');
+    await press(box, 'ArrowDown');
+    expect(box.value).toBe('third');
+    // Past the newest: the draft the person was typing comes back unchanged.
+    await press(box, 'ArrowDown');
+    expect(box.value).toBe('half typed');
+    expect(sent).toHaveLength(3);
+  });
+});
+
+test('feed history: editing a recalled message does not change what is stored', async () => {
+  await withBox(async box => {
+    for (const text of ['first', 'second', 'third']) await sendText(box, text);
+    await press(box, 'ArrowUp');
+    expect(box.value).toBe('third');
+    await type(box, 'third, edited');
+    expect(box.value).toBe('third, edited');
+  });
+  // A fresh box recalls the stored messages as sent.
+  await withBox(async box => { expect(await recallAll(box)).toEqual(['third', 'second', 'first']); });
+});
+
+test('feed history: in a multiline message Up moves the caret unless it is on the first line, Down unless on the last', async () => {
+  await withBox(async box => {
+    for (const text of ['older', 'line one\nline two']) await sendText(box, text);
+    // A multiline draft, caret on its second line: Up is the browser's caret move, the draft stays.
+    await act(async () => { useFeedStore.getState().setDraftAt(draftKey('paul'), 'draft one\ndraft two'); });
+    expect(await press(box, 'ArrowUp', 'end')).toBe(false);
+    expect(box.value).toBe('draft one\ndraft two');
+    // On the first line it recalls.
+    expect(await press(box, 'ArrowUp', 'start')).toBe(true);
+    expect(box.value).toBe('line one\nline two');
+    expect(await press(box, 'ArrowUp', 'start')).toBe(true);
+    expect(box.value).toBe('older');
+    expect(await press(box, 'ArrowDown', 'end')).toBe(true);
+    expect(box.value).toBe('line one\nline two');
+    // Down on the first line of the recalled message is a caret move, nothing else.
+    expect(await press(box, 'ArrowDown', 3)).toBe(false);
+    expect(box.value).toBe('line one\nline two');
+    // Up on its second line, too.
+    expect(await press(box, 'ArrowUp', 'end')).toBe(false);
+    expect(box.value).toBe('line one\nline two');
+    // On the last line Down walks on, back to the draft.
+    expect(await press(box, 'ArrowDown', 'end')).toBe(true);
+    expect(box.value).toBe('draft one\ndraft two');
+  });
+});
+
+test('feed history: sends survive a remount and a reload that rereads the stored history', async () => {
+  await withBox(async box => { for (const text of ['first', 'second']) await sendText(box, text); });
+  await withBox(async box => { expect(await recallAll(box)).toEqual(['second', 'first']); });
+  const stored = localStorage.getItem(HISTORY_KEY);
+  expect(stored).toContain('second');
+  // A reload: the in-memory store is emptied, then a scope round-trip rereads the persisted envelope.
+  await act(async () => {
+    useInputHistoryStore.setState({ globalBuckets: {}, sessionBuckets: {} });
+    useInputHistoryStore.getState().applyScope('global');
+    useInputHistoryStore.getState().applyScope('session');
+  });
+  await withBox(async box => { expect(await recallAll(box)).toEqual(['second', 'first']); });
+});
+
+// The feed keeps at least its newest 50 sends whatever the Chat history limit says (default, min and max).
+for (const limit of [MIN_INPUT_HISTORY_LIMIT, DEFAULT_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT]) {
+  test(`feed history (Chat limit ${limit}): 55 sends survive a reload; Up recalls the newest 50 newest first, Down walks back to empty`, async () => {
+    expect([MIN_INPUT_HISTORY_LIMIT, DEFAULT_INPUT_HISTORY_LIMIT, MAX_INPUT_HISTORY_LIMIT]).toEqual([1, 40, 100]);
+    await act(async () => { useInputHistoryStore.getState().applyEntryLimit(limit); });
+    expect(useInputHistoryStore.getState().entryLimit).toBe(limit);
+    const prompts = Array.from({ length: 55 }, (_, i) => `prompt ${i + 1}`);
+    await withBox(async box => { for (const text of prompts) await sendText(box, text); });
+    expect(sent.map(({ text }) => text)).toEqual(prompts);
+    // A reload: the in-memory buckets are emptied, then a scope round-trip rereads the durable envelope.
+    await act(async () => {
+      useInputHistoryStore.setState({ globalBuckets: {}, sessionBuckets: {} });
+      useInputHistoryStore.getState().applyScope('global');
+      useInputHistoryStore.getState().applyScope('session');
+    });
+    expect(useInputHistoryStore.getState().entryLimit).toBe(limit);
+    await withBox(async box => {
+      const recalled = await recallAll(box, 60);
+      expect(recalled.length).toBeGreaterThanOrEqual(50);
+      expect(recalled.slice(0, 50)).toEqual(prompts.slice(-50).reverse());
+      expect(recalled).toEqual(prompts.slice(-recalled.length).reverse());
+    });
+  }, 60_000);
+}
+
+for (const scope of ['session', 'global'] as const) {
+  test(`feed history (Chat recall setting "${scope}"): another signed-in person on the same writable Smarty id sees none of it`, async () => {
+    resetHistory(scope);
+    await withBox(async box => {
+      for (const text of ['first', 'second']) await sendText(box, text);
+      // The feed keeps its own bucket whatever the setting: Paul's recall works either way.
+      expect(await recallAll(box)).toEqual(['second', 'first']);
+    });
+    // The chat's composer never sees feed messages, in its runtime-wide or in any session bucket.
+    const chat = createInputHistoryIdentity(getRuntimeKey(), '/work/project', 'paul');
+    expect(selectInputHistoryEntries({ ...useInputHistoryStore.getState(), scope: 'global' }, chat)).toEqual([]);
+    expect(selectInputHistoryEntries({ ...useInputHistoryStore.getState(), scope: 'session' }, chat)).toEqual([]);
+    // Ann signs in on the same device; the gateway gives her a writable Smarty with the SAME id.
+    const signIn = (me: string, label: string) => ensureSmartiesLoaded(async () => ({ state: 'ready', me, smarties: [{ id: 'paul', label, own: true, writable: true }] }), true);
+    await signIn('ann', 'Ann’s Smarty');
+    await withBox(async (box, host) => {
+      expect(host.querySelector('h1')?.textContent).toBe('Ann’s Smarty');
+      expect(await recallAll(box)).toEqual([]);
+      // Her own sends are hers alone.
+      await sendText(box, 'from ann');
+      expect(await recallAll(box)).toEqual(['from ann']);
+    });
+    await signIn('paul', 'Paul’s Smarty');
+    await withBox(async box => { expect(await recallAll(box)).toEqual(['second', 'first']); });
+  });
+}
+
+test('feed history: a failed or refused send is not saved; its successful Send again is saved once; repeats collapse', async () => {
+  await withBox(async (box, host) => {
+    await sendText(box, 'before');
+    sendResult = async () => { throw new Error('502'); };
+    await sendText(box, 'lost');
+    // A refusal (4xx) is not saved either.
+    sendResult = async () => { throw new SmartiesRequestError(413, 'Too long.'); };
+    await sendText(box, 'refused');
+    expect(await recallAll(box)).toEqual(['before']);
+    sendResult = async () => undefined;
+    await act(async () => { button(host, 'Send again')!.click(); }); await settle();
+    expect(await recallAll(box)).toEqual(['lost', 'before']);
+    // The same text sent twice in a row is one entry.
+    await sendText(box, 'again');
+    await sendText(box, 'again');
+    expect(sent.map(({ text }) => text)).toEqual(['before', 'lost', 'refused', 'lost', 'again', 'again']);
+    expect(await recallAll(box)).toEqual(['again', 'lost', 'before']);
+  });
 });
 
 test('#1595: a Smarty block with nothing to read (empty, or only ".", "…" and whitespace) is not shown; "?", "!", an emoji or "ok" is', async () => {
