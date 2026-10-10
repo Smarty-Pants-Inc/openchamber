@@ -87,7 +87,7 @@
       "path": "packages/ui/src/lib/i18n/messages/de.ts",
       "brandingSha256": "f24b358ffa67700abc96b687682a30aa9298f77af43bb9ca4a5c2fa50d6673b2",
       "behaviorSha256": "c9a16f5ebe7a11aa345b0ddd64391c83e726a1b3025c59343ced92632b1b969a",
-      "combinedSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "combinedSha256": "404b9185ab70476ebde0e82e87bd3381ac44c16ab985480ff1ffd38666359f32",
       "nativeCreationSha256": "8a05a516720ee0bd082756b85d4041b8016ef6712ba5eb1baa4a69d6736a3e0d",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -107,13 +107,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "7f858ee5d349f7f390e635fac0f1b085356cdf6dc9426380c6ce23308fb2a88a",
       "inboxStepsSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "9d63d2cc010090e3099fdd4810c5df4e2ce0229b2172d4d7b833901c8417b788",
+      "smarties1407Sha256": "404b9185ab70476ebde0e82e87bd3381ac44c16ab985480ff1ffd38666359f32",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/en.ts",
       "brandingSha256": "17c9771516e54f2b832631823f986e5da195944d1d08e0b0b07a19e336dcfda5",
       "behaviorSha256": "8741de7c0513f1593a645928c34ee0c862ad25748430ce15405087b220f1be89",
-      "combinedSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "combinedSha256": "7a9d84a87d14e219b932f58fb8998885b7bb6522621f913d8448d921ee0d7ada",
       "nativeCreationSha256": "a86429d854295c906fc64d9a4c2ecfb07a75e81fdc5b40f08a6ff85a0e392713",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -133,13 +136,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "35e6a3443db62d1eadc6a0f819d323977fd3fc400b464a7ec070209a435a09cb",
       "inboxStepsSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "8735c0aa8efabb337e95d86afb557bc63372600a5d02b14b8863436b199a7f13",
+      "smarties1407Sha256": "7a9d84a87d14e219b932f58fb8998885b7bb6522621f913d8448d921ee0d7ada",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/es.ts",
       "brandingSha256": "0606091c226d60ffb4a999037f432c41ab42ee2e7a3c5acaec6aa5682488f6be",
       "behaviorSha256": "4632e6c634b5cdb107c8b11d49385155de02d000e994e086d04874294190669d",
-      "combinedSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "combinedSha256": "7e517767bb1e982360c19761bbedf615fcb06a03f32d541e6fb8a068ae2b3bfa",
       "nativeCreationSha256": "9ca217e2d77a162c516b2b8f32feb3ba558cb25411c132424e505788e3bb25d7",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -159,13 +165,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "e2eec7fe5d1da3c5fb330c2c12713e3497ab800d6373aabc6498fa9255b2c22c",
       "inboxStepsSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "0c2972fd79fe5387c1b071e172c45bacd8a4fd4070c4cb2ed280dee765e3f75c",
+      "smarties1407Sha256": "7e517767bb1e982360c19761bbedf615fcb06a03f32d541e6fb8a068ae2b3bfa",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/fr.ts",
       "brandingSha256": "205cde414f524e654423f6fbb2a8cb6aad1d3bee0d6509ca66afdcc20c9c5599",
       "behaviorSha256": "daa8f2f1379d3982502522eea575825614603fec8554a210f95fc2b55c44f7a1",
-      "combinedSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "combinedSha256": "3f754f94b03d566c4d6bc089ae34e8a0d6958ad05648c36cd1f3b8cfb41807b8",
       "nativeCreationSha256": "d3403b6c4f7d8e139e73b98be10b1c7c28585e59aca18b7280c0696b535321bb",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -185,13 +194,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "4b7f6844d22ee5e84a81e2ff6d654e7e21761d530a9ccb614575885deb188015",
       "inboxStepsSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "9ff0d73aba3bac6360477a7b33edb2cc75d991e8a2c5b94b6157bf020f5c4a67",
+      "smarties1407Sha256": "3f754f94b03d566c4d6bc089ae34e8a0d6958ad05648c36cd1f3b8cfb41807b8",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ja.ts",
       "brandingSha256": "07739efd656730d7f72f3c3c51b2a19412577fcc6e8acf1e20fd9fb8c2309b16",
       "behaviorSha256": "e286c7415a535c839a633e1f24c2fb73dac9187fd1c7d6a6cfc06c1d027ab1b3",
-      "combinedSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "combinedSha256": "106c3767869c575e7efed6fd3a01c700a3b77e3acee182f4adc49495483ae0da",
       "nativeCreationSha256": "87c95552bf95dad3b25a1327fe1257360702b2e8e820986fa68c5d0c96552801",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -211,13 +223,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "4f4cd9056e8e7c722ca0b6b7bfecababec1e7bd5d49ca672acd2432da399d4eb",
       "inboxStepsSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "0b7ed1c56203a5f0a5a9385ecc86a69e6cc6944f92a3e1163ee407fb83dfea7e",
+      "smarties1407Sha256": "106c3767869c575e7efed6fd3a01c700a3b77e3acee182f4adc49495483ae0da",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/ko.ts",
       "brandingSha256": "c2cd7b668ba1f67d78d015bcd2c89fc36517ed678997258ce221082fc707301d",
       "behaviorSha256": "2b6727053aa7135958fd87d1e420327772bed38eff009b1db313377cd51594da",
-      "combinedSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "combinedSha256": "c8ec0e7704c360f6f9a375251a6819f7cfcaae1376553284f4b7c082d156f34a",
       "nativeCreationSha256": "e049a1a11f9903308d93865f3a4a5afb1396456b0617e54ac0c4fa09757b51d6",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -237,13 +252,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "aa0bdfbe2de0dbc73be06b3f55b7bf79c66dc5bd6ba8c4d14ac3f0e7899d7a27",
       "inboxStepsSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "9167b0c18d5c82fd63d29c735ff732c1771101c6553aed296c2ac896cfd5f7b8",
+      "smarties1407Sha256": "c8ec0e7704c360f6f9a375251a6819f7cfcaae1376553284f4b7c082d156f34a",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pl.ts",
       "brandingSha256": "5fdd40b1b19216c305d3d85a01880fe3f19afa88d59e4e279270765a14b04590",
       "behaviorSha256": "3e5dca1d51e428e5ab6f838bfcf3abd863899bf2395b2e5108c2718e2907fbf6",
-      "combinedSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "combinedSha256": "6a38f1f147e6195aaac9ae74734356e8ea38b3ca9d4d5d5e57a3732ed23ea1b9",
       "nativeCreationSha256": "bbff38094f3f0dd908dae8208b8cf0d9521d4f3c9c677394e0c4dae1633e4a0f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -263,13 +281,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "41b0073d36a6487ad422dc1e55973361caf4ad80ab38986c28eb9bb3d53fe12d",
       "inboxStepsSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "af39f8446aa3dac4fc23fe8b043b207b43978229ba0ba01104b0321c4c3cee36",
+      "smarties1407Sha256": "6a38f1f147e6195aaac9ae74734356e8ea38b3ca9d4d5d5e57a3732ed23ea1b9",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/pt-BR.ts",
       "brandingSha256": "cbdfad3514dcf1e82cb487da88108d27027d6436f775e5ac4ecf6e0009970ba0",
       "behaviorSha256": "91c380be5f9e821a5798c5b2a04709d9a14c8f0bf147886c9606a43e79156c0f",
-      "combinedSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "combinedSha256": "49645d7cbf5da39d95581160284d64fd2685eec5907af03a80b105df487612ef",
       "nativeCreationSha256": "cefc79129c162faba2a7275e42c658c1f53c67255140f96b32a1adfd3a816286",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -289,13 +310,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "b0708ccf8e13ed3d0f83e919e8497bfdf77622d5281fbe387913cb5b1ba4e95f",
       "inboxStepsSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "4350bff53623a739cbde82342bf225b609b10bfe13ec58fb1ff5eb24d7bc6c1e",
+      "smarties1407Sha256": "49645d7cbf5da39d95581160284d64fd2685eec5907af03a80b105df487612ef",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/uk.ts",
       "brandingSha256": "0a8fce805ddcbff7234f2fafcb38401ac05e748ef6ad3ff8a6546161aa5a4944",
       "behaviorSha256": "a2c6f1ee0a882ff442bdc7f4836fc1382b9bdc90e8878d2e92107ee133575722",
-      "combinedSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "combinedSha256": "353e86d3455e4452e96d8220d870ffe9921392b880cc319fe4b74fa25e58a116",
       "nativeCreationSha256": "72f99c33aafb64f7385f809e934a37c409adc190e9a7fe3ba6cfd8f604defb03",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -315,13 +339,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "af166eb216561dd1f418307a3d65c0825a4f33577df8f05c0369e20b8103d5b0",
       "inboxStepsSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "ff7d38397325712d4551c87056b9fce4f086ce134b3f88b7b238be3ab017feb1",
+      "smarties1407Sha256": "353e86d3455e4452e96d8220d870ffe9921392b880cc319fe4b74fa25e58a116",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-CN.ts",
       "brandingSha256": "471034a8f6cfab71f307693d0ba8ad5583ccb621177fad40a2c353d190a7b54b",
       "behaviorSha256": "ca1c20d8ef3c9590a6ba4a5d1cc0fc86565ebd72e12809c34253f0fdece2762a",
-      "combinedSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "combinedSha256": "96caf2f06c5d383b04238c44c9bce0477a760da644057cb422d2d95bc85be7b6",
       "nativeCreationSha256": "27342a24a8139a3b9e96840218566d7d503473f7eed83773e0ad876d4e6a0837",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -341,13 +368,16 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "dd3418a5fee57757d65de53bf149ef079e890f5deb04a3ca8ceaab903571d5f9",
       "inboxStepsSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "22226f13bfce485bb7e9c2373b011ff09b8ae7f7c2f3623c995a637046d7d10c",
+      "smarties1407Sha256": "96caf2f06c5d383b04238c44c9bce0477a760da644057cb422d2d95bc85be7b6",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/lib/i18n/messages/zh-TW.ts",
       "brandingSha256": "3af37b26f4055b3dd1264aa4ae6dc251fac6f9398b0f349f6c478c338191de5b",
       "behaviorSha256": "4af4bfd2dc1c985f45c4f5f88df6368a5ffad0a15756c7b3720798fc4ddbf199",
-      "combinedSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "combinedSha256": "2153138832d4c137895f4696d9dea23b536d8fbaffd262a0c3f36eddfd42ab28",
       "nativeCreationSha256": "22c9af32262a0635c1056abc7d1fa4e2f85d7f0656335af98533074652b4204f",
       "behaviorSource": "3c71ed6017b1f30ba9bbb6be1ab259a98075279b",
       "reason": "Display-attribution locale dictionary import and spread; all previous dictionary text retained. Foundation draft-storage warning and queue recovery translations; prior source hashes retained.",
@@ -367,7 +397,10 @@
       "statusUnavailableNote": "smarty-code#539: import and spread of status-unavailable.i18n (the one \"Status unavailable\" string)",
       "preInboxStepsCombinedSha256": "6aa1b81c43561e39886f097890ea98269123829d8e6ec381b2c38affb0673d56",
       "inboxStepsSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
-      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained."
+      "inboxStepsNote": "smarty-code#1119: import and spread of inbox-steps.i18n.ts for inbox-backed Steps; all previous dictionary text retained.",
+      "preSmarties1407CombinedSha256": "c9b66eaf04e2005adde17fd270eaffd32798b388553ba5b646fb2372a5458daa",
+      "smarties1407Sha256": "2153138832d4c137895f4696d9dea23b536d8fbaffd262a0c3f36eddfd42ab28",
+      "smarties1407Note": "smarty-code#1407: import and spread of inbox-card.i18n.ts (the plain inbox card: Details, the owner-named message button, Recommended); all previous dictionary text retained."
     },
     {
       "path": "packages/ui/src/sync/session-ui-store.ts",
@@ -493,7 +526,7 @@
       "path": "packages/web/server/lib/opencode/proxy.js",
       "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
       "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
-      "combinedSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
+      "combinedSha256": "ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication.",
       "preHerdrListCombinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
@@ -510,7 +543,10 @@
       "codeMadeListNote": "smarty-code#957: the session-list allowlist also keeps ordinaryCodeMade",
       "preProxyConnectionCombinedSha256": "a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68",
       "proxyConnectionSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
-      "proxyConnectionNote": "openchamber#491 / smarty-code#1147: the actual proxyReq hook removes the hop-by-hop Connection header before forwarding upstream, with a ponytail comment. No request replay or retry behavior is added; earlier branding and session-list evidence remains unchanged."
+      "proxyConnectionNote": "openchamber#491 / smarty-code#1147: the actual proxyReq hook removes the hop-by-hop Connection header before forwarding upstream, with a ponytail comment. No request replay or retry behavior is added; earlier branding and session-list evidence remains unchanged.",
+      "preNativeListCombinedSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
+      "nativeListSha256": "ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78",
+      "nativeListNote": "openchamber#542 Astra finding 1: the session-list allowlist also keeps nativeRuntime and ordinary. The proxy Connection output remains the exact predecessor; all earlier source hashes, branding evidence and guards remain historical evidence, not runtime or release acceptance."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
@@ -535,7 +571,7 @@
       "brandingSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "combinedSha256": "8beef2c1d9f05e86f39912ba728e13045f91dfb48634736e5a0ea84d909e39b7",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "c4dc823ae5f5552524910ea16e6075af2389d843eed3c7da707a2df57d3037aa",
@@ -545,7 +581,10 @@
       "contextWindowNote": "G14: the header context meter takes the window of the model the session runs (useSessionContextWindow) instead of the composer selection. Branded strings are unchanged.",
       "preDesign538CombinedSha256": "df8cdb5787836ed9d80a580106161088c5367c50a16c9c9fd0275d8f657de729",
       "design538Sha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
-      "design538Note": "smarty-code#538: the top bar shows the signed-in HumanAccount avatar menu at the right when human auth is on (it left the composer). Branded strings are unchanged."
+      "design538Note": "smarty-code#538: the top bar shows the signed-in HumanAccount avatar menu at the right when human auth is on (it left the composer). Branded strings are unchanged.",
+      "preSmarties1407CombinedSha256": "2fa26e97a38ae6771b90b21f25caa16253a9f1745e58b96ea578ecda80525064",
+      "smarties1407Sha256": "8beef2c1d9f05e86f39912ba728e13045f91dfb48634736e5a0ea84d909e39b7",
+      "smarties1407Note": "smarty-code#1407: while a Smarty fills the chat area, the top bar names that Smarty (smartyHeaderTitle from the Smarties view store) instead of the session under it."
     },
     {
       "path": "packages/ui/src/components/mini-chat/MiniChatLayout.tsx",
@@ -574,7 +613,10 @@
       "brandingSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
       "behaviorSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
       "behaviorSource": "0884e7789aa105362b95fa6a40d2466acd81c7b3",
-      "combinedSha256": "08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26",
+      "combinedSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+      "preSessionStatusReadCombinedSha256": "08a0dfda3bd9e0eb08ad9a5a9c05cb93e05fb7273c1d9d8f0240bab628aa9f26",
+      "sessionStatusReadSha256": "0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d",
+      "sessionStatusReadNote": "PR486 #1115/#1116: tray status polls capture request scope and hold newer events and foreign ordinary ownership. Original branding and managed-catalog predecessor hashes retained; presentation is unchanged.",
       "managedCatalogAdded": true,
       "reason": "Existing native managed catalog projection replaces bookmark membership for this consumer; stock behavior and original branding bytes remain recorded.",
       "preManagedCatalogCombinedSha256": "d9cac5f83480a20e8560e8edf4367b5c96725b02e2645b60f873a63646b306a4",
@@ -702,6 +744,46 @@
       "forgeRunnerAdded": true,
       "forgeRunnerBaseSha256": "01ce42451b6202d0f387d1d5e5fc932d81f106ff511cfe2c28d6640477f5f1b5",
       "forgeRunnerSha256": "a886626e2e1ac33993953e50a880b61c191f4fed8f23e582d89d1c1d5776cf44"
+    },
+    {
+      "path": "packages/ui/src/sync/bootstrap.ts",
+      "behaviorSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+      "combinedSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49",
+      "reason": "PR486 #1115/#1116: capture status-read scope and event/local versions before bootstrap dispatch; carry read provenance into the child/global commit. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49"
+    },
+    {
+      "path": "packages/ui/src/sync/global-session-status.ts",
+      "behaviorSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
+      "combinedSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
+      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646"
+    },
+    {
+      "path": "packages/ui/src/sync/sync-context.tsx",
+      "behaviorSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
+      "combinedSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
+      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b"
+    },
+    {
+      "path": "packages/ui/src/sync/session-status-read.ts",
+      "behaviorSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1",
+      "combinedSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1",
+      "reason": "PR486: new shared read-provenance and bootstrap-commit helper used by bootstrap, tray and sync context. Exact exported source bytes, not a generated branding module or donor import.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1"
+    },
+    {
+      "path": "packages/ui/src/sync/sync-context-status-provenance.test.ts",
+      "behaviorSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36",
+      "combinedSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36",
+      "reason": "PR486 #1115/#1116/#1129: exact existing ownership, in-flight event/deletion and omitted-sibling lifecycle regression record. Source provenance only; test cases and production behavior remain untouched.",
+      "sessionStatusReadAdded": true,
+      "sessionStatusReadSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -749,5 +831,12 @@
     "predecessorLedgerBytesSha256": "b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5",
     "coverageSha256": "10838b01de0e37e7deb6085d7097bfa4699eb71fef0f96ef6d0e1cdf605722df"
   },
-  "inboxStepsSource": "f2a293d2eb5f4570fcad5088ce39065ae1e59271"
+  "inboxStepsSource": "f2a293d2eb5f4570fcad5088ce39065ae1e59271",
+  "sessionStatusReadProvenance": {
+    "pullRequest": 486,
+    "sourceHead": "f1a339a16dd4199c38cb033a607491a55cb1c6c7",
+    "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
+  },
+  "smarties1407Source": "689ca2f8d21367829cf9b937ae64f6aa30d04cda",
+  "nativeListSource": "6fdd792cea0c1b11214a2779ed33b748f6315c99"
 }

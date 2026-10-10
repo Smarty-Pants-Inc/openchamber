@@ -19,7 +19,7 @@ let starting = true;
 mock.module('@/sync/native-draft-start', () => ({ ...start, useNativeDraftStarting: () => starting, useUnresolvedNativeStart: () => false }));
 const { NativeCreationNotice } = await import('./NativeCreationNotice');
 
-const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'].replace(' {id}', '');
+const STOP = nativeCreationI18n.en['chat.nativeCreation.stopStart'];
 const own = (expiresIn: number, phase: NativeCreationState['phase'] = 'starting'): NativeCreationState => ({ operationId: 'e7c860b3-5ec1-4584-aace-9059d142edc3',
   directory: '/project', generation: 'g', revision: 1, phase, expiresAt: Date.now() + expiresIn, canInitialReady: false });
 const native = (operation: NativeCreationState, canAbandon = true, unreadable = true, error?: NativeCreationError): ReturnType<typeof useNativeCreation> => ({
@@ -31,7 +31,10 @@ const render = (value: ReturnType<typeof useNativeCreation>) => renderToStaticMa
 test('the draft\'s own start that does not finish offers Stop, beside its (greyed) Cancel, once past its expiry', () => {
   const html = render(native(own(-1_000)));
   expect(html).toContain(nativeCreationI18n.en['chat.nativeCreation.starting']);
-  expect(html).toContain(`${STOP} e7c860b3`);
+  expect(html).toContain(`>${STOP}</button>`);
+  // smarty-code#1491: the visible label is plain; the start's id stays in its title and data attribute only.
+  expect(html.replace(/<[^>]*>/g, '')).not.toContain('e7c860b3');
+  expect(html).toContain('title="e7c860b3-5ec1-4584-aace-9059d142edc3"');
   expect(html).toContain('data-operation-id="e7c860b3-5ec1-4584-aace-9059d142edc3"');
 });
 
@@ -45,20 +48,20 @@ test('within the grace, no Stop yet; a server that cannot abandon never offers i
 test('the wait gives up at its limit but the start is still unsettled: the same start keeps its Stop (review of ce562a51)', () => {
   const op = own(-1_000), check = nativeCreationI18n.en['chat.nativeCreation.check'];
   try {
-    expect(render(native(op))).toContain(`${STOP} e7c860b3`); // while starting
+    expect(render(native(op))).toContain(STOP); // while starting
     starting = false; // the limit ended the wait; the operation stays pending
     const unreadable = render(native(op));
     expect(unreadable).toContain(nativeCreationI18n.en['chat.nativeCreation.unknown']);
     expect(unreadable).toContain(check);
-    expect(unreadable).toContain(`${STOP} e7c860b3`);
+    expect(unreadable).toContain(STOP);
     // Readable, still 'starting', no error: the recovery line keeps it too.
     const readable = render(native(op, true, false));
     expect(readable).toContain(nativeCreationI18n.en['chat.nativeCreation.recover']);
-    expect(readable).toContain(`${STOP} e7c860b3`);
+    expect(readable).toContain(STOP);
     // The limit's error on the pending start (required / unknown): Check, and Stop.
     const failed = render(native(op, true, false, new NativeCreationError('required')));
     expect(failed).toContain(check);
-    expect(failed).toContain(`${STOP} e7c860b3`);
+    expect(failed).toContain(STOP);
     // Never for a server that cannot abandon, nor a start that stopped.
     expect(render(native(op, false))).not.toContain(STOP);
     expect(render(native(own(-1_000, 'cancelled')))).not.toContain(STOP);

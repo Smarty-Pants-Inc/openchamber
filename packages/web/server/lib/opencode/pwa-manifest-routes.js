@@ -214,7 +214,10 @@ export const registerPwaManifestRoute = (app, dependencies) => {
       hasOrientationOverride ? queryOverrideOrientation : storedOrientation
     );
 
-    const shortName = appName.length > 30 ? appName.slice(0, 30) : appName;
+    // smarty-code#1489: the home-screen label is the product name, never a truncated "<name> - AI Coding Assist".
+    // The default is known by where the name came from (no name given), never by comparing the text.
+    const usesDefaultName = hasQueryOverride ? !queryOverrideName : !storedName;
+    const shortName = usesDefaultName ? PRODUCT_NAME : appName.slice(0, 30);
     const recentSessionShortcuts = await getRecentPwaSessionShortcuts(req);
 
     const manifest = {

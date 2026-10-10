@@ -74,6 +74,9 @@ import { IpadSidebarResizeHandle } from './IpadSidebarResizeHandle';
 import { PiVoiceCallBar } from '@/components/chat/PiVoiceCallBar';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
+import { FeedView } from '@/components/views/feed/FeedView';
+import { HomeScreenHint } from './HomeScreenHint';
+import { useFeedStore } from '@/components/views/feed/feedStore';
 import { StepsLayout } from '@/components/chat/steps/StepsLayout';
 import { useStepsSheetBack } from '@/components/chat/steps/useStepsSheetBack';
 import {
@@ -121,6 +124,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
   const inboxOpen = useInboxStore((state) => state.pageOpen);
+  const feedOpen = useFeedStore((state) => state.pageOpen);
   React.useEffect(() => watchInbox(), []);
   // Phone right drawer with the workspace tabs; the tab persists across
   // open/close so the right-edge swipe reopens where the user left off.
@@ -470,7 +474,7 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
             <div className="h-full w-full">
               <StepsLayout mobile sheet={stepsSheet.sheet}>
                 <ErrorBoundary>
-                  <ChatView covered={mobileChatCovered(inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
+                  <ChatView covered={mobileChatCovered(feedOpen ? 'feed' : inboxOpen ? 'inbox' : activeSurface, surfaceVariant, showCapacitorOnlyFeatures, openPlan !== null)} />
                 </ErrorBoundary>
               </StepsLayout>
             </div>
@@ -562,6 +566,13 @@ const MobileShell: React.FC<{ onActiveConnectionDeleted: () => void }> = ({ onAc
         {inboxOpen ? (
           <MobileFullscreenSurface open variant={surfaceVariant} dialogAlign="app" onClose={() => useInboxStore.getState().setPageOpen(false)} ariaLabel="Inbox" headerless>
             <ErrorBoundary><InboxView compact onClose={() => useInboxStore.getState().setPageOpen(false)} /></ErrorBoundary>
+          </MobileFullscreenSurface>
+        ) : null}
+
+        {/* smarty-code#1407: the Feed replaces the chat; its inbox sits below the conversation, behind a toggle. */}
+        {feedOpen ? (
+          <MobileFullscreenSurface open variant={surfaceVariant} dialogAlign="app" onClose={() => useFeedStore.getState().setPageOpen(false)} ariaLabel={t('feed.nav.label')} headerless>
+            <ErrorBoundary><FeedView compact onClose={() => useFeedStore.getState().setPageOpen(false)} /></ErrorBoundary>
           </MobileFullscreenSurface>
         ) : null}
 
@@ -1309,6 +1320,7 @@ export function MobileApp({ apis }: MobileAppProps) {
               }} />
               <AppLinkConfirmDialog />
               <Toaster position="top-center" offset="calc(var(--oc-safe-area-top, 0px) + 16px)" />
+              <HomeScreenHint />
               <PiVoiceCallBar />
               {isInitialized ? <ConfigUpdateOverlay /> : null}
             </div>

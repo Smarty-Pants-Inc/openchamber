@@ -82,6 +82,7 @@ import {
   captureSessionStatusEventVersions,
   useGlobalSessionStatusStore,
 } from "./global-session-status"
+import { captureSessionStatusRead, commitDirectoryBootstrapPatch, heldSessionStatusIds, isSessionStatusReadCurrent, type SessionStatusRead } from "./session-status-read"
 import { INITIAL_STATE, type State } from "./types"
 import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { PermissionRequest } from "@/types/permission"
@@ -294,6 +295,13 @@ const publishDirectoryEventBatch = (batch: DirectoryEventBatch): void => {
 export function useGlobalSessionStatus(sessionId: string): SessionStatus | undefined {
   return useGlobalSessionStatusStore(
     useCallback((state) => state.statusById.get(sessionId)?.status, [sessionId]),
+  )
+}
+
+/** smarty-code#1234: the order of the session's last native status change, idle included; undefined when none was seen. */
+export function useGlobalSessionNativeOrder(sessionId: string): number | undefined {
+  return useGlobalSessionStatusStore(
+    useCallback((state) => state.nativeAtById.get(sessionId), [sessionId]),
   )
 }
 
@@ -2585,22 +2593,21 @@ export function SyncProvider(props: {
 
         const runBootstrap = async (attempt: number): Promise<"complete" | "failed" | "stale"> => {
           if (!context.isCurrent()) return "stale"
+          const scope = captureRuntimeRequestScope()
+          const isCurrent = () => context.isCurrent() && isRuntimeRequestScopeCurrent(scope)
           const globalState = useGlobalSyncStore.getState()
           const result = await bootstrapDirectory({
             directory,
             sdk: props.sdk,
             getState: () => store.getState(),
-            set: (patch) => {
-              if (!context.isCurrent()) return
-              store.setState(patch)
-              if (patch.session_status) {
-                applyGlobalSessionStatusSnapshot(directory, patch.session_status, store.getState().session.map((session) => session.id))
-              }
+            set: (patch, read) => {
+              if (!isCurrent()) return
+              commitDirectoryBootstrapPatch(store, directory, patch, read)
               if (patch.session || patch.message) {
                 ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
               }
             },
-            isStale: () => !context.isCurrent(),
+            isStale: () => !isCurrent(),
             global: {
               config: globalState.config,
               projects: globalState.projects,
@@ -2924,7 +2931,7 @@ export function SyncProvider(props: {
       directory: string,
       store: StoreApi<DirectoryStore>,
       candidateSessionIds: string[],
-      fleet?: Promise<DirectorySessionStatusSnapshot | null>,
+      fleet?: { promise: Promise<DirectorySessionStatusSnapshot | null>; read: SessionStatusRead; local: Map<string, State["session_status"]> },
     ) => {
       const polling = statusPollingDirectories
       if (polling.has(directory)) return
@@ -2933,21 +2940,30 @@ export function SyncProvider(props: {
         const before = store.getState()
         // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
         // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
-        const shared = fleet ? await fleet : null
+        const read = fleet ? { ...fleet.read, local: fleet.local.get(directory) } : captureSessionStatusRead(before.session_status)
+        const shared = fleet ? await fleet.promise : null
+        if (stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const held = read ? heldSessionStatusIds(read, directory, shared ?? {}, candidateSessionIds, store.getState().session_status) : new Set<string>()
+        const freshCandidates = candidateSessionIds.filter((id) => !held.has(id))
         // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
         // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
         if (fleet && isStatusUnavailable(directory)) {
           if (noteStatusUnavailablePoll(directory)) {
-            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
-            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+            applySessionStatusSnapshot(store, {}, freshCandidates, "authoritative")
+            applyGlobalSessionStatusSnapshot(directory, {}, freshCandidates, held)
           }
           return
         }
         const statuses = shared
-          ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
-          : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
-        if (!statuses) return
-        const needsSnapshot = candidateSessionIds.some((sessionId) => (
+          ? (applySessionStatusSnapshot(store, shared, freshCandidates, "monotonic"), shared)
+          : await runBackgroundNetworkTask(async () => {
+            // The directory read may wait behind other work. Reject its original scope before resync
+            // captures the live scope and can publish into this provider's captured child store.
+            if (stopped || (read && !isSessionStatusReadCurrent(read))) return null
+            return resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic")
+          })
+        if (!statuses || stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const needsSnapshot = (read ? freshCandidates : candidateSessionIds).some((sessionId) => (
           needsSnapshotAfterStatusPoll(before, sessionId, statuses[sessionId])
         ))
         if (needsSnapshot) {
@@ -2966,8 +2982,15 @@ export function SyncProvider(props: {
           if (stopped) return
           const now = Date.now()
           // One fleet-wide status read per tick for a managed catalog, made only if some directory is due.
-          let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
-          const fleetStatus = () => fleet ??= runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null))
+          let fleet: Parameters<typeof pollDirectoryStatuses>[3]
+          const fleetStatus = () => {
+            if (!fleet) {
+              const read = captureSessionStatusRead()
+              const local = new Map([...childStores.children].map(([directory, store]) => [directory, store.getState().session_status]))
+              fleet = { read, local, promise: runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null)) }
+            }
+            return fleet
+          }
           const managed = useProjectsStore.getState().managedCatalogAdmitted
           for (const [directory, store] of childStores.children.entries()) {
             const state = store.getState()
