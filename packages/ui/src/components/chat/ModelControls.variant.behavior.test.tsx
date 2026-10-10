@@ -383,7 +383,11 @@ const renderModelControls = async () => {
 
 beforeEach(() => {
   fixtureHistory = [];
-  useNativeSessions.setState({ sessions: {} });
+  // The open session's record is loaded (an OpenCode session); before it loads the composer shows Loading (#1580).
+  useNativeSessions.setState({ sessions: { [SESSION_ID]: {
+    id: SESSION_ID, slug: SESSION_ID, directory: '/workspace/project', projectID: 'fixture', title: SESSION_ID,
+    version: '1', time: { created: 1, updated: 1 },
+  } } });
   useSessionUIStore.setState({ currentSessionId: SESSION_ID });
   useConfigStore.setState({ providers: [provider] });
 });
