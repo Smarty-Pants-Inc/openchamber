@@ -148,6 +148,56 @@ async function runGrowth(context) {
   return { closed, points };
 }
 
+async function runLegacyMigration(context, refuseOnce) {
+  const runtime = `legacy-migration-${refuseOnce}`, legacyKey = JSON.stringify([runtime, '/project', null]);
+  const sessionKey = JSON.stringify([runtime, '/project', 'session-kept']);
+  const probe = await context.newPage();
+  await probe.goto(`${url}storage`);
+  await probe.evaluate(({ legacyKey, sessionKey }) => {
+    localStorage.setItem('openchamber.chatDrafts.v2', JSON.stringify({ version: 2, drafts: {
+      [legacyKey]: { text: 'legacy @legacy.ts', confirmedMentions: ['legacy.ts'], touchedAt: 11, since: 10 },
+      [sessionKey]: { text: 'session kept', confirmedMentions: [], touchedAt: 12 },
+    } }));
+  }, { legacyKey, sessionKey });
+  await probe.close();
+  const page = await context.newPage();
+  await page.addInitScript(gateFirstNativeClaim, TAB_LOCK_PREFIX);
+  await page.goto(url);
+  await waitFor(page, () => window.started);
+  assert.equal((await snapshot(page, runtime)).text, 'legacy @legacy.ts');
+  const sharedText = () => page.evaluate((key) => JSON.parse(localStorage.getItem('openchamber.chatDrafts.v2')).drafts[key]?.text, legacyKey);
+  assert.equal(await sharedText(), 'legacy @legacy.ts', 'shared entry removed before native grant');
+  if (refuseOnce) await page.evaluate((prefix) => {
+    const set = Storage.prototype.setItem;
+    window.refusedPlacements = 0;
+    Storage.prototype.setItem = function(key, value) {
+      if (this === localStorage && key.startsWith(prefix) && window.refusedPlacements === 0) {
+        window.refusedPlacements++;
+        throw new DOMException('refused placement', 'QuotaExceededError');
+      }
+      return set.call(this, key, value);
+    };
+  }, SLOT_PREFIX);
+  await page.evaluate(() => window.releaseClaimGate());
+  await waitFor(page, () => window.loaded);
+  if (refuseOnce) {
+    assert.equal(await page.evaluate(() => window.refusedPlacements), 1);
+    assert.equal((await snapshot(page, runtime)).slotStored, false, 'refused copy reported durable');
+    assert.equal(await sharedText(), 'legacy @legacy.ts', 'refused copy retired shared entry');
+    await write(page, runtime, 'legacy @legacy.ts', 'legacy.ts', 10);
+  }
+  assert.equal((await snapshot(page, runtime)).slotStored, true, 'copy not durable');
+  assert.equal(await sharedText(), undefined, 'durable copy left shared entry');
+  assert.equal(await page.evaluate((key) => JSON.parse(localStorage.getItem('openchamber.chatDrafts.v2')).drafts[key].text, sessionKey), 'session kept');
+  const fresh = await context.newPage();
+  await fresh.goto(url);
+  await waitFor(fresh, () => window.loaded);
+  assert.equal((await snapshot(fresh, runtime)).text, '', 'fresh tab re-adopted migrated entry');
+  await fresh.close();
+  await page.close();
+  return { deferredLegacyMigration: true, refusedPlacementRetried: refuseOnce, result: 'PASS' };
+}
+
 const context = await chromium.launchPersistentContext(profileDir, {
   headless: true,
   args: ['--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding'],
@@ -155,6 +205,7 @@ const context = await chromium.launchPersistentContext(profileDir, {
 });
 const pageErrors = [];
 const cases = [];
+const legacyMigrations = [];
 let failure;
 // Persistent contexts have no Browser handle, so read the version from a page.
 let browserVersion = context.browser()?.version() ?? null;
@@ -168,6 +219,7 @@ try {
     await probe.close();
     growthResult = await runGrowth(context);
   }
+  if (!growth) for (const refuseOnce of [false, true]) legacyMigrations.push(await runLegacyMigration(context, refuseOnce));
   for (let run = 0; !growth && run < REPETITIONS; run++) {
     const runtime = `isolation-${run}`;
     const forcedPagehide = run % 2 === 1;
@@ -239,6 +291,7 @@ try {
     completed: cases.length,
     forcedLifecycleCount: cases.filter((entry) => entry.forcedPagehideBeforeOpener).length,
     cases,
+    legacyMigrations,
     signedInApplication: 'not exercised',
   };
   if (failure) {

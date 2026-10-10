@@ -89,9 +89,9 @@ const finishLegacy = (identity: ChatDraftIdentity): void => {
 };
 /** A New session draft is this tab's own slot (chatDraftTabs.ts, #461); a session's draft stays in the envelope. */
 const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
-  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)]);
+  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)], () => finishLegacy(identity));
   // The shared entry goes only once this tab's copy is durable; a refused copy is reported, and a later durable
-  // save or clear of this tab's draft finishes the migration (writeChatDraft).
+  // placement, save or clear of this tab's draft finishes the migration.
   if (adopted && !adopted.stored) setEphemeral(true);
   else if (adopted) finishLegacy(identity);
   return readSlot(identity.runtimeKey, identity.directory);

@@ -114,7 +114,7 @@ export function createTabDrafts(env: Env) {
   const ownKey = (runtimeKey: string, directory: string) => slotKey(runtimeKey, directory, id ?? stage ?? source ?? fresh);
   const legacyKeyOf = (runtimeKey: string, directory: string) => JSON.stringify([runtimeKey, directory, null]);
   /** Writes made before the grant, by project; the latest wins. They go to the owned id, never the candidate. */
-  const deferred = new Map<string, { runtimeKey: string; directory: string; value: string }>();
+  const deferred = new Map<string, { runtimeKey: string; directory: string; value: string; finishLegacy?: () => void }>();
   const projectKey = (runtimeKey: string, directory: string) => JSON.stringify([runtimeKey, directory]);
   const sourceRaw = (runtimeKey: string, directory: string) => (source === undefined ? null : storage.getItem(slotKey(runtimeKey, directory, source)));
   /** The saved slot this page's reads fall back to: its own once owned, the source before. */
@@ -141,7 +141,8 @@ export function createTabDrafts(env: Env) {
   function writeSlot(runtimeKey: string, directory: string, slot: PersistedSlot | undefined, now = Date.now()): boolean | undefined {
     const value = JSON.stringify(slot ?? { text: '', confirmedMentions: [], touchedAt: now });
     if (id === undefined) {
-      deferred.set(projectKey(runtimeKey, directory), { runtimeKey, directory, value });
+      const key = projectKey(runtimeKey, directory);
+      deferred.set(key, { runtimeKey, directory, value, finishLegacy: deferred.get(key)?.finishLegacy });
       return stage === undefined ? undefined : put(slotKey(runtimeKey, directory, stage), value, legacyKeyOf(runtimeKey, directory));
     }
     return put(ownKey(runtimeKey, directory), value, legacyKeyOf(runtimeKey, directory));
@@ -167,11 +168,13 @@ export function createTabDrafts(env: Env) {
   /** Whether this tab's draft of the project has a refused (or not yet placed) write still owed. */
   const owes = (runtimeKey: string, directory: string) => deferred.has(projectKey(runtimeKey, directory)) || unsaved.has(ownKey(runtimeKey, directory));
   /** The pre-#461 shared draft, copied into this tab when it has none. `stored`: the copy reached backing storage. */
-  function adoptLegacy(runtimeKey: string, directory: string, legacy: PersistedSlot | undefined): { stored: boolean } | false {
+  function adoptLegacy(runtimeKey: string, directory: string, legacy: PersistedSlot | undefined, finishLegacy?: () => void): { stored: boolean } | false {
     // A valid own (or source) slot, including a pending or durable empty tombstone, supersedes shared legacy text.
     if (!legacy || owes(runtimeKey, directory) || parseSlot(savedRaw(runtimeKey, directory))) return false;
     const result = writeSlot(runtimeKey, directory, legacy);
-    // Held until the grant: shown now; a later durable save of this draft retires the shared entry.
+    const pending = deferred.get(projectKey(runtimeKey, directory));
+    if (pending) pending.finishLegacy = finishLegacy;
+    // Held until the grant: shown now; durable placement or a later retry retires the shared entry.
     return result === undefined ? false : { stored: result };
   }
   /**
@@ -198,7 +201,10 @@ export function createTabDrafts(env: Env) {
     id = owner; granted = lockHeld;
     unsaved.clear(); // Owed staged writes only: their latest values are held and placed now.
     place(owner);
+    const pending = [...deferred.values()];
     deferred.clear();
+    // A refused slot or tab record still owes its copy; the persistence owner's retry finishes that migration.
+    for (const draft of pending) if (!unsaved.has(ownKey(draft.runtimeKey, draft.directory))) draft.finishLegacy?.();
   }
   /**
    * Claims a new id this page minted. Web Locks that cannot answer leave the page writing that id unlocked, recorded
