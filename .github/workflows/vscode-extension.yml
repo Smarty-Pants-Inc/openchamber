@@ -46,6 +46,7 @@ jobs:
         with:
           name: openchamber-vscode-vsix
           path: packages/vscode/*.vsix
+          retention-days: 2
 
       - name: Attach VSIX to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')

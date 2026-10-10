@@ -42,6 +42,7 @@ jobs:
           name: openchamber-android-debug-apk
           path: packages/mobile/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 2
 
   ios-simulator:
     if: github.repository != 'Smarty-Pants-Inc/openchamber'
