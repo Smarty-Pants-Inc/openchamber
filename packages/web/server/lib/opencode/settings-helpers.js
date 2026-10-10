@@ -952,6 +952,10 @@ export const createSettingsHelpers = (dependencies) => {
     return next;
   };
 
+  const shareShortcutUrl = (value) => {
+    try { const url = new URL(String(value ?? '')); return url.protocol === 'https:' ? url.href : null; } catch { return null; }
+  };
+
   const formatSettingsResponse = (settings) => {
     const sanitized = sanitizeSettingsUpdate(settings);
     delete sanitized.managedRemoteTunnelToken;
@@ -977,6 +981,8 @@ export const createSettingsHelpers = (dependencies) => {
       securityScopedBookmarks: bookmarks,
       pinnedDirectories: normalizeStringArray(settings.pinnedDirectories),
       typographySizes: sanitizeTypographySizesPartial(settings.typographySizes),
+      // smarty-dev#799: the operator's iCloud link to the "Send to my Smarty" Shortcut (read-only, https only).
+      ...(shareShortcutUrl(settings.shareShortcutUrl) ? { shareShortcutUrl: shareShortcutUrl(settings.shareShortcutUrl) } : {}),
       ...(process.env.OPENCHAMBER_RUNTIME === 'desktop'
         ? {
             desktopLanAccessActive: process.env.OPENCHAMBER_DESKTOP_LAN_ACCESS_ACTIVE === 'true',

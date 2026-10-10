@@ -23,7 +23,7 @@ import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinne
 import { Icon } from "@/components/icon/Icon";
 import { buildExportFilename, downloadAsMarkdown, formatSessionAsMarkdown, getExportRevealLabelKey, revealExportedMarkdown, saveAsMarkdownDesktop } from '@/lib/exportSession';
 import type { ChildSessionExport } from '@/lib/exportSession';
-import { useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
+import { useGlobalSessionNativeOrder, useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
 import { usePrefetchSessionMessages, useSessionMessageRecordsForExport } from '@/sync/use-sync';
 import { getSyncSessionMaterializationStatus } from '@/sync/sync-refs';
 import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
@@ -60,7 +60,7 @@ import { useStatusUnavailable } from '@/sync/status-unavailable';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { WorktreeMetadata } from '@/types/worktree';
-import { HERDR_STATE_DOT, readHerdrState } from '@/lib/herdrSession';
+import { HERDR_STATE_DOT, liveHerdrState, readHerdrState, rowNativeStatus } from '@/lib/herdrSession';
 import { areSessionRenderSemanticsEqual } from './sessionRenderSemantics';
 import { rowActivity } from './rowActivity';
 import { HerdrStateText } from './HerdrStateText';
@@ -345,6 +345,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? (showQuickArchiveAction ? 'pr-18' : 'pr-14')
     : (showQuickArchiveAction ? 'pr-7' : 'pr-3');
   const suppressNextSelectRef = React.useRef(false);
+  const renderedRef = React.useRef(false); // smarty-code#1140: this mount has rendered (rowNativeStatus)
   const [isTouchPressed, setIsTouchPressed] = React.useState(false);
   const editingIdRef = React.useRef(editingId);
   editingIdRef.current = editingId;
@@ -463,6 +464,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     React.useCallback((state) => Boolean(state.sessionMemoryState.get(viewportSessionKey(session.id))?.isZombie), [session.id]),
   );
   const sessionStatus = useGlobalSessionStatus(session.id);
+  const nativeStatusOrder = useGlobalSessionNativeOrder(session.id);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   // Read as a boolean, not as the value: the row must not re-render on every
@@ -732,7 +734,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     menuOpen: isSessionMenuOpen,
     hideOnHoverClass,
   });
-  const herdrState = readHerdrState(session);
+  const sampledHerdrState = readHerdrState(session);
+  // smarty-code#1140, #1234: Working follows native busy; done takes the first of Herdr's done and native idle. The
+  // newer of Herdr's state and the native status wins: the store orders native changes (idle included), the row Herdr's.
+  // A Herdr change first seen on a remount has no order (it changed while the row was unmounted): native wins.
+  const rowNative = rowNativeStatus(session.id, sampledHerdrState, sessionStatus?.type, nativeStatusOrder, !renderedRef.current);
+  renderedRef.current = true;
+  const herdrState = liveHerdrState(sampledHerdrState, rowNative.native, rowNative.herdrIsNewer);
   const { showStatusMarker, showActivityDuration, showStatusUnavailable } = rowActivity({
     herdrState, isStreaming, needsAttention, isActive, isMovingToWorktree, hasActivityDuration, statusUnavailable,
   });

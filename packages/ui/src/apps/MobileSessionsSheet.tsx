@@ -56,6 +56,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { mergeLiveSessionWithGlobalSession, refreshGlobalSessions, resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useMobileSessionExpansionStore } from '@/stores/useMobileSessionExpansionStore';
 import { useMobileSessionTreeStore } from '@/stores/useMobileSessionTreeStore';
+import { setPersonalSidebarView, usePersonalSidebarView } from '@/lib/sidebar-view';
+import { useSessionReveal } from '@/components/session/sidebar/list/sessionReveal';
 import { useProjectsStore, visibleProjects } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { orderWorktrees, useWorktreeOrderStore } from '@/stores/useWorktreeOrderStore';
@@ -73,6 +75,7 @@ import type { WorktreeMetadata } from '@/types/worktree';
 
 import { MobileDeleteWorktreeDialog } from './MobileDeleteWorktreeDialog';
 import { MobileProjectEditSurface } from './MobileProjectEditSurface';
+import { FeedMenuButton } from '@/components/views/feed/FeedNav';
 
 type MobileSessionsSheetProps = {
   open: boolean;
@@ -105,6 +108,7 @@ type ProjectMeta = {
   iconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' } | null;
   iconBackground?: string | null;
   isGitRepo: boolean;
+  sidebarCollapsed?: boolean;
   worktrees: WorktreeMetadata[];
 };
 
@@ -859,6 +863,48 @@ const SortableProjectRow: React.FC<{
   );
 };
 
+const personalBucketKey = (projectId: string, bucket: WorktreeBucket) => `${projectId}:${bucket.worktree ? `worktree:${bucket.key}` : 'root'}`;
+
+const MobileSessionReveal: React.FC<{
+  nodes: ProjectNode[];
+  revealPage: (key: string, count: number) => void;
+  open: boolean;
+  selectedSessionId: string | null;
+}> = ({ nodes, revealPage, open, selectedSessionId }) => {
+  const resolveBucket = React.useCallback((id: string) => {
+    for (const node of nodes) {
+      const bucket = node.buckets.find(bucket => bucket.sessions.some(session => session.id === id && !getParentId(session)));
+      if (bucket) return { node, bucket };
+    }
+    return null;
+  }, [nodes]);
+  const revealRoot = React.useCallback((id: string) => {
+    const match = resolveBucket(id);
+    if (!match) return;
+    const ids = new Set(match.bucket.sessions.map(session => session.id));
+    const roots = match.bucket.sessions.filter(session => { const parent = getParentId(session); return !parent || !ids.has(parent); });
+    const index = roots.findIndex(session => session.id === id);
+    if (index >= 0) revealPage(`${match.node.project.id}::${match.bucket.key}`, index + 1);
+  }, [revealPage, resolveBucket]);
+  useSessionReveal(id => {
+    const match = resolveBucket(id);
+    return match ? { projectId: match.node.project.id, groupKey: personalBucketKey(match.node.project.id, match.bucket) } : null;
+  }, (_target, id) => revealRoot(id));
+  // Discovery can rebuild the bucket projection while the drawer remains open.
+  // Only an explicit open or selection may reveal its root; otherwise a manual
+  // page reset would be replayed by the refreshed projection.
+  const previousOpenRef = React.useRef(false);
+  const previousSelectedSessionIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const opened = open && !previousOpenRef.current;
+    const selected = selectedSessionId !== previousSelectedSessionIdRef.current;
+    previousOpenRef.current = open;
+    previousSelectedSessionIdRef.current = selectedSessionId;
+    if (open && selectedSessionId && (opened || selected)) revealRoot(selectedSessionId);
+  }, [open, revealRoot, selectedSessionId]);
+  return null;
+};
+
 export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, onOpenChange, variant = 'drawer', footer }) => {
   const { t } = useI18n();
   const { git } = useRuntimeAPIs();
@@ -886,6 +932,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   const setActiveProjectIdOnly = useProjectsStore((state) => state.setActiveProjectIdOnly);
   const reorderProjects = useProjectsStore((state) => state.reorderProjects);
   const removeProject = useProjectsStore((state) => state.removeProject);
+  const personalView = usePersonalSidebarView();
   const projectExpandedMap = useMobileSessionTreeStore((state) => state.projectExpanded);
   const worktreeExpandedMap = useMobileSessionTreeStore((state) => state.worktreeExpanded);
   const setProjectExpanded = useMobileSessionTreeStore((state) => state.setProjectExpanded);
@@ -932,9 +979,9 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Reorder mode collapses projects by default (dragging past 40 worktrees is
   // painful); tap outside the drag handle to expand one.
   const [reorderExpandedProjects, setReorderExpandedProjects] = React.useState<Set<string>>(new Set());
-  // Per-bucket count of sessions revealed past the default page. Ephemeral —
-  // resets when the sheet closes or when a group/project is toggled. Expand
-  // state itself lives in useMobileSessionTreeStore (persisted).
+  // Per-bucket page counts survive drawer close so the selected root stays
+  // visible on reopen, even after its reveal intent was consumed. Toggling a
+  // group/project still resets its page. Expansion state is persisted separately.
   // Key: `${projectId}::${bucketKey}`.
   const [visibleCountByBucket, setVisibleCountByBucket] = React.useState<Map<string, number>>(new Map());
 
@@ -943,7 +990,6 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       setQuery('');
       setEditingOrder(false);
       setReorderExpandedProjects(new Set());
-      setVisibleCountByBucket(new Map());
       setEditingProjectId(null);
       setRevealedSessionId(null);
       setConfirmingDeleteSessionId(null);
@@ -1005,6 +1051,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
         iconImage: project.iconImage,
         iconBackground: project.iconBackground,
         isGitRepo: gitProjectPaths.has(normalizePath(project.path)),
+        sidebarCollapsed: project.sidebarCollapsed,
         worktrees: orderWorktrees(
           worktreeOrderByProject[project.id],
           worktreesByProject.get(normalizePath(project.path)) ?? [],
@@ -1145,15 +1192,20 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
     return matched?.path ?? node.project.path;
   };
 
-  // Expansion is the user's own choice (persisted), independent of the active
-  // directory: projects default to expanded, worktree groups to collapsed.
-  const isProjectExpanded = (node: ProjectNode): boolean =>
-    projectExpandedMap[node.project.id] ?? true;
+  // Human overrides are sparse; unset projects follow the shared default, never anonymous browser choices.
+  const isProjectExpanded = (node: ProjectNode): boolean => personalView.enabled
+    ? !(personalView.projects[node.project.id] ?? node.project.sidebarCollapsed ?? false)
+    : projectExpandedMap[node.project.id] ?? true;
 
   // Worktrees default to EXPANDED (desktop parity): their sessions ARE the
   // content; the header still toggles for users who want them tucked away.
-  const isWorktreeExpanded = (node: ProjectNode, bucket: WorktreeBucket): boolean =>
-    worktreeExpandedMap[`${node.project.id}::${bucket.key}`] ?? true;
+  const isWorktreeExpanded = (node: ProjectNode, bucket: WorktreeBucket): boolean => personalView.enabled
+    ? !(personalView.groups[personalBucketKey(node.project.id, bucket)] ?? false)
+    : worktreeExpandedMap[`${node.project.id}::${bucket.key}`] ?? true;
+
+  const revealPage = React.useCallback((key: string, count: number) => {
+    setVisibleCountByBucket(previous => new Map(previous).set(key, Math.max(previous.get(key) ?? SESSIONS_PER_BUCKET, count)));
+  }, []);
 
   const resetBucketVisibleCount = (bucketKey: string) => {
     setVisibleCountByBucket((previous) => {
@@ -1262,12 +1314,14 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // Toggling resets the visible-session count for the affected buckets so a
   // re-expanded group starts from the default page again.
   const toggleProject = (projectId: string, currentlyExpanded: boolean) => {
-    setProjectExpanded(projectId, !currentlyExpanded);
+    if (personalView.enabled) void setPersonalSidebarView({ projects: { [projectId]: currentlyExpanded } }).catch(() => undefined);
+    else setProjectExpanded(projectId, !currentlyExpanded);
     resetProjectVisibleCounts(projectId);
   };
 
   const toggleWorktree = (projectId: string, bucketKey: string, currentlyExpanded: boolean) => {
-    setWorktreeExpanded(`${projectId}::${bucketKey}`, !currentlyExpanded);
+    if (personalView.enabled) void setPersonalSidebarView({ groups: { [`${projectId}:worktree:${bucketKey}`]: currentlyExpanded } }).catch(() => undefined);
+    else setWorktreeExpanded(`${projectId}::${bucketKey}`, !currentlyExpanded);
     resetBucketVisibleCount(`${projectId}::${bucketKey}`);
   };
 
@@ -1282,9 +1336,11 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
       // Expand the session's project (and worktree group) in the tree, so a
       // session picked from search is actually visible — and the open-time
       // auto-scroll can land on it — the next time the drawer opens.
-      setProjectExpanded(project.id, true);
-      const worktree = findExactWorktreeMatch(project, normalizePath(directory ?? ''));
-      if (worktree) setWorktreeExpanded(`${project.id}::${normalizePath(worktree.path)}`, true);
+      if (!personalView.enabled) {
+        setProjectExpanded(project.id, true);
+        const worktree = findExactWorktreeMatch(project, normalizePath(directory ?? ''));
+        if (worktree) setWorktreeExpanded(`${project.id}::${normalizePath(worktree.path)}`, true);
+      }
     }
     void setCurrentSession(session.id, directory);
     onOpenChange(false);
@@ -1496,6 +1552,12 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
   // clipped overflow swallowed the footer.
   const surfaceContent = (
       <div ref={contentRootRef} className="flex min-h-0 flex-1 flex-col">
+        <MobileSessionReveal
+          nodes={projectNodes}
+          revealPage={revealPage}
+          open={open}
+          selectedSessionId={currentSessionId}
+        />
         <ScrollShadow className="min-h-0 flex-1 overflow-y-auto pb-4">
           {/* The search bar scrolls WITH the list (iOS-style): the open-time
               auto-scroll to the current session naturally tucks it away, and
@@ -1643,7 +1705,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
           ) : (
             <div className="flex flex-col">
               {(() => {
-                const chatsExpanded = projectExpandedMap[CHAT_DRAFT_PROJECT_ID] ?? true;
+                const chatsExpanded = personalView.enabled ? !(personalView.projects[CHAT_DRAFT_PROJECT_ID] ?? false) : projectExpandedMap[CHAT_DRAFT_PROJECT_ID] ?? true;
                 const chatsLabel = t('mobile.sessions.section.chats');
                 return (
                   <section>
@@ -1919,6 +1981,7 @@ export const MobileSessionsSheet: React.FC<MobileSessionsSheetProps> = ({ open, 
               <div className="min-w-0 flex-1" />
             )}
             <div className="flex shrink-0 items-center gap-1">
+              <FeedMenuButton onOpen={() => onOpenChange(false)} />
               {footer.onOpenUpdate ? (
                 <Button
                   type="button"

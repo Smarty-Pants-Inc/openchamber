@@ -3,6 +3,8 @@ import type { Session } from "@opencode-ai/sdk/v2/client"
 import type { ProjectEntry } from "@/lib/api/types"
 import type { WorktreeMetadata } from "@/types/worktree"
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
+import { captureRuntimeRequestScope } from "@/lib/runtime-switch"
+import type { SessionRevealTicket } from "../session-ui-store"
 
 // Recorded call info
 const setCurrentSessionCalls: Array<{ id: string | null; directoryHint: string | null | undefined }> = []
@@ -16,6 +18,8 @@ let nextCreateSessionCalls: Array<{ params: unknown; directory: string | null | 
 
 // Configurable current directory (used as fallback when no directoryOverride is set)
 let currentDirectory: string | null = null
+let sessionRevealRevision = 0
+let pendingSessionReveal: SessionRevealTicket | null = null
 
 mock.module("@/lib/opencode/client", () => ({
   opencodeClient: {
@@ -31,6 +35,16 @@ mock.module("@/lib/opencode/client", () => ({
 mock.module("../session-ui-store", () => ({
   useSessionUIStore: {
     getState: () => ({
+      beginSessionReveal: (scope = captureRuntimeRequestScope()): SessionRevealTicket => {
+        const ticket = { scope, revision: ++sessionRevealRevision, preferenceAdmission: Symbol('test admission') }
+        pendingSessionReveal = ticket
+        return ticket
+      },
+      consumeSessionReveal: (revision: number): boolean => {
+        if (pendingSessionReveal?.revision !== revision) return false
+        pendingSessionReveal = null
+        return true
+      },
       setCurrentSession: (id: string | null, directoryHint?: string | null) => {
         setCurrentSessionCalls.push({ id, directoryHint })
       },
@@ -89,6 +103,8 @@ beforeEach(() => {
   nextCreateSessionCalls = []
   nextCreateSessionResponse = { id: "ses_default", time: { created: 1 } } as Session
   currentDirectory = null
+  sessionRevealRevision = 0
+  pendingSessionReveal = null
 
   // Initialize action refs. The first two args (sdk, childStores) are not
   // exercised by `createSession` itself, only the directory getter is.

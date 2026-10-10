@@ -1,6 +1,8 @@
+import { registerHumanSidebarViewRoutes } from '../ui-auth/human-sidebar-view.js';
 import { registerBillingRoleRoute } from '../billing-role/billing-role.js';
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
 import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
+import { isShareRequest } from './share-route.js';
 
 export const createBootstrapRuntime = (dependencies) => {
   const {
@@ -93,12 +95,16 @@ export const createBootstrapRuntime = (dependencies) => {
     // Preview capabilities precede origin/session checks. Human mode still requires a bound Host above;
     // passwordless mode retains its capability-only preview exception.
     registerPreviewServeRoute(app);
+    app.use('/api/config/sidebar-view', (_req, res, next) => {
+      res.setHeader('Cache-Control', 'private, no-store'); next();
+    });
     if (humanAuth) {
       // Protect application mutations too, including status routes registered below.
       app.use((req, res, next) => {
         const origin = req.headers.origin;
+        // smarty-dev#799: the iPhone Shortcut is no browser and sends no Origin; a browser's share still needs ours.
         if ((origin && origin !== humanAuth.auth.options.baseURL)
-          || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))) {
+          || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isShareRequest(req))) {
           return res.status(403).json({ error: 'Human authentication requires the configured application origin' });
         }
         return next();
@@ -164,6 +170,8 @@ export const createBootstrapRuntime = (dependencies) => {
       readSettingsFromDiskMigrated,
       normalizeTunnelSessionTtlMs,
     });
+
+    registerHumanSidebarViewRoutes(app, { express, humanAuth });
 
     registerTtsRoutes(app, { sayTTSCapability });
 

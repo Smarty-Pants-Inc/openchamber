@@ -44,7 +44,8 @@ export function createTabDrafts(env: Env) {
   }
   /** This tab's draft; a cleared slot (an empty text: a clear or a consumed send) is no draft. */
   function readSlot(runtimeKey: string, directory: string): PersistedSlot | undefined {
-    const slot = parseSlot(storage.getItem(slotKey(runtimeKey, directory, tabId())));
+    const key = slotKey(runtimeKey, directory, tabId());
+    const slot = parseSlot(unsaved.get(key)?.value ?? storage.getItem(key));
     return slot && (slot.text || slot.confirmedMentions.length) ? slot : undefined;
   }
   /**
@@ -56,9 +57,9 @@ export function createTabDrafts(env: Env) {
     const key = slotKey(runtimeKey, directory, tabId());
     const value = JSON.stringify(slot ?? { text: '', confirmedMentions: [], touchedAt: now });
     const ok = stored(storage.setItem(key, value)) && storeId();
-    if (!ok) { unsaved.set(key, value); return false; }
+    if (!ok) { unsaved.set(key, { value, legacyKey: JSON.stringify([runtimeKey, directory, null]) }); return false; }
     unsaved.delete(key);
-    retryUnsaved();
+    // The persistence owner retries other keys and durably removes their superseded legacy entries.
     return true;
   }
   /**
@@ -67,23 +68,33 @@ export function createTabDrafts(env: Env) {
    * forgets it. Each later successful write retries them, and so does a write of P itself, even of an unchanged empty
    * draft. The latest value per key wins.
    */
-  const unsaved = new Map<string, string>();
-  function retryUnsaved(): void {
-    for (const [key, value] of unsaved) if (stored(storage.setItem(key, value))) unsaved.delete(key);
+  const unsaved = new Map<string, { value: string; legacyKey: string }>();
+  /** Shared envelope keys superseded by the slots this retry durably stored. */
+  function retryUnsaved(): string[] {
+    // Envelope saves can retry too: the tab id must also survive a reload.
+    const completed: string[] = [];
+    if (unsaved.size === 0 || !storeId()) return completed;
+    for (const [key, pending] of unsaved) if (stored(storage.setItem(key, pending.value))) {
+      unsaved.delete(key);
+      completed.push(pending.legacyKey);
+    }
+    return completed;
   }
   /** Whether this tab's draft of the project has a refused write still owed. */
   const owes = (runtimeKey: string, directory: string) => unsaved.has(slotKey(runtimeKey, directory, tabId()));
   /** The pre-#461 shared draft, copied into this tab when it has none. `stored`: the copy reached backing storage. */
   function adoptLegacy(runtimeKey: string, directory: string, legacy: PersistedSlot | undefined): { stored: boolean } | false {
-    if (!legacy || readSlot(runtimeKey, directory)) return false;
+    const key = slotKey(runtimeKey, directory, tabId());
+    // A valid own slot, including a pending or durable empty tombstone, supersedes shared legacy text.
+    if (!legacy || unsaved.has(key) || parseSlot(storage.getItem(key))) return false;
     return { stored: writeSlot(runtimeKey, directory, legacy) };
   }
-  return { tabId, readSlot, writeSlot, adoptLegacy, owes, hasUnsaved: () => unsaved.size > 0,
+  return { tabId, readSlot, writeSlot, adoptLegacy, owes, retryUnsaved, hasUnsaved: () => unsaved.size > 0,
     newSessionSlotKey: (runtimeKey: string, directory: string) => slotKey(runtimeKey, directory, tabId()) };
 }
 
 const drafts = createTabDrafts({ storage: getSafeStorage(), session: getSafeSessionStorage() });
-export const { tabId, readSlot, writeSlot, adoptLegacy, newSessionSlotKey, owes, hasUnsaved } = drafts;
+export const { tabId, readSlot, writeSlot, adoptLegacy, newSessionSlotKey, owes, retryUnsaved, hasUnsaved } = drafts;
 
 /** Saves this tab's New session draft (an empty one removes it). undefined: nothing to change. */
 export function writeTabDraft(runtimeKey: string, directory: string, previous: PersistedSlot | undefined, text: string,

@@ -22,6 +22,7 @@ import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { SidebarHeader } from './sidebar/shell/SidebarHeader';
 import { SidebarNav } from './sidebar/shell/SidebarNav';
 import { SidebarFooter } from './sidebar/shell/SidebarFooter';
+import { ensureSmartiesLoaded, useFeedStore } from '@/components/views/feed/feedStore';
 import { SessionProjectCollection } from './sidebar/list/SessionProjectCollection';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -619,6 +620,10 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     openNewSessionDraft();
   }, [mobileVariant, openNewSessionDraft, setSessionSwitcherOpen]);
 
+  // smarty-code#1407: VS Code has no Smarties (no Smarty view, no nav toggle), so it always keeps the tree.
+  const smartyShown = useFeedStore((state) => state.pageOpen) && !isVSCode;
+  // Whatever else is mounted, the sidebar starts the Smarties check, so the tree never waits on a check nobody made.
+  React.useEffect(() => { if (!isVSCode) void ensureSmartiesLoaded(); }, [isVSCode]);
   return (
     // One shared tooltip provider for the whole sidebar, matching the opencode
     // sidebar feel: 400ms before the first tooltip opens, instant close on
@@ -637,6 +642,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         <SidebarNav onNewSession={handleOpenNewSessionDraftFromHeader} />
       ) : null}
 
+      {/* smarty-code#1407: while a Smarty fills the app, projects and sessions wait behind the nav's bottom button. */}
+      {smartyShown ? <div className="flex-1" /> : <>
       {managed && managedCatalogStatus === 'unavailable' && <p role="status">Project catalog unavailable. Last known projects are retained.</p>}
       {managed && managedCatalogStatus === 'ready' && projects.length === 0 && <p role="status">No live managed projects.</p>}
       <SidebarHeader
@@ -663,6 +670,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         setSessionSearchQuery={setSessionSearchQuery}
         hasSessionSearchQuery={hasSessionSearchQuery}
         searchMatchCount={searchMatchCount}
+        bulkActionsReady={projectView.bulkActionsReady}
         collapseAllProjects={projectView.actions.collapseAllProjects}
         expandAllProjects={projectView.actions.expandAllProjects}
       />
@@ -729,6 +737,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           projectViewActions: projectView.actions,
         }}
       />
+      </>}
 
       <SidebarFooter
         onOpenSettings={handleOpenSettings}

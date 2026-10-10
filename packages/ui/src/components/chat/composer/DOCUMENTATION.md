@@ -220,6 +220,8 @@ other focused runners. Pending work cannot reach real fetch after a synthetic
 handler restores its mock. A passing fixture does
 not replace real browser shutdown, layout or platform acceptance.
 
+`ui/NativeDraftIdentity.tsx` stays mounted with the writable common composer and exposes one hidden `native-draft-identity` span whose `data-draft-identity` JSON separates the applied selected project root from its directory. It uses the shared creation resolver and read-only draft, catalog, runtime and bootstrap subscriptions, with capability mode observed from the existing scoped hook. Explicit none, pending, inadmissible and unavailable states never certify a resolved tuple; legacy future-effect directories remain pending. Known identity and local native target shape are not Send admission or readiness, and the view performs no requests or writes.
+
 ## Native create-only drafts
 
 `state/useNativeCreation.ts` reads the selected directory's SDK `global.health`.

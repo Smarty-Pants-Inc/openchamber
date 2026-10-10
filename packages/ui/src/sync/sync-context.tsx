@@ -47,7 +47,7 @@ import { touchStreamingSession, updateChangedStreamingSessions, updateStreamingS
 import { countSyncPerformance } from "./performance-diagnostics"
 import { runBackgroundNetworkTask } from "@/lib/background-network"
 import { setActionRefs } from "./session-actions"
-import { setSyncRefs, getAllSyncSessions, getSyncChildStores } from "./sync-refs"
+import { setSyncRefs, getAllSyncSessions, getAllSyncSessionMap, getSyncChildStores } from "./sync-refs"
 import { useSessionUIStore } from "./session-ui-store"
 import { stripSessionDiffSnapshots } from "./sanitize"
 import { upsertSessionRecord } from "./session-records"
@@ -80,8 +80,10 @@ import {
   applyFleetSessionStatuses,
   applyGlobalSessionStatusSnapshot,
   getSessionStatusEventVersion,
+  captureSessionStatusEventVersions,
   useGlobalSessionStatusStore,
 } from "./global-session-status"
+import { captureSessionStatusRead, commitDirectoryBootstrapPatch, heldSessionStatusIds, isSessionStatusReadCurrent, type SessionStatusRead } from "./session-status-read"
 import { INITIAL_STATE, type State } from "./types"
 import { parseSessionStatus, type SessionStatus } from './session-status'
 import type { PermissionRequest } from "@/types/permission"
@@ -294,6 +296,13 @@ const publishDirectoryEventBatch = (batch: DirectoryEventBatch): void => {
 export function useGlobalSessionStatus(sessionId: string): SessionStatus | undefined {
   return useGlobalSessionStatusStore(
     useCallback((state) => state.statusById.get(sessionId)?.status, [sessionId]),
+  )
+}
+
+/** smarty-code#1234: the order of the session's last native status change, idle included; undefined when none was seen. */
+export function useGlobalSessionNativeOrder(sessionId: string): number | undefined {
+  return useGlobalSessionStatusStore(
+    useCallback((state) => state.nativeAtById.get(sessionId), [sessionId]),
   )
 }
 
@@ -797,11 +806,11 @@ export type SnapshotEvidence = {
   /** The session's record, if any store has one. */ session?: Session
   /** The fleet-wide read's entry, when it was asked. */ fleet?: SessionStatus
 }
-const sameDirectory = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
+const sameDirectory = (a: string, b: string) => (normalizePath(a) ?? a) === (normalizePath(b) ?? b)
 const active = (status?: SessionStatus) => status?.type === 'busy' || status?.type === 'retry'
 
 /**
- * How a directory's authoritative snapshot may treat one candidate its entry does NOT list busy (absent, or idle):
+ * How a directory's snapshot may treat a session (including explicit active entries):
  * - `hold`: keep this session's status in both stores; the snapshot is not its owner's word (smarty-code#737);
  * - `settle`: lower it, and finalize its unfinished turn (#2577);
  * - `lower`: lower it, but never finalize its turn (absence proves nothing about a session no store has a record of).
@@ -832,27 +841,38 @@ export async function resyncDirectorySessionStatuses(
   const runtimeKey = getRuntimeKey() // The server this read goes to, before its first await (its reports go there only).
   // openchamber#438 review 3: a runtime switch or a new sign-in during a read retires it: nothing it read is published.
   const scope = captureRuntimeRequestScope()
-  // Review 4 #2: each candidate's status as it stood before the reads (its event version and this store's entry). A
-  // session whose status changed while the reads were out (a newer busy event, a new turn) is newer than them: untouched.
-  const versionsBefore = new Map(candidateSessionIds.map((id) => [id, getSessionStatusEventVersion(id)]))
+  // Capture every event revision before the FIRST read: publication also touches raw IDs and directory-sweep
+  // siblings that were not candidates (or did not exist yet). The child reference additionally fences local sends.
+  const versionsBefore = captureSessionStatusEventVersions()
   const statusBefore = store.getState().session_status ?? {}
-  const changedSince = (id: string) => getSessionStatusEventVersion(id) !== versionsBefore.get(id)
+  const changedSince = (id: string) => getSessionStatusEventVersion(id) !== (versionsBefore.get(id) ?? 0)
     || (store.getState().session_status ?? {})[id] !== statusBefore[id]
   const nextStatuses = await opencodeClient.getSessionStatusForDirectory(directory)
   if (!isRuntimeRequestScopeCurrent(scope)) return null
   // null = fetch failed; preserve existing state. {} or populated = a snapshot
   // of active sessions — reconciled per `mode` (absence ≠ idle under monotonic).
   if (nextStatuses === null) return null
-  if (mode !== "authoritative") {
-    applySessionStatusSnapshot(store, nextStatuses, candidateSessionIds, mode)
-    return nextStatuses
-  }
   // The evidence is read BEFORE anything is applied (review 2): the child store's and the global index's statuses.
   const before = store.getState(), index = useGlobalSessionStatusStore.getState().statusById
   const evidence = new Map<string, SnapshotEvidence>()
-  for (const sessionId of candidateSessionIds) {
-    evidence.set(sessionId, { prior: before.session_status?.[sessionId], indexed: index.get(sessionId),
-      session: before.session.find((s) => s.id === sessionId) ?? getAllSyncSessions().find((s) => s.id === sessionId) })
+  // Reuse the fleet's cached ID index; only this directory needs a local lookup for an unregistered store.
+  const sessionsById = getAllSyncSessionMap()
+  const localSessionsById = new Map(before.session.map((session) => [session.id, session]))
+  const evidenceFor = (sessionId: string): SnapshotEvidence => {
+    let entry = evidence.get(sessionId)
+    if (!entry) {
+      entry = { prior: before.session_status?.[sessionId], indexed: index.get(sessionId),
+        session: localSessionsById.get(sessionId) ?? sessionsById.get(sessionId) }
+      evidence.set(sessionId, entry)
+    }
+    return entry
+  }
+  for (const sessionId of candidateSessionIds) evidenceFor(sessionId)
+  if (mode !== "authoritative") {
+    const applied = candidateSessionIds.filter((id) => !changedSince(id)
+      && snapshotVerdict(nextStatuses[id], directory, evidenceFor(id)) !== 'hold')
+    applySessionStatusSnapshot(store, nextStatuses, applied, mode)
+    return nextStatuses
   }
   // One fleet-wide read for a managed catalog, only when a candidate is absent here and nothing else decides it.
   const undecided = candidateSessionIds.filter((id) => nextStatuses[id] === undefined && snapshotVerdict(undefined, directory, evidence.get(id)!) !== 'hold')
@@ -861,17 +881,27 @@ export async function resyncDirectorySessionStatuses(
     if (!isRuntimeRequestScopeCurrent(scope)) return null
     for (const id of undecided) { const listed = toSessionStatus(fleet?.[id]); if (listed) evidence.get(id)!.fleet = listed }
   }
-  const verdicts = new Map(candidateSessionIds.map((id) => [id, changedSince(id) ? 'hold' as const
-    : active(toSessionStatus(nextStatuses[id])) ? 'lower' as const : snapshotVerdict(nextStatuses[id], directory, evidence.get(id)!)]))
+  // Re-read sweep membership after the fleet await: a sibling may have started while either read was pending.
+  const snapshotDirectory = normalizePath(directory) ?? directory
+  const touched = new Set([...candidateSessionIds, ...Object.keys(nextStatuses)])
+  for (const [id, entry] of useGlobalSessionStatusStore.getState().statusById) {
+    if (entry.directory === snapshotDirectory) touched.add(id)
+  }
+  const verdicts = new Map<string, ReturnType<typeof snapshotVerdict>>()
+  for (const id of touched) {
+    const verdict = changedSince(id) ? 'hold' : snapshotVerdict(nextStatuses[id], directory, evidenceFor(id))
+    // An active answer still needs the ownership check; it must never finalize an unfinished turn.
+    verdicts.set(id, verdict === 'hold' ? 'hold' : active(toSessionStatus(nextStatuses[id])) ? 'lower' : verdict)
+  }
   const applied = candidateSessionIds.filter((id) => verdicts.get(id) !== 'hold')
-  const held = new Set(candidateSessionIds.filter((id) => verdicts.get(id) === 'hold'))
+  const held = new Set([...touched].filter((id) => verdicts.get(id) === 'hold'))
   applySessionStatusSnapshot(store, nextStatuses, applied, mode)
   store.setState({ sessionStatusReady: true })
   applyGlobalSessionStatusSnapshot(directory, nextStatuses, applied, held) // Held ones are kept, sweep included (review 3).
   // A held session the fleet read found active: each store that does not show it active takes the fleet's word.
   for (const id of held) {
-    const e = evidence.get(id)!
-    if (!active(e.fleet) || changedSince(id)) continue
+    const e = evidence.get(id)
+    if (!e || !active(e.fleet) || changedSince(id)) continue
     const status = e.fleet!
     if (!active(e.prior)) store.setState((state) => ({ session_status: { ...(state.session_status ?? {}), [id]: status } }))
     // Review 4 #1: an ID-scoped update: it touches this session only, never its directory's siblings.
@@ -1686,6 +1716,8 @@ async function resyncDirectoryAfterReconnect(
   const viewedSessionID = getViewedSessionMaterializationTarget(directory)?.sessionId
   const readSessionIds = candidateSessionIds.filter((sessionId) => sessionId === viewedSessionID
     || !isSessionReadSuppressed(directory, sessionId))
+    // smarty-code#867: the viewed session first; the others are background refreshes, at most two at once in the loader.
+    .sort((a, b) => Number(b === viewedSessionID) - Number(a === viewedSessionID))
   const runtimeKey = getRuntimeKey()
   const recordFailure = (sessionId: string, error: unknown) => {
     if (isRuntimeRequestScopeCurrent(scope)) recordSessionReadFailure(directory, sessionId, error, runtimeKey)
@@ -1705,7 +1737,8 @@ async function resyncDirectoryAfterReconnect(
         assertSdkSuccess(response, "session.get")
         return response
       }).catch((error: unknown) => { recordFailure(sessionId, error); return null }),
-      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve())
+      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT,
+        { background: sessionId !== viewedSessionID }) ?? Promise.resolve())
         .catch((error: unknown) => { recordFailure(sessionId, error) }),
     ])
     const session = sessionResponse?.data
@@ -2564,22 +2597,21 @@ export function SyncProvider(props: {
 
         const runBootstrap = async (attempt: number): Promise<"complete" | "failed" | "stale"> => {
           if (!context.isCurrent()) return "stale"
+          const scope = captureRuntimeRequestScope()
+          const isCurrent = () => context.isCurrent() && isRuntimeRequestScopeCurrent(scope)
           const globalState = useGlobalSyncStore.getState()
           const result = await bootstrapDirectory({
             directory,
             sdk: props.sdk,
             getState: () => store.getState(),
-            set: (patch) => {
-              if (!context.isCurrent()) return
-              store.setState(patch)
-              if (patch.session_status) {
-                applyGlobalSessionStatusSnapshot(directory, patch.session_status, store.getState().session.map((session) => session.id))
-              }
+            set: (patch, read) => {
+              if (!isCurrent()) return
+              commitDirectoryBootstrapPatch(store, directory, patch, read)
               if (patch.session || patch.message) {
                 ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
               }
             },
-            isStale: () => !context.isCurrent(),
+            isStale: () => !isCurrent(),
             global: {
               config: globalState.config,
               projects: globalState.projects,
@@ -2903,7 +2935,7 @@ export function SyncProvider(props: {
       directory: string,
       store: StoreApi<DirectoryStore>,
       candidateSessionIds: string[],
-      fleet?: Promise<DirectorySessionStatusSnapshot | null>,
+      fleet?: { promise: Promise<DirectorySessionStatusSnapshot | null>; read: SessionStatusRead; local: Map<string, State["session_status"]> },
     ) => {
       const polling = statusPollingDirectories
       if (polling.has(directory)) return
@@ -2912,21 +2944,30 @@ export function SyncProvider(props: {
         const before = store.getState()
         // A managed gateway's fleet-wide status answers every directory of this tick in one read (G13: ten busy projects
         // were each polled every 5 s); only candidates are applied. Its failure falls back to this directory's read.
-        const shared = fleet ? await fleet : null
+        const read = fleet ? { ...fleet.read, local: fleet.local.get(directory) } : captureSessionStatusRead(before.session_status)
+        const shared = fleet ? await fleet.promise : null
+        if (stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const held = read ? heldSessionStatusIds(read, directory, shared ?? {}, candidateSessionIds, store.getState().session_status) : new Set<string>()
+        const freshCandidates = candidateSessionIds.filter((id) => !held.has(id))
         // A project the fleet read lists unknown (smarty-code#539): absent is not idle, and its own read would fail too.
         // Keep its last status for this one poll; a later poll that still finds it unknown clears its busy/retry.
         if (fleet && isStatusUnavailable(directory)) {
           if (noteStatusUnavailablePoll(directory)) {
-            applySessionStatusSnapshot(store, {}, candidateSessionIds, "authoritative")
-            applyGlobalSessionStatusSnapshot(directory, {}, candidateSessionIds)
+            applySessionStatusSnapshot(store, {}, freshCandidates, "authoritative")
+            applyGlobalSessionStatusSnapshot(directory, {}, freshCandidates, held)
           }
           return
         }
         const statuses = shared
-          ? (applySessionStatusSnapshot(store, shared, candidateSessionIds, "monotonic"), shared)
-          : await runBackgroundNetworkTask(() => resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic"))
-        if (!statuses) return
-        const needsSnapshot = candidateSessionIds.some((sessionId) => (
+          ? (applySessionStatusSnapshot(store, shared, freshCandidates, "monotonic"), shared)
+          : await runBackgroundNetworkTask(async () => {
+            // The directory read may wait behind other work. Reject its original scope before resync
+            // captures the live scope and can publish into this provider's captured child store.
+            if (stopped || (read && !isSessionStatusReadCurrent(read))) return null
+            return resyncDirectorySessionStatuses(directory, store, candidateSessionIds, "monotonic")
+          })
+        if (!statuses || stopped || (read && !isSessionStatusReadCurrent(read))) return
+        const needsSnapshot = (read ? freshCandidates : candidateSessionIds).some((sessionId) => (
           needsSnapshotAfterStatusPoll(before, sessionId, statuses[sessionId])
         ))
         if (needsSnapshot) {
@@ -2945,8 +2986,15 @@ export function SyncProvider(props: {
           if (stopped) return
           const now = Date.now()
           // One fleet-wide status read per tick for a managed catalog, made only if some directory is due.
-          let fleet: Promise<DirectorySessionStatusSnapshot | null> | undefined
-          const fleetStatus = () => fleet ??= runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null))
+          let fleet: Parameters<typeof pollDirectoryStatuses>[3]
+          const fleetStatus = () => {
+            if (!fleet) {
+              const read = captureSessionStatusRead()
+              const local = new Map([...childStores.children].map(([directory, store]) => [directory, store.getState().session_status]))
+              fleet = { read, local, promise: runBackgroundNetworkTask(() => opencodeClient.getSessionStatusForDirectory(null)) }
+            }
+            return fleet
+          }
           const managed = useProjectsStore.getState().managedCatalogAdmitted
           for (const [directory, store] of childStores.children.entries()) {
             const state = store.getState()

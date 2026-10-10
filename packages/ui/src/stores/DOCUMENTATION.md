@@ -195,6 +195,8 @@ Input history keeps both runtime-wide and runtime/directory/session buckets in o
 
 Server-owned queue acceptance records the original prompt and restorable attachments against its captured runtime/directory/session identity. Rejection records nothing. Automatic delivery and manual take do not record the accepted item again. VS Code retains recording at dispatch, using the full messages actually taken for sending.
 
+A refused per-tab New-session draft write stays owed after that draft becomes a session. Successful session-envelope saves retry these owed writes before clearing the memory-only warning. A retry is acknowledged only when both the tab ID and its latest slot value are durable; partial recovery keeps the remaining keys owed.
+
 Composer draft edits remain immediate in memory and use a trailing durable-write debounce. Pending text and confirmed mentions flush synchronously when the document becomes hidden, freezes, receives `pagehide`, switches identity, or unmounts; authoritative deletion cancels pending work before any lifecycle flush can run. The shared chat-draft envelope reuses its parsed snapshot until the storage value changes. Inline-comment draft byte accounting indexes serialized buckets and recalculates only the changed session bucket during normal edits; deferred storage still performs the final full-envelope serialization and lifecycle flush.
 
 ### `useTerminalStore.ts`
@@ -430,8 +432,11 @@ and session, and make no note; the session listing does not deselect it. The
 chat column says it is waiting, and after `MANAGED_SESSION_HOLD_MS` (2 min from
 the first publication that lacked it) that the project is not in the live
 catalog, with a control that opens the project sidebar. The publication that
-admits the directory selects its project and clears the hold. With no open
-session the fallback and note above apply unchanged.
+admits the directory selects its project and clears the hold. Pending explicit
+opens carry their original `SessionRevealTicket`; admission completes that open
+with a restore transition, preserving scope and manual-collapse cancellations.
+A new explicit reopen creates a new ticket. With no open session the fallback
+and note above apply unchanged.
 
 ## Selector Rules
 

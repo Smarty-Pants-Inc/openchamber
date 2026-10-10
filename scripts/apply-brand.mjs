@@ -245,8 +245,21 @@ await patchText('README.md', (source) => {
     'README brand heading',
   );
 });
+// Own this generated README section here, not by hand in the generated output.
+const embeddedResponsePolicy = `### Embedded server response policy
+
+Server integrators can supply an optional HTTP response-policy callback through
+\`startWebUiServer\`. It runs before bootstrap and static responses without changing
+ordinary launches. See the [callback contract and validation commands](server/RESPONSE_POLICY.md).
+
+`;
+await patchText('packages/web/README.md', (source) => brandDocs(replaceRequired(
+  source,
+  /(?:### Embedded server response policy\n[\s\S]*?\n)?(?=### Tunnel behavior notes)/,
+  embeddedResponsePolicy,
+  'web embedded response policy documentation',
+)));
 for (const file of [
-  'packages/web/README.md',
   'packages/electron/README.md',
   'packages/vscode/README.md',
   'packages/mobile/README.md',

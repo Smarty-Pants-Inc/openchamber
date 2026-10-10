@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { constants } from 'fs';
 import fsPromises from 'fs/promises';
 import path from 'path';
+import { appendContentSecurityPolicy, responsePolicyCacheControl } from '../http-response-policy.js';
 
 // The Files view's HTML preview (smarty-code#382). An agent-written page must not run as the signed-in user, so it is
 // served as a sandboxed document with an opaque origin, and it carries no cookie or URL token. Its own files (CSS,
@@ -87,8 +88,8 @@ const isInside = (directory, target) => {
 const kernelPathOf = (handle) => fsPromises.readlink(`/proc/self/fd/${handle.fd}`);
 
 const setPreviewHeaders = (res) => {
-  res.setHeader('Content-Security-Policy', PREVIEW_CSP);
-  res.setHeader('Cache-Control', 'no-store');
+  appendContentSecurityPolicy(res, PREVIEW_CSP);
+  res.setHeader('Cache-Control', responsePolicyCacheControl(res, 'no-store'));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   // The sandboxed page's module scripts request with Origin: null; the capability, not the origin, is the credential.

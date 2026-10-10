@@ -14,6 +14,51 @@ export const readHerdrState = (session: unknown): HerdrState | undefined => {
   return STATES.has(value) ? value as HerdrState : 'unknown';
 };
 
+/**
+ * smarty-code#1140: the row's state with the session's native status applied. Herdr's state is a sample the gateway
+ * re-reads every 2 s (17-59 s under load); the native busy/idle status reaches the page as an event, but its idle comes
+ * only after 2 s of owner idleness. So Working follows native busy, and done takes whichever comes FIRST: Herdr's done
+ * (when it changed after native busy) or native idle. Herdr keeps what only it knows (blocked, ended) and is the
+ * fallback where there is no native status. No new polling.
+ */
+export const liveHerdrState = (herdr: HerdrState | undefined, native: string | undefined, herdrIsNewer = false): HerdrState | undefined => {
+  if (!herdr || !native || herdr === 'blocked' || herdr === 'ended') return herdr;
+  if (native === 'busy' || native === 'retry') return herdrIsNewer && (herdr === 'done' || herdr === 'idle') ? herdr : 'working';
+  // Herdr's working sampled AFTER native idle is a new turn Herdr saw first: it stays Working.
+  return native === 'idle' && herdr === 'working' && !herdrIsNewer ? 'done' : herdr;
+};
+
+/** One order for native status changes (recorded by the status store) and Herdr state changes (recorded here). */
+let changeTick = 0;
+export const nextChangeOrder = (): number => ++changeTick;
+
+/**
+ * The row's native status and whether Herdr's state changed after it (smarty-code#1140, #1234). `nativeAt` is the status
+ * store's order of the session's last native change, idle included: the store DELETES a settled entry, so an absent
+ * entry with an order is a known native idle, also one the row never saw busy before (no busy event reached this page,
+ * or the turn ran while the row was unmounted). A session with no native order stays undefined: Herdr is the fallback.
+ * Herdr's change is ordered when the row sees it, kept per session across remounts (scroll, collapse); the same state
+ * twice is no change, so a re-render cannot reorder. A Herdr state first seen, or changed while the row was unmounted
+ * (`remounted`), has no order: native wins (openchamber#484 round 3).
+ */
+const herdrOrder = new Map<string, { herdr?: HerdrState; at: number }>();
+export type RowNativeStatus = { native: string | undefined; herdrIsNewer: boolean };
+const MAX_ORDERED_SESSIONS = 2048;
+export const rowNativeStatus = (sessionId: string, herdr: HerdrState | undefined, entry: string | undefined,
+  nativeAt: number | undefined, remounted = false): RowNativeStatus => {
+  const native = entry ?? (nativeAt === undefined ? undefined : 'idle');
+  let seen = herdrOrder.get(sessionId);
+  if (!seen) {
+    if (herdrOrder.size >= MAX_ORDERED_SESSIONS) herdrOrder.delete(herdrOrder.keys().next().value!);
+    seen = { herdr, at: 0 };
+    herdrOrder.set(sessionId, seen);
+  } else if (seen.herdr !== herdr) {
+    seen.herdr = herdr;
+    seen.at = remounted ? 0 : nextChangeOrder();
+  }
+  return { native, herdrIsNewer: seen.at > (nativeAt ?? 0) };
+};
+
 /** One distinct dot per Herdr state, as Herdr shows them apart. */
 export const HERDR_STATE_DOT: Record<HerdrState, string> = {
   working: 'bg-primary',

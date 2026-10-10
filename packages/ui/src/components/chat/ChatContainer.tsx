@@ -72,6 +72,8 @@ import {
 import { useSync } from '@/sync/use-sync';
 import { usePlanDetection } from '@/hooks/usePlanDetection';
 import { FleetViewOnlyBanner } from './FleetViewOnlyBanner';
+import { useContinueStatus } from '@/sync/native-session-resume';
+import { useNativeResumeSupport } from './hooks/useNativeResumeSupport';
 import { ManagedSessionHoldNotice } from './ManagedSessionHoldNotice';
 import { isHerdrEnded, isHerdrNoIdentity, isOrdinaryReloading, isPiDisconnected, showsViewOnly, successorTarget } from '@/lib/herdrSession';
 import { useI18n } from '@/lib/i18n';
@@ -1046,6 +1048,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
     const currentSession = useSession(currentSessionId, effectiveSessionDirectory);
     // smarty-code#811: the managed listing's row can say 'ended' while this directory row missed the update (busy fleet).
     const globalEnded = useGlobalSessionsStore((state) => Boolean(currentSessionId) && isHerdrEnded(state.entityById.get(currentSessionId!)));
+    const endedSession = isHerdrEnded(currentSession) || globalEnded;
+    const continueStatus = useContinueStatus(currentSessionId, effectiveSessionDirectory);
+    const continueRecovery = continueStatus?.status === 'starting' || continueStatus?.status === 'unknown';
+    const continueAvailable = useNativeResumeSupport(effectiveSessionDirectory, currentSessionId,
+        endedSession && currentSessionId === liveSessionId
+        && effectiveSessionDirectory === (liveSessionDirectory ?? syncDirectory));
     const parentSession = useParentSession(currentSessionId, effectiveSessionDirectory);
     const needsOrdinaryDetail = Boolean(currentSession && readOrdinaryModel(currentSession)
         && !Object.hasOwn(currentSession, 'ordinary'));
@@ -1753,8 +1761,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
                         </div>
                     </>
                 )}
-                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded) ? (
-                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={isHerdrEnded(currentSession) || globalEnded} reloading={isOrdinaryReloading(currentSession)} />
+                {showsViewOnly(sessionMessageLoadState.readOnly, currentSession, globalEnded) || continueRecovery ? (
+                    <FleetViewOnlyBanner noIdentity={isHerdrNoIdentity(currentSession)} ended={endedSession} reloading={isOrdinaryReloading(currentSession)}
+                        resume={(endedSession || continueRecovery) && currentSessionId && effectiveSessionDirectory
+                            ? { directory: effectiveSessionDirectory, sessionID: currentSessionId, available: continueAvailable,
+                                project: effectiveSessionDirectory.split('/').filter(Boolean).at(-1) ?? effectiveSessionDirectory } : undefined} />
                 ) : promptReadOnly ? (
                     <ReadOnlyPromptBanner />
                 ) : (

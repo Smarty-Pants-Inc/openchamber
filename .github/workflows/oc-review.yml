@@ -1,3 +1,4 @@
+# Forge admission for this public fork requires excluding outside-fork PRs (smarty-dev#1246).
 name: pr checks
 
 on:
@@ -6,7 +7,8 @@ on:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: smarty-linux-x64
 
     steps:
       - name: Checkout repository
@@ -57,6 +59,11 @@ jobs:
 
       - name: Changelog outputs match their sources
         run: bun run changelog:check
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
 
       - name: Tests
         run: bun run test
