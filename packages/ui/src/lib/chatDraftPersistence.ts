@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptLegacy, hasUnsaved, readSlot, retryUnsaved, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptLegacy, hasUnsaved, readSlot, retryUnsaved, tabDraftsReady, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -46,6 +46,10 @@ const setEphemeral = (value: boolean): void => {
   ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
 };
 
+// Writes made before this page's tab ownership was known returned undefined (nothing saved, nothing refused). If storage
+// refuses them once they are placed, mounted composers must see the warning; their next save retries the live text.
+void tabDraftsReady.then(() => { if (hasUnsaved()) setEphemeral(true); });
+
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
   return () => persistenceListeners.delete(listener);
@@ -85,9 +89,9 @@ const finishLegacy = (identity: ChatDraftIdentity): void => {
 };
 /** A New session draft is this tab's own slot (chatDraftTabs.ts, #461); a session's draft stays in the envelope. */
 const tabDraft = (identity: ChatDraftIdentity): PersistedChatDraft | undefined => {
-  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)]);
+  const adopted = adoptLegacy(identity.runtimeKey, identity.directory, readEnvelope().drafts[legacyKeyOf(identity)], () => finishLegacy(identity));
   // The shared entry goes only once this tab's copy is durable; a refused copy is reported, and a later durable
-  // save or clear of this tab's draft finishes the migration (writeChatDraft).
+  // placement, save or clear of this tab's draft finishes the migration.
   if (adopted && !adopted.stored) setEphemeral(true);
   else if (adopted) finishLegacy(identity);
   return readSlot(identity.runtimeKey, identity.directory);
