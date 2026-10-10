@@ -2,6 +2,7 @@ import { registerHumanSidebarViewRoutes } from '../ui-auth/human-sidebar-view.js
 import { registerBillingRoleRoute } from '../billing-role/billing-role.js';
 import { registerPreviewServeRoute } from '../fs/preview-capability.js';
 import { applicationAuthority, browserRequestAllowed, configureApplicationHosts } from '../security/browser-origin.js';
+import { isShareRequest } from './share-route.js';
 
 export const createBootstrapRuntime = (dependencies) => {
   const {
@@ -101,8 +102,9 @@ export const createBootstrapRuntime = (dependencies) => {
       // Protect application mutations too, including status routes registered below.
       app.use((req, res, next) => {
         const origin = req.headers.origin;
+        // smarty-dev#799: the iPhone Shortcut is no browser and sends no Origin; a browser's share still needs ours.
         if ((origin && origin !== humanAuth.auth.options.baseURL)
-          || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method))) {
+          || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isShareRequest(req))) {
           return res.status(403).json({ error: 'Human authentication requires the configured application origin' });
         }
         return next();

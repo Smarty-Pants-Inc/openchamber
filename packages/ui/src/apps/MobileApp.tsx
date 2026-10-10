@@ -99,6 +99,7 @@ const MOBILE_SETTINGS_PAGES = [
   'providers',
   'usage',
   'voice',
+  'connect-iphone',
   'integrations',
   'about',
 ] as const;
