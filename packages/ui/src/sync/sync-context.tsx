@@ -73,6 +73,7 @@ import { useTodosPersistStore } from "@/stores/useTodosPersistStore"
 import { cleanupPersistedSessionState } from "./session-deletion-cleanup"
 import { toast } from "@/components/ui"
 import { appendNotification } from "./notification-store"
+import { withoutSupersededOptimistic } from "./superseded-optimistic"
 import { recordSessionError, summarizeOpenCodeError, type OpenCodeSessionErrorPayload } from "./session-error-log"
 import {
   applyGlobalSessionStatusEvent,
@@ -1898,10 +1899,10 @@ export function handleEvent(
 ) {
   // smarty-code#583: the session's record count changed (the gateway's position index): the list grows without a read.
   if ((payload as { type?: unknown }).type === "session.index") {
-    const props = (payload as unknown as { properties?: { sessionID?: unknown; total?: unknown; epoch?: unknown } }).properties
+    const props = (payload as unknown as { properties?: { sessionID?: unknown; total?: unknown; epoch?: unknown; historyEpoch?: string } }).properties
     if (typeof props?.sessionID === "string" && typeof props.total === "number") {
       getImperativeSessionMessageLoader()?.noteIndex({ directory: rawDirectory, sessionID: props.sessionID }, props.total,
-        typeof props.epoch === "string" ? props.epoch : undefined)
+        typeof props.epoch === "string" ? props.epoch : undefined, props.historyEpoch)
     }
     return
   }
@@ -3823,12 +3824,13 @@ export function buildSessionMessageRecordsSnapshot(
     return nextRecord
   })
 
+  const shownList = withoutSupersededOptimistic(nextList)
   const unchanged = Boolean(previous)
     && previous?.visibleMessages === visibleMessages
     && previous.suspendPartUpdates === suspendPartUpdates
     && previous.suspendedPartUpdatesMessageID === suspendedPartUpdatesMessageID
-    && previous.list.length === nextList.length
-    && previous.list.every((record, index) => record === nextList[index])
+    && previous.list.length === shownList.length
+    && previous.list.every((record, index) => record === shownList[index])
 
   if (unchanged && previous) {
     return previous
@@ -3841,7 +3843,7 @@ export function buildSessionMessageRecordsSnapshot(
     revertMessageID,
     suspendPartUpdates,
     suspendedPartUpdatesMessageID,
-    list: nextList,
+    list: shownList,
     byId: nextById,
   }
 }
