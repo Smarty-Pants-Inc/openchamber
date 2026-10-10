@@ -38,7 +38,12 @@ for (const cleanupRefused of [false, true]) {
       expect(isChatDraftEphemeral()).toBe(true);
       slotsRefused = false; recovering = true;
       writeChatDraft(s, 'next unsent S', [], 30);
-      const reload = createTabDrafts({ storage: backing, session: window.sessionStorage });
+      // A reload replaces the page; its sessionStorage must not mutate the still-running fixture's tab ID.
+      const reloadSession = new Map([['openchamber.chatDraftTab', window.sessionStorage.getItem('openchamber.chatDraftTab') ?? '']]);
+      const reload = createTabDrafts({ storage: backing, session: {
+        getItem: k => reloadSession.get(k) ?? null,
+        setItem: (k, value) => { reloadSession.set(k, value); },
+      } });
       expect(reload.readSlot(p.runtimeKey, p.directory)).toBeUndefined();
       // Even a refused envelope cleanup cannot let its retained legacy text replace the durable clear.
       const legacy = JSON.parse(backing.getItem(envelopeKey) ?? '{}').drafts?.[legacyKey];
