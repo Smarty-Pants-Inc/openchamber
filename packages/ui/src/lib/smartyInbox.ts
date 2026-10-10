@@ -22,7 +22,10 @@ export type InboxState = 'open' | 'snoozed' | 'resolved';
 export type InboxAction = 'answer' | 'resolve' | 'snooze' | 'reopen';
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 type SnapshotDetails = { capabilities?: { guardedReopen: boolean }; invalidStepGroups?: string[] };
-type InboxListResult = SnapshotDetails & { available: boolean; items: InboxItem[] };
+// smarty-code#1615: the gateway's short plain summary of the inbox. Only the fields the page shows are read.
+const summarySchema = z.object({ lines: z.array(z.string()), current: z.boolean().optional() });
+export type InboxSummary = z.infer<typeof summarySchema>;
+type InboxListResult = SnapshotDetails & { available: boolean; items: InboxItem[]; summary?: InboxSummary | null };
 
 export const inboxItemState = (item: InboxItem, now = Date.now()): InboxState =>
   item.resolved ? 'resolved' : item.snoozedUntil && Date.parse(item.snoozedUntil) > now ? 'snoozed' : 'open';
@@ -62,8 +65,10 @@ export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = ru
   const response = await fetcher(`/api/inbox?state=${state}`, { credentials: 'include', headers: { accept: 'application/json' } });
   if (response.status === 403) return { available: false, items: [] };
   if (!response.ok) throw await failure(response);
-  const body = z.object({ items: z.array(z.json()), person: z.string().optional(),
+  const body = z.object({ items: z.array(z.json()), person: z.string().optional(), summary: z.json().optional(),
     capabilities: z.object({ guardedReopen: z.boolean() }).optional() }).parse(await response.json());
+  // A malformed summary is dropped; it never hides the list.
+  const summaryParsed = summarySchema.safeParse(body.summary), summary = summaryParsed.success ? summaryParsed.data : null;
   const items: InboxItem[] = [], invalidStepGroups: string[] = [];
   const person = state === 'all' ? z.string().min(1).parse(body.person) : body.person;
   for (const value of body.items) {
@@ -75,7 +80,7 @@ export async function loadInbox(state: InboxState | 'all', fetcher: Fetcher = ru
       invalidStepGroups.push(JSON.stringify([person, claim.data.source.split(':')[2] ?? '']));
     }
   }
-  const result = { available: true, items: sortInboxItems(uniqueById(items)) };
+  const result = { available: true, items: sortInboxItems(uniqueById(items)), summary };
   return state === 'all' ? { ...result, capabilities: body.capabilities ?? { guardedReopen: false }, invalidStepGroups } : result;
 }
 
