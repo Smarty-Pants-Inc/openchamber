@@ -1,6 +1,7 @@
 import { readOrdinaryModel, type OrdinaryModelState } from '@/lib/opencode/ordinaryModel';
 import { restoreManagedSessionSelection, useSessionUIStore } from '@/sync/session-ui-store';
 import { noteGoneSession, noteRememberedGone } from '@/sync/gone-session-notice';
+import { clearSessionGone } from '@/sync/terminal-session-reads';
 import { herdrSignature } from '@/lib/herdrSession';
 import { useProjectsStore } from './useProjectsStore';
 import { refreshManagedProjects } from '@/lib/managed-project-refresh';
@@ -645,6 +646,8 @@ export const useGlobalSessionsStore = create<GlobalSessionsState>((set, get) => 
     loadGeneration += 1;
     inflightLoad = null;
     const { active, archived } = splitGlobalSessionsByArchived(sessions);
+    // A session this listing names is no longer gone (smarty-code#1575: its 404 stopped every background read of it).
+    for (const session of sessions) clearSessionGone(session.directory, session.id);
     // smarty-code#600: the open session missing from one listing while its project stays listed (right after its Pi
     // is relaunched) stays open: kept from the last listing, shown unavailable (Send off with its reason, the draft
     // kept) until a listing names it again. A session whose project left the catalog is dropped, as before.
