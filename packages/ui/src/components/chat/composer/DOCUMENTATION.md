@@ -205,12 +205,36 @@ Failed writes do not satisfy the unchanged-text cache, so a later lifecycle edge
 can retry the same text or a failed deletion. A successful write clears the alert.
 The durable v2 schema and page-lifetime generation ownership are unchanged.
 
-Tabs still share one whole-envelope key without a transaction. Page-local draft
-ownership does not resolve concurrent writes from another tab. A page killed
-without a lifecycle callback can lose edits inside the debounce window. Browser
-backing-storage acceptance is not an OS power-loss guarantee. If storage access
-is denied when the adapter is created, its memory-only fallback lasts for that
-adapter's lifetime. The alert tells the user to copy input before leaving.
+Session drafts still share one whole-envelope key without a transaction.
+New-session drafts use one per-project key per tab. `chatDraftTabs.ts` holds a
+native exclusive Web Lock before publishing a writable tab ID. Granted IDs
+use `[id, ""]` in the existing sessionStorage key. Legacy plain IDs are
+copy-only sources, because a still-open older page holds no lock. A duplicate
+or opener that inherits an already-owned ID also copies its slots into a fresh
+ID, including text, confirmed mentions, provenance and empty clear tombstones.
+Source slots stay untouched, including when storage refuses the copy.
+
+Pending ownership keeps writes in memory, never in the shared candidate slot.
+Capture listeners on hidden, freeze and pagehide save held input into a fresh
+staged slot before the composer's lifecycle save. The sessionStorage record
+`[publishedIdOrEmpty, stagedId]` is copy-only: neither ID may be reclaimed from
+that record. A later native grant copies the source, applies the newest held
+edits, then publishes its writable ID last. Page-local generation keys stay
+stable while storage ownership resolves.
+
+Web, desktop, VS Code and mobile use the same browser seam. Missing or failed
+Web Locks leave a copy-only staged record, so each subsequent load copies into
+a fresh ID rather than risk sharing a writable slot. Reloads can also retain
+an extra source slot if the old page has not released its lock. A fresh tab,
+or a copy opened before the source publishes its first ID, starts empty.
+Closed-tab recovery and pruning are not implemented; retained slots have no
+aggregate count or byte bound.
+
+A page killed without a lifecycle callback can lose edits inside the debounce
+window. Browser backing-storage acceptance is not an OS power-loss guarantee.
+If storage access is denied when the adapter is created, its memory-only
+fallback lasts for that adapter's lifetime. The alert tells the user to copy
+input before leaving.
 
 The isolated native composer and draft fixtures import
 `sync/native-test-network.ts` before their application modules. Their normal

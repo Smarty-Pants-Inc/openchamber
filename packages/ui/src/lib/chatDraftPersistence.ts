@@ -1,6 +1,6 @@
 import { normalizePath } from '@/lib/pathNormalization';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { adoptLegacy, hasUnsaved, readSlot, retryUnsaved, tabId, writeTabDraft } from './chatDraftTabs';
+import { adoptLegacy, hasUnsaved, readSlot, retryUnsaved, tabDraftsReady, tabId, writeTabDraft } from './chatDraftTabs';
 import { countSyncPersistenceSerialization } from '@/sync/performance-diagnostics';
 
 export type ChatDraftIdentity = {
@@ -45,6 +45,10 @@ const setEphemeral = (value: boolean): void => {
   if (ephemeralOnly === value) return;
   ephemeralOnly = value; persistenceListeners.forEach(listener => listener());
 };
+
+// Writes made before this page's tab ownership was known returned undefined (nothing saved, nothing refused). If storage
+// refuses them once they are placed, mounted composers must see the warning; their next save retries the live text.
+void tabDraftsReady.then(() => { if (hasUnsaved()) setEphemeral(true); });
 
 export const subscribeChatDraftPersistence = (listener: () => void): (() => void) => {
   persistenceListeners.add(listener);
