@@ -10,15 +10,23 @@ const hasForbiddenNameCharacter = (value: string) => Array.from(value).some(char
 const authorSchema = z.object({
   version: z.literal(1),
   issuer: z.string().url().refine(value => {
-    const url = new URL(value);
-    return url.origin === value && (url.protocol === 'https:' ||
-      (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)));
+    try {
+      const url = new URL(value);
+      return url.origin === value && (url.protocol === 'https:' ||
+        (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)));
+    } catch {
+      return false;
+    }
   }),
   subject: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
   name: z.string().min(1).max(128).refine(value => value === value.trim() && !hasForbiddenNameCharacter(value)),
   image: z.string().url().max(2048).refine(value => {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password;
+    } catch {
+      return false;
+    }
   }).optional(),
 }).strict();
 const infoSchema = z.object({ metadata: z.object({ smartyCodeHuman: authorSchema }) });

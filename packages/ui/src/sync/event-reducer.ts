@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { optimisticStatuses } from "./optimistic-status"
-import { keepSavedState } from "./unsaved"
+import { keepSavedState, publishMessageMetadata } from "./unsaved"
 import type {
   Event,
   Message,
@@ -418,7 +418,7 @@ function reduceDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryE
       let info = event.properties.info
       const messages = draft.message[info.sessionID]
       if (!messages) {
-        draft.message[info.sessionID] = [info]
+        draft.message[info.sessionID] = [publishMessageMetadata(undefined, info)]
         return true
       }
       const messageIndex = findMessageIndex(messages, info.id)
@@ -442,7 +442,7 @@ function reduceDirectoryEvent(draft: State, event: Event, callbacks?: DirectoryE
         draft.message[info.sessionID] = next
       } else {
         const next = [...messages]
-        insertMessageChronologically(next, info)
+        insertMessageChronologically(next, publishMessageMetadata(undefined, info))
         draft.message[info.sessionID] = next
       }
       return true

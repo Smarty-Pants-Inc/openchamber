@@ -1,4 +1,4 @@
-import { keepSavedState, optimisticMessageRecords } from "./unsaved"
+import { keepReadMetadata, messageMetadataRevision, optimisticMessageRecords, publishMessageMetadata } from "./unsaved"
 import type { Message, OpencodeClient, Part } from "@opencode-ai/sdk/v2/client"
 import type { ChildStoreManager, DirectoryStore } from "./child-store"
 import { isTransientError, retry } from "./retry"
@@ -130,6 +130,8 @@ type FetchedPage = {
   journalAt?: string
   /** The session's live message-event revision when the read started (sessionMessageEventCount). */
   eventsAtRead: number
+  /** Numeric baseline captured before the successful GET attempt; only per-record metadata mutations fence adoption. */
+  metadataAtRead: number
 }
 
 type LoadPerformanceDetails = {
@@ -1047,6 +1049,7 @@ export class SessionMessageLoader {
     })
     let attempts = 0
     let recordCount = 0
+    let metadataAtRead = messageMetadataRevision()
     // An open: any read of a session that has not loaded on this page yet. A loaded session's reads (tail refresh,
     // older pages, a reload after a disconnect) keep their tries.
     const opening = !this.entries.get(this.keyFor(target))?.loadedOnce
@@ -1057,6 +1060,8 @@ export class SessionMessageLoader {
       const result = await retry(async () => {
         if (cancelled?.()) throw new SupersededReadError("Session history read cancelled") // Not transient: no retry, no request.
         attempts += 1
+        // O(1) numeric capture per attempt. No bucket scan or token/event-count metadata fence.
+        metadataAtRead = messageMetadataRevision()
         const response = await this.sdk.session.messages({
           sessionID: target.sessionID,
           directory: target.directory,
@@ -1105,7 +1110,7 @@ export class SessionMessageLoader {
       // page that exactly fills its limit with no cursor is the whole history (pin 46 review 5897200984).
       const rangeRead = at !== undefined || position.at !== undefined
       const complete = position.at !== undefined ? position.at === 0 : !cursor
-      return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
+      return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, metadataAtRead, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -1165,19 +1170,20 @@ export class SessionMessageLoader {
         if (!entry.optimistic.has(message.id)) delete part[message.id]
       }
     }
+    const records = merged.session.map((info) => {
+      const shown = shownByID.get(info.id)
+      const selected = shown ? keepReadMetadata(shown, info, page.metadataAtRead) : info
+      return {
+        // A reset replaces non-metadata fields too. Compare its metadata against the actual shown row before resetting,
+        // not against an empty synthetic bucket that would count equivalent records as new mutations.
+        info: reset ? publishMessageMetadata(shown, selected) : selected,
+        parts: page.partsByMessageID.get(info.id) ?? mergedPartsByMessageID.get(info.id) ?? [],
+      }
+    })
     const materialized = materializeSessionSnapshots(
-      reset ? { ...current, message: { ...current.message, [target.sessionID]: [] }, part } : current,
+      reset ? { ...current, message: { ...current.message, [target.sessionID]: records.map((record) => record.info) }, part } : current,
       target.sessionID,
-      merged.session.map((info) => ({
-        // A reset replaces the shown bucket, so no merge sees these records: keep a record shown as saved saved here.
-        // An optimistic shadow never replaces the server's record already shown.
-        info: !shownByID.has(info.id) ? info
-          : optimisticMessageRecords.has(info) && !optimisticMessageRecords.has(shownByID.get(info.id)!) ? shownByID.get(info.id)!
-            : keepSavedState(shownByID.get(info.id)!, info),
-        parts: page.partsByMessageID.get(info.id)
-          ?? mergedPartsByMessageID.get(info.id)
-          ?? [],
-      })),
+      records,
       { skipPartTypes: SKIP_PARTS, mode },
     )
     if (!isCurrent()) return null

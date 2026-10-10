@@ -50,7 +50,7 @@ import { mergeMessages } from "./optimistic"
 import { messagesBefore, messagesFrom } from "./message-ordering"
 import { deleteChatDirectory } from "@/lib/chatDirectories"
 import { useNotificationStore } from "./notification-store"
-import { keepSavedState } from "./unsaved"
+import { keepReadMetadata, keepSavedState, messageMetadataRevision } from "./unsaved"
 import { isClientIdConflict } from "@/lib/sendRecovery"
 
 const MESSAGE_REFETCH_LIMIT = 100
@@ -2021,7 +2021,7 @@ export async function optimisticSend(input: {
       : null
 
     if (acceptedRecords) {
-      materializeConfirmedSendRecords(store, input.sessionId, messageID, acceptedRecords)
+      materializeSendConfirmation(store, input.sessionId, messageID, acceptedRecords.records, acceptedRecords.metadataAtRead)
       optimisticConfirm?.({
         sessionID: input.sessionId,
         directory: targetDirectory,
@@ -2105,11 +2105,16 @@ export async function optimisticSend(input: {
   }
 }
 
+type SendConfirmationRead = {
+  records: Array<{ info: Message; parts?: Part[] }>
+  metadataAtRead: number
+}
+
 async function fetchRecentSendConfirmationRecords(
   sessionId: string,
   messageID: string,
   directory?: string | null,
-): Promise<Array<{ info: Message; parts?: Part[] }> | null> {
+): Promise<SendConfirmationRead | null> {
   // Bounded: a connection that never returns must still let the send fail
   // rather than hang the composer.
   const reconnectDeadline = Date.now() + SEND_CONFIRMATION_RECONNECT_TIMEOUT_MS
@@ -2120,6 +2125,7 @@ async function fetchRecentSendConfirmationRecords(
   for (let attempt = 0; attempt < SEND_CONFIRMATION_REFETCH_ATTEMPTS; attempt += 1) {
     if (attempt > 0) await wait(SEND_CONFIRMATION_REFETCH_BASE_RETRY_MS * 2 ** (attempt - 1))
     try {
+      const metadataAtRead = messageMetadataRevision()
       const result = await sdk().session.messages({
         sessionID: sessionId,
         directory: directory ?? undefined,
@@ -2128,7 +2134,7 @@ async function fetchRecentSendConfirmationRecords(
       const records = (assertSdkSuccess(result, "session.messages") ?? [])
         .filter((record: { info?: { id?: string } }) => !!record?.info?.id) as Array<{ info: Message; parts?: Part[] }>
       if (records.some((record) => record.info.id === messageID)) {
-        return records
+        return { records, metadataAtRead }
       }
     } catch {
       // Confirmation is best-effort; if it fails, keep the original send error path.
@@ -2143,6 +2149,16 @@ export function materializeConfirmedSendRecords(
   messageID: string,
   records: Array<{ info: Message; parts?: Part[] }>,
 ): void {
+  materializeSendConfirmation(store, sessionId, messageID, records)
+}
+
+function materializeSendConfirmation(
+  store: DirectoryStoreApi,
+  sessionId: string,
+  messageID: string,
+  records: Array<{ info: Message; parts?: Part[] }>,
+  metadataAtRead?: number,
+): void {
   store.setState((state) => {
     const currentMessages = state.message[sessionId]
     const message = { ...state.message }
@@ -2154,14 +2170,30 @@ export function materializeConfirmedSendRecords(
     delete part[messageID]
 
     // The sent record is replaced below, so no merge sees it: keep it saved if it is shown as saved (unsaved.ts).
-    const shown = currentMessages?.find((candidate) => candidate.id === messageID)
+    const shownByID = new Map(currentMessages?.map((candidate) => [candidate.id, candidate]) ?? [])
+    const shown = shownByID.get(messageID)
+    const confirmedRecords = records.map((record) => {
+      const incoming = stripMessageDiffSnapshots(record.info)
+      const existing = shownByID.get(record.info.id)
+      // Every returned row belongs to this GET attempt. Reconcile before publication, including siblings that
+      // materialization merges. Calls without a GET retain their existing metadata authority (#675).
+      const selected = existing && metadataAtRead !== undefined
+        ? keepReadMetadata(existing, incoming, metadataAtRead) : incoming
+      return {
+        info: shown && record.info.id === messageID ? keepSavedState(shown, selected) : selected,
+        parts: record.parts ?? [],
+      }
+    })
+    const confirmed = confirmedRecords.find((record) => record.info.id === messageID)
+    if (shown && confirmed && currentMessages) {
+      // keepSavedState already compared this replacement to the actual shown metadata. Seed that record so materialization
+      // neither loses its mutation revision nor treats an equivalent confirmation as a new metadata mutation (#675).
+      message[sessionId] = currentMessages.map((candidate) => candidate.id === messageID ? confirmed.info : candidate)
+    }
     const materialized = materializeSessionSnapshots(
       { ...state, message, part },
       sessionId,
-      records.map((record) => ({
-        info: stripMessageDiffSnapshots(shown && record.info.id === messageID ? keepSavedState(shown, record.info) : record.info),
-        parts: record.parts ?? [],
-      })),
+      confirmedRecords,
       { skipPartTypes: MESSAGE_REFETCH_SKIP_PARTS },
     )
     return { message: materialized.message, part: materialized.part }
