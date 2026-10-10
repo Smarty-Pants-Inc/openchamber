@@ -19,16 +19,17 @@ export function StepsRow({ lists, mobile, scope, sheet }: Props) {
   const actions = useStepActions(scope);
   const snapshotValid = useInboxStore(s => s.snapshotValid);
   const guardedReopen = useInboxStore(s => s.guardedReopen);
-  // The open phone sheet is the top-most layer for the shell's native Back; a remount or close unregisters it.
+  const list = scope && isRuntimeRequestScopeCurrent(scope) ? selectStepList(lists, selected) : undefined;
+  const shown = Boolean(list);
+  // The open phone sheet is the top-most layer for the shell's native Back; a remount, close or hidden row unregisters it.
   React.useEffect(() => {
-    if (!mobile || !open || !sheet) return;
+    if (!mobile || !open || !sheet || !shown) return;
     const close = () => setOpen(false);
     sheet.current = close;
     return () => { if (sheet.current === close) sheet.current = null; };
-  }, [mobile, open, sheet]);
-  const list = scope && isRuntimeRequestScopeCurrent(scope) ? selectStepList(lists, selected) : undefined;
-  // Keep the first selection even if the gateway's priority/newest ordering changes.
-  React.useEffect(() => { if (list && list.key !== selected) setSelected(list.key); }, [list, selected]);
+  }, [mobile, open, sheet, shown]);
+  // Keep the first selection even if the gateway's priority/newest ordering changes. A hidden row closes its overlay.
+  React.useEffect(() => { if (!list) setOpen(false); else if (list.key !== selected) setSelected(list.key); }, [list, selected]);
   if (!list) return null;
   const completed = list.steps.filter(step => isStepDone(step.item)).length;
   const next = list.steps.find(step => !step.item.resolved) ?? list.steps.find(step => !isStepDone(step.item)) ?? list.steps.at(-1);

@@ -12,17 +12,23 @@ import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
-import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState, type InboxSummary } from '@/lib/smartyInbox';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
 
-export function InboxView({ onClose, compact, ownerName }: { onClose: () => void; compact?: boolean; ownerName?: string }): React.ReactNode {
+const inboxScopeKey = () => { const s = captureRuntimeRequestScope(); return JSON.stringify([s.runtimeKey, s.transportGeneration, s.authGeneration]); };
+export function InboxView(props: Parameters<typeof InboxPage>[0]): React.ReactNode {
+  useAuthSessionStore(s => s.recoveryGeneration);
+  const scope = React.useSyncExternalStore(subscribeRuntimeEndpointChanged, inboxScopeKey, inboxScopeKey);
+  return <InboxPage key={scope} {...props} />;
+}
+function InboxPage({ onClose, compact, ownerName }: { onClose: () => void; compact?: boolean; ownerName?: string }): React.ReactNode {
   const { t } = useI18n();
   const storeOpenCount = useInboxStore(s => s.openCount), revision = useInboxStore(s => s.revision);
-  // The Open count is the number of items the Open list itself returned (the same response it shows), never a separate
-  // total; until the Open list has answered once, the badge's count stands in.
+  // Until Open answers, use the badge; then count only the returned Open items.
   const [openListed, setOpenListed] = React.useState<number | null>(null);
   const openCount = openListed ?? storeOpenCount;
   const stepActions = useStepActions();
@@ -35,17 +41,17 @@ export function InboxView({ onClose, compact, ownerName }: { onClose: () => void
   // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
   const request = React.useRef(0), openRequest = React.useRef(0), shownTab = React.useRef(tab);
   const reload = React.useCallback(() => {
-    const mine = ++request.current;
+    const mine = ++request.current, scope = captureRuntimeRequestScope();
     const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
     return loadInbox(listedTab).then(r => {
+      if (!isRuntimeRequestScopeCurrent(scope)) return;
       if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
       if (mine === request.current) { setItems(r.items); setSummary(r.summary ?? null); setError(null); }
     },
-      e => { if (mine === request.current) setError(e instanceof Error ? e.message : String(e)); });
+      e => { if (mine === request.current && isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); });
   }, []);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
-  // The desktop shows the first item at once, and keeps it: a newer item arriving (SSE) never swaps the item (and a
-  // response being typed) away (#365 review).
+  // New arrivals never replace the selected item or its draft.
   React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
   const listed = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
   // A status read can be newer than the tab response. Keep its displayed version until the list catches up.

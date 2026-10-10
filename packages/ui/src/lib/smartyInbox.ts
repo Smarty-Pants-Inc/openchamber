@@ -155,9 +155,12 @@ function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof load
     store.setItems(r.available, items, r, scope);
     return;
   }
+  // An open 403 is an answer (no inbox): retire retained Steps items, blockers and guarded reopen.
+  if (!r.available) { store.setItems(false, [], undefined, scope); return; }
   store.setOpenItems(r.available, r.items);
   store.invalidateSnapshot(); // Open is badge authority, never a silently reduced Steps snapshot.
 }
+// One generation for every publisher (watch bootstrap, its retries and refreshes): only the newest read publishes.
 let latestInboxRefresh = 0;
 let pendingInboxRefresh: { scope: RuntimeRequestScope; revision: number; promise: Promise<void> } | null = null;
 export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise<void> => {
@@ -196,11 +199,12 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
   let source: EventSource | undefined, closed = false, timer: ReturnType<typeof setTimeout> | undefined;
   useInboxStore.getState().setItems(false, []);
   const attempt = (n: number) => {
-    const revision = useInboxStore.getState().revision, requestScope = scope;
+    const revision = useInboxStore.getState().revision, requestScope = scope, generation = ++latestInboxRefresh;
     const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
     void loadWatchSnapshot(load, current).then(snapshot => {
       if (!snapshot || !current()) return;
-      if (revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
+      // A newer refresh supersedes this publication; the subscription below still starts.
+      if (generation === latestInboxRefresh && revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
       if (!snapshot.result.available || !globalThis.EventSource) return;
       source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
