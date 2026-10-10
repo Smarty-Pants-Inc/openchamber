@@ -6,6 +6,9 @@ import { isStepDone, stepCopyTarget, type InboxStep } from '@/lib/inboxSteps';
 import { inboxItemState, safeLink, useInboxStore } from '@/lib/smartyInbox';
 import type { StepActions } from './useStepActions';
 
+/** Longer setTimeout delays overflow and fire at once, so long snoozes wait in capped hops. */
+const MAX_TIMER_DELAY = 2 ** 31 - 1;
+
 type Props = { step: InboxStep; complete: boolean; actions: StepActions; compact?: boolean; mobile?: boolean };
 export function StepDetail({ step, complete, actions, compact, mobile }: Props) {
   const { t } = useI18n();
@@ -16,8 +19,15 @@ export function StepDetail({ step, complete, actions, compact, mobile }: Props) 
   const [, expireSnooze] = React.useReducer((revision: number) => revision + 1, 0);
   React.useEffect(() => {
     if (!snoozed || !item.snoozedUntil) return;
-    // One local expiry wakeup, not a watcher or read. Cleanup follows the displayed item's snooze.
-    const timer = setTimeout(expireSnooze, Date.parse(item.snoozedUntil) - Date.now() + 1);
+    // One local expiry wakeup, not a watcher or read; capped hops rearm until the real expiry. Cleanup follows the displayed item's snooze.
+    const until = Date.parse(item.snoozedUntil);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wait = () => {
+      const remaining = until - Date.now();
+      if (remaining <= 0) expireSnooze();
+      else timer = setTimeout(wait, Math.min(remaining + 1, MAX_TIMER_DELAY));
+    };
+    wait();
     return () => clearTimeout(timer);
   }, [snoozed, item.snoozedUntil]);
   const [copyReceipt, setCopyReceipt] = React.useState<{ id: string; version: string; result: 'copied' | 'failed' } | null>(null);
