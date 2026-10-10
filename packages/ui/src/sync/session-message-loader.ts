@@ -1351,11 +1351,12 @@ export class SessionMessageLoader {
       .filter(range => range.end > range.start)
     if (!missing.length) return Promise.resolve()
     if (missing.length !== 1 || missing[0]!.start !== at || missing[0]!.end !== at + limit) {
-      const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch
+      const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch, indexEpoch = entry.snapshot.positions?.epoch
       const store = this.childStores.getChild(normalized.directory)
       return (async () => {
         for (const range of missing) {
           if (this.disposed || this.sdkEpoch !== sdkEpoch || entry.windowGeneration !== generation
+            || entry.snapshot.positions?.epoch !== indexEpoch
             || this.childStores.getChild(normalized.directory) !== store) return
           // Recheck coverage before each dispatch in case another read committed while the previous part loaded.
           await this.loadAt(normalized, range.start, range.end - range.start)

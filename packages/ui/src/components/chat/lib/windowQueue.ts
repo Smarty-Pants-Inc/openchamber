@@ -17,6 +17,11 @@ export function createWindowQueue(read: (start: number, limit: number) => Promis
     unloaded: (trigger: Range) => boolean = () => true): WindowRequest {
     let busy = false;
     let next: { windows: Window[]; trigger?: Range } | undefined;
+    const hasReplacement = () => {
+        // A covered repeat must not displace the admitted bundle's remaining read-ahead.
+        if (next?.trigger && !unloaded(next.trigger)) next = undefined;
+        return next !== undefined;
+    };
     return (windows, trigger): void => {
         next = { windows: [...windows], trigger };
         if (busy) return;
@@ -28,7 +33,7 @@ export function createWindowQueue(read: (start: number, limit: number) => Promis
                 // Read loader coverage now, not React's last render: the queue can resume before unmount cleanup.
                 if (demand.trigger && !unloaded(demand.trigger)) continue;
                 for (const { start, limit } of demand.windows) {
-                    if (!current() || next) break;
+                    if (!current() || hasReplacement()) break;
                     await read(start, limit).catch(() => undefined);
                 }
             }

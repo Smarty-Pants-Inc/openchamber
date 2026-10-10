@@ -5,7 +5,7 @@ import { fakeMessagesClient, record, target } from "./session-message-loader-rep
 
 // smarty-code#583: the gateway's range read (?at=, x-smarty-at / x-smarty-total / x-smarty-index-epoch) gives every
 // loaded record its position in the whole session, so the page can size the list to the session and load any window.
-function gateway(size: number, cursors = true) {
+function gateway(size: number, cursors = true, Loader = SessionMessageLoader) {
   const windows: { start: number; end: number }[] = []
   const g = { branch: Array.from({ length: size }, (_, i) => `m${String(i + 1).padStart(5, "0")}`), epoch: "e1", reads: [] as string[], windows,
     /** The next reads answer without positions (the index is still building). */
@@ -35,7 +35,7 @@ function gateway(size: number, cursors = true) {
     return { data, headers }
   })
   const childStores = new ChildStoreManager()
-  const loader = new SessionMessageLoader(childStores, { sdk: client, runtimeKey: "runtime-a" })
+  const loader = new Loader(childStores, { sdk: client, runtimeKey: "runtime-a" })
   const shown = () => (childStores.getChild(target.directory)?.getState().message[target.sessionID] ?? []).map((m) => m.id)
   return { g, loader, shown, done: () => { loader.dispose(); childStores.disposeAll() } }
 }
@@ -66,6 +66,33 @@ test("a demand spanning committed islands reads every uncovered part and none of
     await s.loader.loadAt(target, 2000, 500)
     expect(s.g.windows).toEqual([{ start: 2000, end: 2100 }, { start: 2200, end: 2300 }, { start: 2400, end: 2500 }])
     expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 2000, end: 2500 }])
+  } finally { s.done() }
+})
+
+test("a tail-discovered epoch between split parts retires the old plan; re-issued demand covers the whole new interval", async () => {
+  // Hold the first part's continuation after its real commit while a concurrent tail discovers E2.
+  class TailBetweenPartsLoader extends SessionMessageLoader {
+    override async loadAt(...args: Parameters<SessionMessageLoader["loadAt"]>): Promise<void> {
+      await super.loadAt(...args)
+      if (args[1] === 0 && args[2] === 100 && s.g.epoch === "e1") {
+        expect(this.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 200 }])
+        s.g.epoch = "e2"
+        s.g.branch = Array.from({ length: 500 }, (_, i) => `r${String(i + 1).padStart(5, "0")}`)
+        await this.refreshTail(target, 50)
+      }
+    }
+  }
+  const s = gateway(500, false, TailBetweenPartsLoader)
+  try {
+    await s.loader.loadAt(target, 100, 100)
+    s.g.windows.length = 0
+    await s.loader.loadAt(target, 0, 300)
+    expect(s.loader.getSnapshot(target).positions).toMatchObject({ epoch: "e2", ranges: [{ start: 450, end: 500 }] })
+    expect(s.g.windows).toEqual([{ start: 0, end: 100 }]) // No dispatch using the retired E1 plan.
+    await s.loader.loadAt(target, 0, 300) // The caller re-issues the retired demand against E2 coverage.
+    expect(s.g.windows).toEqual([{ start: 0, end: 100 }, { start: 0, end: 300 }])
+    expect(s.loader.getSnapshot(target).positions).toMatchObject({ epoch: "e2", ranges: [{ start: 0, end: 300 }, { start: 450, end: 500 }] })
+    expect(new Set(s.shown())).toEqual(new Set([...s.g.branch.slice(0, 300), ...s.g.branch.slice(450)]))
   } finally { s.done() }
 })
 
