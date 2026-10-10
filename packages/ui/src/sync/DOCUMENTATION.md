@@ -215,6 +215,8 @@ Live activity/status indicators must not depend on this cache. They must use the
 
 `SessionMessageLoader` is the shared authority for session message requests. Navigation, reactive chat loading, sidebar prefetch, pagination, reconnect/recovery, and optimistic reconciliation must delegate to it rather than issuing parallel initial requests.
 
+Only the loader's `resolved` view establishes loaded history. A mounted chat still asks the loader to ensure a session whose store bucket already exists or holds only streamed records.
+
 Rules:
 
 1. Request identity is runtime key + normalized directory + session ID. Session IDs alone are not globally unique across runtimes or directories.

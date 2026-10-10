@@ -1,7 +1,7 @@
 import React, { act } from 'react';
 import { mock, spyOn } from 'bun:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import type { Session } from '@opencode-ai/sdk/v2';
+import type { Message, Part, Session } from '@opencode-ai/sdk/v2';
 import type { ContinueStatus } from '@/sync/native-session-resume';
 import { nativeComposerDom } from './composer/submit/__tests__/nativeComposer-dom';
 import { mountedHttp, target } from './365-mounted-http.fixture';
@@ -50,7 +50,7 @@ export const ended: Session & { herdrState: string; nativeRuntime: string; ordin
 
 type NativeRow = Session & { herdrState?: string; ordinaryCodeMade?: boolean; herdrNoIdentity?: boolean };
 export async function mountedChat(options: { local?: NativeRow; global?: NativeRow; supported?: boolean;
-  health?: () => Response | Promise<Response> } = {}) {
+  health?: () => Response | Promise<Response>; bucket?: { message: Message[]; part?: Record<string, Part[]> } } = {}) {
   const http = await mountedHttp(), dom = nativeComposerDom(), resolver = getRuntimeUrlResolver();
   const initialSession = useSessionUIStore.getState(), initialGlobal = useGlobalSessionsStore.getState();
   const initialProjects = useProjectsStore.getState(), initialUI = useUIStore.getState(), initialAuth = useAuthSessionStore.getState();
@@ -64,6 +64,8 @@ export async function mountedChat(options: { local?: NativeRow; global?: NativeR
   setImperativeSessionMessageLoader(loader); setSyncRefs(sdk, children, target.directory); resume.resetContinueForPage();
   const store = children.ensureChild(target.directory, { bootstrap: false });
   store.getState().patch({ session: [options.local ?? ended], session_status: { [target.sessionID]: { type: 'idle' } } });
+  // Message bucket already in the store before mount (stream or earlier page), without resolved loader history.
+  if (options.bucket) store.getState().patch({ message: { [target.sessionID]: options.bucket.message }, part: options.bucket.part ?? {} });
   useGlobalSessionsStore.getState().upsertSession(options.global ?? options.local ?? ended);
   useSessionUIStore.setState(state => ({ currentSessionId: target.sessionID, currentSessionDirectory: target.directory,
     newSessionDraft: { ...state.newSessionDraft, open: false } }));
