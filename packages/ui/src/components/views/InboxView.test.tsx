@@ -276,3 +276,27 @@ test('an SSE event for an item already listed, and a reload during that event, l
   expect(host.querySelector('[data-inbox-item="ask:1"]')?.textContent).toContain('Only a response (changed)');
   await act(async () => root.unmount());
 });
+
+test('smarty-code#1615: the gateway summary shows at most 3 plain lines above the list; null shows nothing; stale shows "updating…"', async () => {
+  const summary = { to: 'paul', text: 'x', lines: ['Two asks wait on you.', '<b>One is urgent</b>: Codex accounts.', '**Reply** by noon.', 'A fourth line.'],
+    generatedAt: '2026-10-10T10:00:00.000Z', revision: 3, openCount: 2, urgentCount: 1, model: 'm', current: true };
+  const render = async (body: unknown) => {
+    listResponder = () => json(body);
+    const host = win.document.createElement('div'); win.document.body.appendChild(host);
+    const root = createRoot(host as unknown as Element);
+    await act(async () => root.render(<View />)); await settle();
+    const block = host.querySelector('[data-inbox-summary]');
+    const out = { block, lines: block ? [...block.querySelectorAll('p')].map(p => p.textContent) : [], html: block?.innerHTML ?? '',
+      beforeList: Boolean(block && host.querySelector('[data-inbox-summary] ~ ul')) };
+    await act(async () => root.unmount()); host.remove();
+    return out;
+  };
+  const shown = await render({ person: 'paul', items, summary });
+  expect(shown.lines).toEqual(['Two asks wait on you.', '<b>One is urgent</b>: Codex accounts.', '**Reply** by noon.']);
+  expect(shown.beforeList).toBe(true);
+  expect(shown.html).not.toContain('<b>');
+  expect((await render({ person: 'paul', items, summary: null })).block).toBeNull();
+  expect((await render({ person: 'paul', items, summary: { ...summary, text: null, lines: [] } })).block).toBeNull();
+  expect((await render({ person: 'paul', items, summary: { ...summary, current: false } })).lines.at(-1)).toBe('updating…');
+  listResponder = () => json({ person: 'paul', items });
+});
