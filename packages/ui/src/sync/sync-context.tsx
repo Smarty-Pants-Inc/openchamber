@@ -1719,6 +1719,8 @@ export async function resyncDirectoryAfterReconnect(
   // Gone wins over the bounded back-off: it has no expiry.
   const readSessionIds = candidateSessionIds.filter((sessionId) => !isSessionGone(directory, sessionId)
     && (sessionId === viewedSessionID || !isSessionReadSuppressed(directory, sessionId)))
+    // smarty-code#867: the viewed session first; the others are background refreshes, at most two at once in the loader.
+    .sort((a, b) => Number(b === viewedSessionID) - Number(a === viewedSessionID))
   const runtimeKey = getRuntimeKey()
   const recordFailure = (sessionId: string, error: unknown) => {
     if (isRuntimeRequestScopeCurrent(scope)) recordSessionReadFailure(directory, sessionId, error, runtimeKey)
@@ -1745,7 +1747,8 @@ export async function resyncDirectoryAfterReconnect(
         }
         return null
       }),
-      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve())
+      (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT,
+        { background: sessionId !== viewedSessionID }) ?? Promise.resolve())
         .catch((error: unknown) => { recordFailure(sessionId, error) }),
     ])
     const session = sessionResponse?.data
