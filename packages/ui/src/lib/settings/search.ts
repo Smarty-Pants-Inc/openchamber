@@ -1003,6 +1003,22 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop && !ctx.isVSCode,
   },
 
+  // smarty-dev#799: the iPhone "Send to my Smarty" Shortcut.
+  {
+    id: 'connect-iphone.create',
+    page: 'connect-iphone',
+    titleKey: 'connectIphone.step1.title',
+    descriptionKey: 'settings.page.connectIphone.description',
+    keywords: ['iphone', 'phone', 'shortcut', 'share', 'call', 'transcript', 'code', 'link'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
+  {
+    id: 'connect-iphone.devices',
+    page: 'connect-iphone',
+    titleKey: 'connectIphone.devices.title',
+    keywords: ['iphone', 'phone', 'device', 'remove', 'revoke'],
+    isAvailable: (ctx) => !ctx.isVSCode,
+  },
   {
     id: 'integrations.first-party',
     page: 'integrations',

@@ -42,6 +42,7 @@ const { SidebarNav } = await import('@/components/session/sidebar/shell/SidebarN
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
 const { SmartiesRequestError } = await import('@/lib/smarties');
+const { useUIStore } = await import('@/stores/useUIStore');
 
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -360,8 +361,11 @@ test('2: while a Smarty fills the app, the top bar names it; in the old view it 
 
 test('3: in the Smarty view the nav is only the Smarties section; the old view adds New session back', async () => {
   const { host, unmount } = await mount(<SidebarNav onNewSession={() => undefined} />);
-  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
-  await act(async () => { useFeedStore.getState().showClassic(); });
+  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty', 'Connect your iPhone']);
+  // smarty-dev#799: the Smarties menu's way to the "Connect your iPhone" Settings page.
+  await act(async () => { host.querySelector<HTMLButtonElement>('[data-connect-iphone]')?.click(); });
+  expect(useUIStore.getState()).toMatchObject({ settingsPage: 'connect-iphone', isSettingsDialogOpen: true });
+  await act(async () => { useUIStore.getState().setSettingsDialogOpen(false); useFeedStore.getState().showClassic(); });
   expect(host.textContent).toContain('New session');
   await unmount();
 });

@@ -123,6 +123,13 @@ export const openRegisteredSessions = (): boolean => {
   return true;
 };
 
+/** smarty-dev#799: opens one Settings page where the shell registered Settings (the phone's full-screen surface). */
+export const openRegisteredSettings = (section: string): boolean => {
+  if (!handlers.openSettings) return false;
+  handlers.openSettings(section);
+  return true;
+};
+
 export const useDeepLinkHandlers = (next: DeepLinkHandlers): void => {
   React.useEffect(() => {
     handlers = next;
