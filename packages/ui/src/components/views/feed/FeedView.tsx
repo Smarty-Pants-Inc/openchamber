@@ -16,8 +16,8 @@ import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, Sm
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, isOwnerLine, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
-import { SmartyStatusBadge, SmartyWorkingLine } from './SmartyStatus';
+import { draftKey, ensureSmartiesLoaded, isOwnerLine, isTrivialSmartyBlock, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
+import { SmartyStatusBadge, SmartyTypingLine, SmartyWorkingLine } from './SmartyStatus';
 import { dismissInitialLoading } from './initialLoading';
 
 /** What the view reads and writes through; tests replace them, the app uses the gateway. */
@@ -182,6 +182,27 @@ function SmartyPage({ smarty, all, me, compact, services }: {
     && sameText(block.text, item.text) && !item.known.includes(block.id))).map(item => item.clientId), [blocks, pending, smarty.id]);
   React.useEffect(() => { if (echoed.length) useFeedStore.getState().removePendingSends(key, echoed); }, [echoed, key]);
   const knownOwnerLines = (text: string) => blocks.filter(block => isOwnerLine(block, smarty.id) && sameText(block.text, text)).map(block => block.id);
+  // smarty-code#1595: "Paul's Smarty is working…" while the person's OWN Smarty takes a turn, from the stream's status
+  // alone (no reads, no timers). The turn's start notes the newest reply; a newer reply or the end of the turn hides it.
+  const working = smarty.own && feed.state === 'ready' && smarty.activity?.state === 'working';
+  const newestReply = React.useMemo(() => {
+    for (let i = blocks.length - 1; i >= 0; i -= 1) if (blocks[i]!.author === 'org' && !isTrivialSmartyBlock(blocks[i]!)) return blocks[i]!.id;
+    return null;
+  }, [blocks]);
+  const [turn, setTurn] = React.useState<{ reply: string | null } | null>(null);
+  if (working && !turn) setTurn({ reply: newestReply });
+  else if (!working && turn) setTurn(null);
+  // Each status change is seen as it lands, so an idle and the next turn's start between two renders (a queued message
+  // starting at once) still begin a new turn, noting the newest reply rendered before them.
+  const shownReply = React.useRef<string | null | undefined>(undefined);
+  shownReply.current = feed.state === 'ready' ? newestReply : undefined;
+  React.useEffect(() => useFeedStore.subscribe((state, before) => {
+    const stateOf = (list: typeof state.smarties) => list.state === 'ready' ? list.smarties.find(item => item.id === smarty.id)?.activity?.state : undefined;
+    const now = stateOf(state.smarties), was = stateOf(before.smarties);
+    if (now === 'working' && was !== 'working') { const reply = shownReply.current; setTurn(reply === undefined ? null : { reply }); }
+    else if (now !== 'working' && was === 'working') setTurn(null);
+  }), [smarty.id]);
+  const typing = working && turn !== null && turn.reply === newestReply;
   // The page is painted from real data: lift the app's loading splash now, not when the old view's bootstrap ends.
   React.useEffect(() => { if (feed.state !== 'loading') dismissInitialLoading(); }, [feed.state]);
   // The first paint waits for the first feed answer (a short wait on an empty page), so nothing jumps when it comes.
@@ -225,6 +246,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
             ? <FeedNotice alert action={<Button size="sm" variant="outline" onClick={retry}>{t('feed.retry')}</Button>}>{t('feed.historyFailed')}</FeedNotice>
             : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} pending={pending.filter(item => !echoed.includes(item.clientId))}
                 smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
+          {smarty.own && feed.state === 'ready' ? <SmartyTypingLine name={ownerName} shown={typing} /> : null}
           {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
         </section>
         {!compact && ownInbox && inboxShown ? (

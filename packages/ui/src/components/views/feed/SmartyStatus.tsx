@@ -80,3 +80,17 @@ export function SmartyWorkingLine({ activity }: { activity?: SmartyActivity }): 
     </p>
   );
 }
+
+/**
+ * smarty-code#1595: "Paul's Smarty is working…" under the person's own feed, like a typing indicator. The row is always
+ * there (one line high) so the line comes and goes without moving the feed; only the ellipsis animates (CSS, opacity).
+ */
+export function SmartyTypingLine({ name, shown }: { name: string; shown: boolean }): React.ReactNode {
+  const { t } = useI18n();
+  const text = t('feed.status.typing', { name }), base = text.endsWith('…') ? text.slice(0, -1) : text;
+  return (
+    <div role="status" data-smarty-typing={shown ? '' : undefined} className="chat-message-column shrink-0 typography-micro leading-5 h-5 text-muted-foreground">
+      {shown ? <><span className="sr-only">{text}</span><span aria-hidden>{base}<span className="oc-typing-dots"><span>.</span><span>.</span><span>.</span></span></span></> : null}
+    </div>
+  );
+}

@@ -659,3 +659,24 @@ test('the own Smarty mounts exactly one inbox list: N cards for N items, at desk
     await phone.unmount();
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
 });
+
+test('#1595: a Smarty block with nothing to read (empty, or only ".", "…" and whitespace) is not shown; "?", "!", an emoji or "ok" is', async () => {
+  const dots: Partial<FeedServices> = { ...services, loadFeed: async (_id, query) => query?.after !== undefined ? { blocks: [], offset: 90 } : { offset: 90, blocks: [
+    { id: 'o1', author: 'org', at: '8:00 PM ET', text: 'Good morning, Paul.' },
+    { id: 't1', author: 'org', at: '8:01 PM ET', text: '.' },
+    { id: 't2', author: 'org', at: '8:02 PM ET', text: '…' },
+    { id: 't3', author: 'org', at: '8:03 PM ET', text: '' },
+    { id: 't4', author: 'org', at: '8:04 PM ET', text: ' . ' },
+    { id: 't5', author: 'org', at: '8:04 PM ET', text: ' ... \n' },
+    { id: 'q1', author: 'org', at: '8:04 PM ET', text: '?' },
+    { id: 'q2', author: 'org', at: '8:04 PM ET', text: '!' },
+    { id: 'q3', author: 'org', at: '8:04 PM ET', text: '👍' },
+    { id: 'q4', author: 'org', at: '8:04 PM ET', text: 'ok' },
+    { id: 'y1', author: 'you', at: '8:05 PM ET', text: '.' }, // The person's own "." is what they sent: it stays.
+    { id: 'o2', author: 'org', at: '8:06 PM ET', text: 'OK.' },
+  ] } };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={dots} />);
+  expect(Array.from(host.querySelectorAll('[data-feed-entry]')).map(e => [e.getAttribute('data-feed-entry'), e.querySelector('p')?.textContent]))
+    .toEqual([['smarty', 'Good morning, Paul.'], ['smarty', '?'], ['smarty', '!'], ['smarty', '👍'], ['smarty', 'ok'], ['owner', '.'], ['smarty', 'OK.']]);
+  await unmount();
+});
