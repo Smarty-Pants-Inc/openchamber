@@ -56,15 +56,26 @@ export type SessionMessageLoadState = {
    * and the loaded ranges of positions. The page sizes the list to the whole session and loads the windows it shows.
    */
   positions?: SessionPositions
+  /**
+   * smarty-code#1501: the shown history is the gateway's journal-only answer for a busy session (`x-smarty-journal-only`):
+   * possibly incomplete (no cursor, no provisional turn), so it offers no "load earlier". The loader re-reads the newest
+   * page until a normal answer replaces it. Absent unless a journal-only answer was shown.
+   */
+  provisional?: boolean
 }
 
 export type SessionPositions = { total: number; ranges: Range[]; epoch?: string }
+
+/** Whether a read is (still) a background one (smarty-code#867); mutable, so a joining person action promotes it. */
+type ReadDemand = { background: boolean }
 
 type LoaderEntry = {
   target: SessionMessageTarget
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
+  /** The background tail read now out, if any: a person's open or send that joins it promotes it to a foreground read. */
+  backgroundRead: ReadDemand | null
   /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
    * reloads of one failed open are one error, however often they fail. */
   reportId: string
@@ -100,6 +111,16 @@ type LoaderEntry = {
   repairedPrompts?: Set<string>
   /** Reads that saw the session leave View only but were stale (a live event during the read), smarty-code#497. */
   leaveAttempts?: number
+  /** smarty-code#1501: the shown records are a journal-only answer (their ids differ from a normal answer's). */
+  journalOnly: boolean
+  /** smarty-code#1501: a normal (not journal-only) newest page committed here: a journal-only answer is stale from now on. */
+  normalShown: boolean
+  /** smarty-code#1501: the last newest read answered journal-only; the newest page is read again (backoff, first live update). */
+  journalWait: boolean
+  journalAttempt: number
+  journalTimer?: ReturnType<typeof setTimeout>
+  /** The live stream's first update during this wait already asked for a re-read. */
+  liveNudged: boolean
 }
 
 /**
@@ -111,6 +132,8 @@ export const BACKGROUND_REFRESH_CONCURRENCY = 2
 
 /** replaceHistory's retry delays after a stale read (then the last, repeated). */
 const REPLACE_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+/** smarty-code#1501: re-reads of a busy session's newest page after a journal-only answer (then the last, repeated). */
+const JOURNAL_ONLY_RETRY_MS = [1_000, 2_000, 4_000, 8_000]
 
 type FetchedPage = {
   /** smarty-code#583: the position of the page's first record and the session's record count, when served. */
@@ -130,6 +153,8 @@ type FetchedPage = {
   journalAt?: string
   /** The session's live message-event revision when the read started (sessionMessageEventCount). */
   eventsAtRead: number
+  /** smarty-code#1501: a busy session's newest page served from its committed journal (`x-smarty-journal-only: 1`). */
+  journalOnly: boolean
 }
 
 type LoadPerformanceDetails = {
@@ -140,6 +165,9 @@ type LoadPerformanceDetails = {
 type LoaderConfiguration = {
   sdk: OpencodeClient
   runtimeKey: string
+  /** Whether the person views the session now. A journal-only re-read of any other one is a background read. Without
+   * it, every session counts as viewed. Read once, at construction. */
+  isViewed?: (target: SessionMessageTarget) => boolean
 }
 
 const isConstrainedRuntime = () => isVSCodeRuntime() || isMobileSurfaceRuntime()
@@ -237,6 +265,7 @@ export class SessionMessageLoader {
   private backgroundActive = 0
   private readonly backgroundQueue: Array<() => void> = []
   private readonly backgroundPending = new Map<string, Promise<void>>()
+  private readonly isViewed: (target: SessionMessageTarget) => boolean
 
   constructor(
     private readonly childStores: ChildStoreManager,
@@ -244,6 +273,7 @@ export class SessionMessageLoader {
   ) {
     this.sdk = configuration.sdk
     this.runtimeKey = configuration.runtimeKey
+    this.isViewed = configuration.isViewed ?? (() => true)
   }
 
   configure(configuration: LoaderConfiguration): void {
@@ -305,6 +335,12 @@ export class SessionMessageLoader {
     // An open that got no answer stays failed until the person asks again (Try again, or opening it anew): the page's own
     // effects re-ensure on every session update, and each would start another 30 s read behind the skeleton (#536).
     if (!force && options?.reason !== "navigation" && this.openUnanswered(entry)) return Promise.resolve()
+    // smarty-code#1501: opening (or sending to) a session shown from a journal-only answer reads its newest page again.
+    if (!force && options?.reason === "navigation" && entry.journalWait && entry.snapshot.resolved) {
+      this.promoteBackgroundRead(entry)
+      return entry.inflight ?? this.refreshTail(normalized, getInitialPageSize())
+    }
+    if (options?.reason !== "prefetch") this.promoteBackgroundRead(entry)
     if (!force && materialization.renderable && entry.snapshot.resolved
       && (!entry.ordinary || entry.snapshot.ordinaryView)) {
       return entry.inflight ?? Promise.resolve()
@@ -372,6 +408,13 @@ export class SessionMessageLoader {
       const snapshot = this.getSnapshot(normalized)
       if (snapshot.status === "error") throw snapshot.error ?? new Error("Session history could not be loaded")
       if (snapshot.complete) return
+      // smarty-code#1501: a journal-only history has no cursor: read the newest page again until a normal answer replaces it.
+      if (snapshot.provisional) {
+        stalls += 1
+        if (stalls > 3) throw new Error("Session history is still provisional")
+        await this.refreshTail(normalized, getInitialPageSize())
+        continue
+      }
       // smarty-code#583: with positions (range reads carry no cursor) fill each missing range up to the loaded end, from
       // the oldest. A newest page read while the index was building has no positions: read it again to learn them.
       if (snapshot.positions || (!snapshot.cursor && this.servesPositions(normalized))) {
@@ -443,11 +486,17 @@ export class SessionMessageLoader {
     return promise
   }
 
+  /** A person's open or send joins the background read already out: from now on it retries and fails as theirs. */
+  private promoteBackgroundRead(entry: LoaderEntry): void {
+    if (entry.backgroundRead) entry.backgroundRead.background = false
+  }
+
   private refreshTailNow(normalized: SessionMessageTarget, limit: number, background: boolean): Promise<void> {
     const entry = this.getEntry(normalized)
     // Nothing loaded to refresh, and the open timed out (also a refresh queued behind that open): wait for Try again.
     if (this.openUnanswered(entry)) return Promise.resolve()
     if (entry.inflight) {
+      if (!background) this.promoteBackgroundRead(entry)
       entry.queuedRefreshLimit = Math.max(entry.queuedRefreshLimit, limit)
       entry.demand++
       if (entry.queuedRefresh) return entry.queuedRefresh
@@ -479,13 +528,21 @@ export class SessionMessageLoader {
     }
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     this.bumpGeneration(entry, true)
-    return this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
+    const demand: ReadDemand = { background }
+    if (background) entry.backgroundRead = demand
+    const load = this.startLoad(normalized, entry, store, "refresh", async (isCurrent, performance) => {
       const previousCoverage = entry.snapshot.resolved
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
         : null
       const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance, undefined,
-        undefined, undefined, background)
+        undefined, undefined, demand)
       if (!isCurrent()) return
+      // smarty-code#1501: a journal-only answer after a normal one is stale: nothing is applied, and it is read again.
+      if (page.journalOnly && journalOnlyIsStale(entry)) {
+        this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null })
+        this.awaitNormalHistory(normalized, entry)
+        return
+      }
       // The first tail page after the session left View only replaces what was shown, as a first open, with its own
       // coverage (smarty-code#497): merged into the View only coverage it could leave a gap marked complete. Like
       // replaceHistory, a read during which a live event for the session was applied is older than the page: it commits
@@ -508,13 +565,15 @@ export class SessionMessageLoader {
       // the timeline shows the replies (#126 item 4). Otherwise the earlier coverage stays, as before.
       const staleCoverage = previousCoverage?.complete === true && !page.complete
         && hasReplyWithoutPrompt(store.getState(), normalized.sessionID)
-      const coverage = staleCoverage || leaving ? page : previousCoverage ?? page
+      // A journal-only page, or the normal page that replaced one (smarty-code#1501), brings its own coverage.
+      const replaced = leaving || page.journalOnly || committed.replacedProvisional
+      const coverage = staleCoverage || replaced ? page : previousCoverage ?? page
       this.patchEntry(entry, {
         status: "ready",
         loadingKind: null,
         error: null,
         resolved: true,
-        limit: leaving ? committed.messages.length : Math.max(entry.snapshot.limit, committed.messages.length),
+        limit: replaced ? committed.messages.length : Math.max(entry.snapshot.limit, committed.messages.length),
         // A tail refresh uses a deliberately small window. Its cursor only
         // describes that window, so it must not replace the established
         // history coverage and spuriously expose "load older".
@@ -526,7 +585,9 @@ export class SessionMessageLoader {
         updatedAt: Date.now(),
       })
       this.persistCoverage(normalized, entry.snapshot)
-    }, background)
+    }, demand)
+    if (background) void load.catch(() => undefined).finally(() => { if (entry.backgroundRead === demand) entry.backgroundRead = null })
+    return load
   }
 
   /**
@@ -770,6 +831,8 @@ export class SessionMessageLoader {
     entry.replaceEpoch++ // A history replacement in flight is older than this: it ends without committing.
     entry.inflight = null
     entry.optimistic.clear()
+    // smarty-code#1501 review: a deleted or archived session stops its journal-only re-reads too.
+    this.normalHistoryArrived(entry)
     // Keep the last known read-only marker until a fresh newest page replaces it.
     entry.snapshot = { ...createDefaultState(entry.snapshot.generation), readOnly: entry.snapshot.readOnly }
     entry.lastOrdinaryView = undefined
@@ -789,6 +852,7 @@ export class SessionMessageLoader {
       this.bumpGeneration(entry)
       entry.inflight = null
       entry.optimistic.clear()
+      clearTimeout(entry.journalTimer)
       this.entries.delete(key)
       this.notify(entry)
     }
@@ -801,6 +865,7 @@ export class SessionMessageLoader {
       this.bumpGeneration(entry)
       entry.inflight = null
       entry.optimistic.clear()
+      clearTimeout(entry.journalTimer)
       this.notify(entry)
     }
     this.entries.clear()
@@ -837,6 +902,7 @@ export class SessionMessageLoader {
         : createDefaultState(),
       listeners: new Set(),
       inflight: null,
+      backgroundRead: null,
       reportId: newOperationId(),
       openUnanswered: false,
       loadedOnce: false,
@@ -854,6 +920,11 @@ export class SessionMessageLoader {
       replaceEpoch: 0,
       ordinaryRefresh: null,
       ordinaryDemand: 0,
+      journalOnly: false,
+      normalShown: false,
+      journalWait: false,
+      journalAttempt: 0,
+      liveNudged: false,
     }
     this.entries.set(key, entry)
     return entry
@@ -883,7 +954,7 @@ export class SessionMessageLoader {
     store: { getState: () => DirectoryStore; setState: DirectoryStoreSetter },
     kind: SessionMessageLoadKind,
     run: (isCurrent: () => boolean, performance: LoadPerformanceDetails) => Promise<void>,
-    background = false,
+    demand?: ReadDemand,
   ): Promise<void> {
     entry.demand++
     const generation = entry.snapshot.generation
@@ -922,7 +993,7 @@ export class SessionMessageLoader {
           return
         }
         finishPerformanceEvent("error", performance)
-        if (background) {
+        if (demand?.background) {
           // smarty-code#867: nobody is looking at it. Its loaded messages, coverage and view stay as they were (now
           // stale: updatedAt is unchanged) and no error view replaces them; the next resync or an open reads it again.
           const failure = error instanceof Error ? error : new Error(formatSdkError(error))
@@ -973,9 +1044,17 @@ export class SessionMessageLoader {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
     const firstLimit = entry.ordinary ? getInitialPageSize()
       : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
-    const firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
+    let firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
     if (!isCurrent()) return
-    const deferFirstCommit = !firstPage.complete && !hasUserMessage(firstPage.session)
+    // smarty-code#1501: a journal-only answer after a normal one is stale: the open reads again (backoff) instead.
+    for (let attempt = 0; firstPage.journalOnly && journalOnlyIsStale(entry); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelay(JOURNAL_ONLY_RETRY_MS, attempt)))
+      if (!isCurrent()) return
+      firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
+      if (!isCurrent()) return
+    }
+    // A journal-only page has no cursor to expand by: it is shown as it is.
+    const deferFirstCommit = !firstPage.journalOnly && !firstPage.complete && !hasUserMessage(firstPage.session)
     let committed = deferFirstCommit
       ? null
       : this.commitPage(target, entry, store, firstPage, "merge", isCurrent)
@@ -1035,7 +1114,7 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
     at?: number,
     epoch?: string,
-    background = false,
+    demand?: ReadDemand,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
@@ -1078,7 +1157,7 @@ export class SessionMessageLoader {
         }
         return { data, response: response.response }
       // A background refresh that timed out is not retried at once either (smarty-code#867): its retries were the ~40 s burst.
-      }, { retryIf: error => isTransientError(error) && !((opening || background) && error instanceof Error && unanswered(error)) })
+      }, { retryIf: error => isTransientError(error) && !((opening || demand?.background) && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
@@ -1098,6 +1177,13 @@ export class SessionMessageLoader {
       finishPagePerformance("complete", { retryCount: Math.max(0, attempts - 1), recordCount })
       const readOnly = result.response?.headers?.get?.("x-smarty-read-only") === "1"
       const journalAt = before === undefined ? result.response?.headers?.get?.("x-smarty-journal-at") ?? undefined : undefined
+      // smarty-code#1501: a busy session's newest page from its committed journal: no cursor, no positions, never View only.
+      const journalOnly = before === undefined && at === undefined
+        && result.response?.headers?.get?.("x-smarty-journal-only") === "1"
+      if (journalOnly) {
+        return { session, partsByMessageID, cursor: undefined, complete: false, ordinaryView: undefined, readOnly: false,
+          viewEpoch, eventsAtRead, journalOnly }
+      }
       const position = readPositionHeaders(result.response?.headers)
       // A range read carries no cursor: with positions its page is complete when it starts at position 0 (smarty-code#583).
       // Without positions the cursor contract holds: complete when there is no cursor. That is a cursor-only gateway, or
@@ -1105,7 +1191,8 @@ export class SessionMessageLoader {
       // page that exactly fills its limit with no cursor is the whole history (pin 46 review 5897200984).
       const rangeRead = at !== undefined || position.at !== undefined
       const complete = position.at !== undefined ? position.at === 0 : !cursor
-      return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead, ...position }
+      return { rangeRead, session, partsByMessageID, cursor, complete, ordinaryView, readOnly, viewEpoch, journalAt, eventsAtRead,
+        journalOnly, ...position }
     } catch (error) {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
@@ -1121,8 +1208,13 @@ export class SessionMessageLoader {
     page: FetchedPage,
     mode: "merge" | "prepend",
     isCurrent: () => boolean,
-  ): { messages: Message[] } | null {
+  ): { messages: Message[]; replacedProvisional: boolean } | null {
     if (!isCurrent()) return null
+    // smarty-code#1501: a journal-only answer is never merged: it replaces the shown history, and only while no normal
+    // answer was shown (after one it is stale). The normal answer that follows replaces it in turn (their ids differ).
+    if (page.journalOnly && (mode === "prepend" || journalOnlyIsStale(entry))) return null
+    const replacedProvisional = mode !== "prepend" && entry.journalOnly && !page.journalOnly
+    if (mode !== "prepend" && (page.journalOnly || replacedProvisional)) entry.resetHistory = true
     // smarty-code#583: a page from another index epoch than the shown one: a window is not merged into the old records;
     // the loader starts over from a newest page, which replaces them.
     const knownEpoch = entry.snapshot.positions?.epoch
@@ -1195,10 +1287,14 @@ export class SessionMessageLoader {
     if (mode !== "prepend") {
       entry.ordinary ||= page.ordinaryView !== undefined
       entry.resetHistory = false
-      this.patchEntry(entry, { ordinaryView: page.ordinaryView, readOnly: page.readOnly })
+      entry.journalOnly = page.journalOnly
+      if (page.journalOnly) this.awaitNormalHistory(target, entry)
+      else { entry.normalShown = true; this.normalHistoryArrived(entry) }
+      const provisional = page.journalOnly ? { provisional: true } : entry.snapshot.provisional ? { provisional: false } : {}
+      this.patchEntry(entry, { ordinaryView: page.ordinaryView, readOnly: page.readOnly, ...provisional })
     }
     this.notePositions(entry, page, reset)
-    return { messages: materialized.messages }
+    return { messages: materialized.messages, replacedProvisional }
   }
 
   /** smarty-code#583: records which positions a committed page covered; a new index epoch (or a reset) starts over. */
@@ -1294,9 +1390,47 @@ export class SessionMessageLoader {
     return load
   }
 
+  /**
+   * smarty-code#1501: the live stream's first update for a session shown from a journal-only answer reads its newest page
+   * again at once (the turn moved on; the gateway may answer normally now). Cheap for every other session.
+   */
+  noteLiveUpdate(target: SessionMessageTarget): void {
+    const normalized = this.normalizeTarget(target)
+    const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    if (!normalized || !entry?.journalWait || entry.liveNudged || this.disposed) return
+    entry.liveNudged = true
+    void this.refreshTail(normalized, getInitialPageSize(), { background: !this.isViewed(normalized) })
+      .catch(() => undefined)
+  }
+
+  /** smarty-code#1501: the newest read answered journal-only: read it again after a backoff (one timer per session). */
+  private awaitNormalHistory(target: SessionMessageTarget, entry: LoaderEntry): void {
+    entry.journalWait = true
+    if (entry.journalTimer !== undefined || this.disposed) return
+    const delay = retryDelay(JOURNAL_ONLY_RETRY_MS, entry.journalAttempt++)
+    entry.journalTimer = setTimeout(() => {
+      entry.journalTimer = undefined
+      const alive = () => !this.disposed && entry.journalWait && this.entries.get(this.keyFor(target)) === entry
+      if (!alive()) return
+      // A failed or superseded re-read keeps waiting: the next one follows with the backoff. A session nobody views is
+      // re-read in the background (smarty-code#867): capped, no immediate retry, no error view. Opening it reads at once.
+      void this.refreshTail(target, getInitialPageSize(), { background: !this.isViewed(target) }).catch(() => undefined)
+        .then(() => { if (alive() && !entry.inflight) this.awaitNormalHistory(target, entry) })
+    }, delay)
+  }
+
+  /** smarty-code#1501: a normal newest page is shown: the journal-only wait ends. */
+  private normalHistoryArrived(entry: LoaderEntry): void {
+    entry.journalWait = false
+    entry.journalAttempt = 0
+    entry.liveNudged = false
+    clearTimeout(entry.journalTimer)
+    entry.journalTimer = undefined
+  }
+
   private persistCoverage(target: SessionMessageTarget, state: SessionMessageLoadState): void {
     // A read-only view must be re-fetched (not rebuilt from coverage) so its marker is never lost.
-    if (this.entries.get(this.keyFor(target))?.ordinary || state.readOnly) {
+    if (this.entries.get(this.keyFor(target))?.ordinary || state.readOnly || state.provisional) {
       clearSessionPrefetch(target.directory, [target.sessionID], this.runtimeKey)
       return
     }
@@ -1311,6 +1445,11 @@ export class SessionMessageLoader {
     })
   }
 }
+
+/** smarty-code#1501: a journal-only answer is stale once a normal newest page was shown (or the session is ordinary). */
+const journalOnlyIsStale = (entry: LoaderEntry): boolean => entry.normalShown || entry.ordinary
+
+const retryDelay = (delays: readonly number[], attempt: number): number => delays[Math.min(attempt, delays.length - 1)] ?? 30_000
 
 /** The store's replacing-read marks with this session's set to `at`, or removed when the read had none (#278 r11). */
 function marked(marks: Record<string, string> | undefined, sessionID: string, at: string | undefined): Record<string, string> {
