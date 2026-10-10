@@ -162,6 +162,43 @@ test('older read A completing after newer B fails all and open keeps its items b
   } finally { unsubscribe(); }
 });
 
+// #1661 policy: reads are ordered by start. A bootstrap that started before a newer published success and then fails
+// (all and open) is superseded, not an invalidation. The next refresh started after that success does revoke.
+test('older bootstrap failing all and open after a newer refresh succeeds keeps authority; the next refresh failing both revokes it', async () => {
+  let releaseBootstrap!: () => void;
+  const bootstrap = new Promise<void>(resolve => { releaseBootstrap = resolve; });
+  const pending: ((response: Response) => void)[] = [], urls: string[] = [];
+  fetchInbox(url => { urls.push(url); return new Promise(resolve => { pending.push(resolve); }); });
+  stop = watchInbox(async () => { await bootstrap; throw new Error('bootstrap all-state read failed'); }, [60_000]); await settle();
+  const newer = refreshInboxBadge(); await settle();
+  pending[0]!(json([a])); await newer; await settle();
+  expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: true, items: [a] });
+  releaseBootstrap(); await settle();
+  pending[1]!(overflow()); await settle(); // The older bootstrap's open fallback fails too.
+  expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: true, items: [a] });
+  const later = refreshInboxBadge(); await settle();
+  pending[2]!(overflow()); await settle();
+  pending[3]!(overflow()); await later; await settle();
+  expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a] });
+  expect(urls).toEqual(['/api/inbox?state=all', '/api/inbox?state=open', '/api/inbox?state=all', '/api/inbox?state=open']);
+});
+
+// A watch retry started after the newest published success is a fresh read: its total failure revokes authority.
+test('older bootstrap failure keeps authority, but its retry started after the newer success failing all and open revokes it', async () => {
+  let rejectBootstrap!: (error: Error) => void, attempts = 0, failOpen = false;
+  const held = new Promise<never>((_resolve, reject) => { rejectBootstrap = reject; });
+  fetchInbox(async url => failOpen ? overflow() : url.includes('state=all') ? json([a]) : overflow());
+  stop = watchInbox(async () => { attempts += 1; if (attempts === 1) return held; throw new Error('watch retry all-state read failed'); }, [5, 60_000]);
+  await settle();
+  await refreshInboxBadge(); await settle();
+  expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: true, items: [a] });
+  failOpen = true;
+  rejectBootstrap(new Error('older bootstrap all-state read failed'));
+  await settle(); await settle();
+  expect(attempts).toBe(2);
+  expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a] });
+});
+
 test('a read newer than failed B but started before its open-fallback failure cannot grant authority', async () => {
   const { pending, authority, unsubscribe } = await bootstrapThenHold();
   try {

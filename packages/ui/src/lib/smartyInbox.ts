@@ -165,6 +165,11 @@ function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof load
 // store revision; `readChain` records the span they alone reached, so only receipts and other writes fence older reads.
 // A failed read (total or open fallback) records every read started so far in `revokedThrough`: their later successes
 // still publish items, but only a read started after that failure restores Steps authority.
+// Reads are ordered by start. A failure revokes authority only if its read started after the newest published success
+// (`generation > publishedInboxRead`); an older read that fails late says nothing about state a newer success already
+// reflects, so it is superseded, not an authoritative invalidation. A real revocation shows up as a failure of the next
+// read started after that success (a refresh or a watch retry), and that read revokes authority, keeping items.
+// `canPublishRead` is the same fence for failures: a retired scope or a newer item write also rejects them.
 let latestInboxRefresh = 0, publishedInboxRead = 0, revokedThrough = 0;
 let readChain = { base: 0, revision: 0 };
 const canPublishRead = (generation: number, revision: number, scope: RuntimeRequestScope) => {
@@ -172,6 +177,10 @@ const canPublishRead = (generation: number, revision: number, scope: RuntimeRequ
   return generation > publishedInboxRead && isRuntimeRequestScopeCurrent(scope)
     && (now === revision || (readChain.revision === now && readChain.base <= revision));
 };
+function revokeReadAuthority() {
+  revokedThrough = latestInboxRefresh;
+  useInboxStore.getState().invalidateSnapshot();
+}
 function publishRead(snapshot: Parameters<typeof applyWatchSnapshot>[0], scope: RuntimeRequestScope, generation: number) {
   const before = useInboxStore.getState().revision;
   publishedInboxRead = generation;
@@ -194,7 +203,7 @@ export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise
       if (snapshot && current()) publishRead(snapshot, scope, generation);
     } catch {
       // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
-      if (current()) { revokedThrough = latestInboxRefresh; useInboxStore.getState().invalidateSnapshot(); }
+      if (current()) revokeReadAuthority();
     }
   })();
   const pending = { scope, revision, promise };
@@ -225,7 +234,13 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
       if (!snapshot.result.available || !globalThis.EventSource) return;
       source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
-    }, () => { if (current()) timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
+    }, () => {
+      // A total failure (all and open fallback) follows the start-ordered failure rule, then schedules a retry. A bootstrap
+      // started before a newer published success is superseded and keeps authority; a read (often a retry) started after
+      // it revokes authority, keeping items. Each retry is a new generation under the same rules.
+      if (!current()) return;
+      if (canPublishRead(generation, revision, requestScope)) revokeReadAuthority();
+      timer = setTimeout(() => attempt(n + 1), retryMs[Math.min(n, retryMs.length - 1)]); });
   };
   const restart = () => {
     source?.close(); clearTimeout(timer);
