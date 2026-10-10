@@ -160,8 +160,22 @@ function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof load
   store.setOpenItems(r.available, r.items);
   store.invalidateSnapshot(); // Open is badge authority, never a silently reduced Steps snapshot.
 }
-// One generation for every publisher (watch bootstrap, its retries and refreshes): only the newest read publishes.
-let latestInboxRefresh = 0;
+// One generation for every publisher (watch bootstrap, its retries and refreshes). A successful read publishes unless a
+// newer read already published, so a failed newer read never discards an older success. Read publications advance the
+// store revision; `readChain` records the span they alone reached, so only receipts and other writes fence older reads.
+let latestInboxRefresh = 0, publishedInboxRead = 0;
+let readChain = { base: 0, revision: 0 };
+const canPublishRead = (generation: number, revision: number, scope: RuntimeRequestScope) => {
+  const now = useInboxStore.getState().revision;
+  return generation > publishedInboxRead && isRuntimeRequestScopeCurrent(scope)
+    && (now === revision || (readChain.revision === now && readChain.base <= revision));
+};
+function publishRead(snapshot: Parameters<typeof applyWatchSnapshot>[0], scope: RuntimeRequestScope, generation: number) {
+  const before = useInboxStore.getState().revision;
+  publishedInboxRead = generation;
+  applyWatchSnapshot(snapshot, scope);
+  readChain = { base: readChain.revision === before ? readChain.base : before, revision: useInboxStore.getState().revision };
+}
 let pendingInboxRefresh: { scope: RuntimeRequestScope; revision: number; promise: Promise<void> } | null = null;
 export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise<void> => {
   const scope = captureRuntimeRequestScope(), revision = useInboxStore.getState().revision;
@@ -170,11 +184,11 @@ export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise
     return pendingInboxRefresh.promise;
   }
   const generation = ++latestInboxRefresh;
-  const current = () => generation === latestInboxRefresh && isRuntimeRequestScopeCurrent(scope) && revision === useInboxStore.getState().revision;
+  const current = () => canPublishRead(generation, revision, scope);
   const promise = (async () => {
     try {
       const snapshot = await loadWatchSnapshot(() => loadInbox('all'), current);
-      if (snapshot && current()) applyWatchSnapshot(snapshot, scope);
+      if (snapshot && current()) publishRead(snapshot, scope, generation);
     } catch {
       // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
       if (current()) useInboxStore.getState().invalidateSnapshot();
@@ -203,8 +217,8 @@ export function watchInbox(load = () => loadInbox('all'), retryMs = INBOX_RETRY_
     const current = () => !closed && requestScope === scope && isRuntimeRequestScopeCurrent(requestScope);
     void loadWatchSnapshot(load, current).then(snapshot => {
       if (!snapshot || !current()) return;
-      // A newer refresh supersedes this publication; the subscription below still starts.
-      if (generation === latestInboxRefresh && revision === useInboxStore.getState().revision) applyWatchSnapshot(snapshot, requestScope);
+      // A newer published read supersedes this one; the subscription below still starts.
+      if (canPublishRead(generation, revision, requestScope)) publishRead(snapshot, requestScope, generation);
       if (!snapshot.result.available || !globalThis.EventSource) return;
       source = new EventSource(getRuntimeUrlResolver().sse('/api/inbox/events'), { withCredentials: true });
       source.onmessage = () => { if (!closed && requestScope === scope) void refreshInboxBadge(); };
