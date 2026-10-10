@@ -25,9 +25,9 @@ const deferred = () => {
 };
 let getDelay: Promise<void> | undefined;
 let patchDelay: Promise<void> | undefined;
-let getFails = false;
+let getFails: false | number | 'network' | 'body' = false;
 let owner = 'a';
-let status: number[] = [];
+let status: (number | 'network')[] = [];
 let requests: { owner: { issuer: string; subject: string }; projects?: Record<string, boolean>; groups?: Record<string, boolean> }[] = [];
 let seen: ReturnType<typeof usePersonalSidebarView>;
 const Probe = () => { seen = usePersonalSidebarView(); return null; };
@@ -45,12 +45,15 @@ beforeEach(() => {
       requests.push(JSON.parse(String(init.body)));
       const result = status.shift() ?? 200;
       await patchDelay;
+      if (result === 'network') throw new Error('Connection lost');
       return Response.json({}, { status: result });
     }
     const subject = owner;
     const failed = getFails;
     await getDelay;
-    return failed ? Response.json({}, { status: 500 }) : Response.json({ owner: { issuer: 'issuer', subject }, projects: { p: true }, groups: {} });
+    if (failed === 'network') throw new Error('Connection lost');
+    if (failed === 'body') return new Response('not JSON');
+    return failed ? Response.json({}, { status: failed }) : Response.json({ owner: { issuer: 'issuer', subject }, projects: { p: true }, groups: {} });
   });
 });
 afterAll(async () => {
@@ -67,9 +70,8 @@ async function mounted(run: () => Promise<void>) {
   finally { await act(async () => root.unmount()); }
 }
 const save = (projects: Record<string, boolean>) => setPersonalSidebarView({ projects }).catch(() => undefined);
-
-test('failed pre-hydration choice rolls back to GET confirmed true', async () => {
-  const gate = deferred(); getDelay = gate.promise; status = [500];
+for (const failure of [500, 'network'] as const) test(`PATCH ${failure} rolls back pre-hydration choice and notifies`, async () => {
+  const gate = deferred(); getDelay = gate.promise; status = [failure];
   await mounted(async () => {
     let pending!: Promise<void>;
     await act(async () => { pending = save({ p: false }); });
@@ -107,16 +109,25 @@ test('sparse serialized saves preserve unrelated newer choices and explicit fals
   });
 });
 
-test('failed read is not authoritative absence and cannot authorize PATCH', async () => {
-  getFails = true;
+for (const failure of [404, 500, 'network', 'body'] as const) test(`GET ${failure} is silent and cannot authorize PATCH`, async () => {
+  getFails = failure;
   await mounted(async () => {
-    await settle(); expect(seen.ready).toBe(false);
+    await settle(); expect(seen.ready).toBe(false); expect(failureNotices).toBe(0);
     await act(async () => { await save({ p: false }); });
     expect(seen.ready).toBe(false); expect(requests).toHaveLength(0); expect(seen.projects).toEqual({});
-    expect(failureNotices).toBeGreaterThan(0);
+    expect(failureNotices).toBe(0);
   });
 });
 
+test('PATCH 409 notifies, rejects, and recovers without replaying the old choice', async () => {
+  status = [409];
+  await mounted(async () => {
+    await settle(); const admission = seen.admission;
+    await act(async () => { await expect(setPersonalSidebarView({ projects: { p: false } })).rejects.toThrow('save failed (409)'); });
+    await settle(); expect(failureNotices).toBe(1); expect(requests).toHaveLength(1);
+    expect(seen.admission).not.toBe(admission); expect(seen.ready).toBe(true); expect(seen.projects.p).toBe(true);
+  });
+});
 test('lock and verified recovery retire A read and action without retargeting B', async () => {
   const gate = deferred(); getDelay = gate.promise;
   await mounted(async () => {
@@ -148,7 +159,7 @@ test('dispatched A patch keeps expected A owner and cannot publish into B', asyn
 });
 
 test('late A read and save rejection do not toast in B', async () => {
-  const gate = deferred(); getDelay = gate.promise; getFails = true;
+  const gate = deferred(); getDelay = gate.promise; getFails = 500;
   await mounted(async () => {
     let pending!: Promise<void>;
     await act(async () => { pending = save({ p: false }); });
