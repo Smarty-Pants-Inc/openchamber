@@ -10,7 +10,7 @@ import { managedBootstrapVerdict } from '@/lib/managed-bootstrap-gate';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectorySelectionStore } from '@/stores/useDirectoryStore';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
-import { clearSessionReadFailure, isSessionGone, isSessionReadSuppressed, recordSessionReadFailure } from "./terminal-session-reads"
+import { clearSessionReadFailure, isSessionGone, isSessionReadSuppressed, markSessionGone, recordSessionReadFailure, sessionListingGeneration } from "./terminal-session-reads"
 import { noteGoneSession } from "./gone-session-notice"
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useRef, useCallback, useMemo } from "react"
@@ -1701,7 +1701,8 @@ export async function resyncBlockingRequestsForActiveDirectory(
   await resyncBlockingRequestsForDirectory(directory, store)
 }
 
-async function resyncDirectoryAfterReconnect(
+/** Exported for tests (smarty-code#1575): the reconnect and watchdog resync of one directory. */
+export async function resyncDirectoryAfterReconnect(
   directory: string,
   store: StoreApi<DirectoryStore>,
   routingIndex: EventRoutingIndex,
@@ -1715,8 +1716,9 @@ async function resyncDirectoryAfterReconnect(
   // status and blocking-request passes still see every candidate, and the viewed session is skipped only once it answered
   // 404 (gone, smarty-code#1575: until a 200 or a listing names it again).
   const viewedSessionID = getViewedSessionMaterializationTarget(directory)?.sessionId
-  const readSessionIds = candidateSessionIds.filter((sessionId) => (sessionId === viewedSessionID
-    && !isSessionGone(directory, sessionId)) || !isSessionReadSuppressed(directory, sessionId))
+  // Gone wins over the bounded back-off: it has no expiry.
+  const readSessionIds = candidateSessionIds.filter((sessionId) => !isSessionGone(directory, sessionId)
+    && (sessionId === viewedSessionID || !isSessionReadSuppressed(directory, sessionId)))
   const runtimeKey = getRuntimeKey()
   const recordFailure = (sessionId: string, error: unknown) => {
     if (isRuntimeRequestScopeCurrent(scope)) recordSessionReadFailure(directory, sessionId, error, runtimeKey)
@@ -1730,12 +1732,19 @@ async function resyncDirectoryAfterReconnect(
     syncDebug.recovery.materializing({ reason, directory, sessionID: sessionId })
     const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
     const loader = getImperativeSessionMessageLoader()
+    const listing = sessionListingGeneration(directory, sessionId, runtimeKey)
     const [sessionResponse] = await Promise.all([
       retry(async () => {
         const response = await scopedClient.session.get({ sessionID: sessionId })
         assertSdkSuccess(response, "session.get")
         return response
-      }).catch((error: unknown) => { recordFailure(sessionId, error); return null }),
+      }).catch((error: unknown) => {
+        recordFailure(sessionId, error)
+        if (sessionId === viewedSessionID && readFailureStatus(error) === 404 && isRuntimeRequestScopeCurrent(scope)) {
+          noteViewedSessionGone(sessionId, directory, listing, runtimeKey)
+        }
+        return null
+      }),
       (loader?.refreshTail({ directory, sessionID: sessionId }, RECONNECT_MESSAGE_LIMIT) ?? Promise.resolve())
         .catch((error: unknown) => { recordFailure(sessionId, error) }),
     ])
@@ -1771,6 +1780,31 @@ async function resyncDirectoryAfterReconnect(
   ingestDirectoryStateIntoRoutingIndex(routingIndex, directory, store.getState())
 }
 
+function readFailureStatus(error: unknown): number | undefined {
+  const status = (error as { status?: unknown } | null)?.status
+  return typeof status === "number" ? status : undefined
+}
+
+/**
+ * smarty-code#1575: the open session's read answered 404 ("Unknown Pi session in requested project"); asking again (the
+ * composer every 2 s, the watchdog every 20-35 s) answered the same forever. The one path for that 404, from either reader:
+ * gone until a listing names it again, its global row ended (#811/#913's "no longer available" state, which also stops the
+ * composer's refresh), and the notice once. `listing` is the session's listing generation when the read started: a
+ * listing that named it since makes this 404 stale.
+ */
+function noteViewedSessionGone(sessionId: string, directory: string, listing: number, runtimeKey: string): void {
+  if (getRuntimeKey() !== runtimeKey || !markSessionGone(directory, sessionId, listing, runtimeKey)) return
+  // ponytail: a snapshot of the store's own rows, not a mutation, so a later listing that names it again wins outright.
+  const globals = useGlobalSessionsStore.getState()
+  const row = globals.entityById.get(sessionId)
+  if (row && !row.time?.archived) {
+    const ended: Session & { herdrState: "ended" } = { ...row, herdrState: "ended" }
+    globals.applySnapshot(globals.activeSessions.map((entry) => entry.id === sessionId ? ended : entry),
+      globals.archivedSessions, globals.status)
+  }
+  void noteGoneSession(sessionId, directory, false)
+}
+
 /**
  * Re-reads one session's record into its directory's store (smarty-code#778: an idle session whose Pi was relaunched
  * in place sends no event, so its "Unavailable" model and a disabled Send stayed until something else refreshed it).
@@ -1782,23 +1816,12 @@ export async function refreshSessionRecord(sessionId: string, directory: string)
   if (isSessionGone(directory, sessionId)) return
   const eventRevision = store.getState().sessionEventRevision?.[sessionId] ?? 0
   const runtimeKey = getRuntimeKey()
+  const listing = sessionListingGeneration(directory, sessionId, runtimeKey)
   const response = await opencodeClient.getScopedSdkClient(directory).session.get({ sessionID: sessionId }).catch(() => null)
   if (getRuntimeKey() !== runtimeKey) return
   if (response?.response?.status === 404) {
-    // smarty-code#1575: the gateway does not know this session ("Unknown Pi session in requested project"); asking again
-    // every 2 s (about every 45 s in a hidden tab) answered the same forever. It is gone until a listing names it again:
-    // mark its global row ended (#811/#913's "no longer available" state, which also stops this refresh) and say so once.
-    if (isSessionGone(directory, sessionId, runtimeKey)) return
     recordSessionReadFailure(directory, sessionId, { status: 404 }, runtimeKey)
-    // ponytail: a snapshot of the store's own rows, not a mutation, so a later listing that names it again wins outright.
-    const globals = useGlobalSessionsStore.getState()
-    const row = globals.entityById.get(sessionId)
-    if (row && !row.time?.archived) {
-      const ended: Session & { herdrState: "ended" } = { ...row, herdrState: "ended" }
-      globals.applySnapshot(globals.activeSessions.map((entry) => entry.id === sessionId ? ended : entry),
-        globals.archivedSessions, globals.status)
-    }
-    void noteGoneSession(sessionId, directory, false)
+    noteViewedSessionGone(sessionId, directory, listing, runtimeKey)
     return
   }
   const session = response?.data

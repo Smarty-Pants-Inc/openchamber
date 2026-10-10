@@ -5,7 +5,9 @@ import {
   clearSessionReadFailures,
   isSessionGone,
   isSessionReadSuppressed,
+  markSessionGone,
   recordSessionReadFailure,
+  sessionListingGeneration,
   TERMINAL_SESSION_READ_BACKOFF_MS,
 } from "./terminal-session-reads"
 
@@ -27,22 +29,23 @@ test("transient or unknown failures are not suppressed", () => {
   expect(isSessionReadSuppressed("/p", "s")).toBe(false)
 })
 
-// smarty-code#1575: the watchdog always re-read the viewed session, so its 404 repeated every pass forever. A 404 is gone
-// with no expiry (the viewed session is skipped while gone); a 200 or a listing that names it again clears it.
-test("a 404 marks the session gone with no expiry until a 200 or a listing clears it; other terminal answers do not", () => {
+// smarty-code#1575: the open session's 404 is gone with no expiry (gone wins over the back-off) until a 200 or a listing
+// names it again; a 404 whose read started before such a listing is stale. A plain read failure never marks gone.
+test("gone: no expiry, cleared by a 200 or a listing, and a 404 read from before the listing is stale", () => {
   const now = 1_000
   recordSessionReadFailure("/p", "s", { status: 404 }, "rt", now)
-  for (const status of [409, 410, 503]) recordSessionReadFailure("/p", `s${status}`, { status }, "rt", now)
-  expect(isSessionGone("/p", "s", "rt")).toBe(true)
-  for (const status of [409, 410, 503]) expect(isSessionGone("/p", `s${status}`, "rt")).toBe(false)
+  expect(isSessionGone("/p", "s", "rt")).toBe(false) // Back-off only; other sessions keep just that.
+  const started = sessionListingGeneration("/p", "s", "rt")
+  expect(markSessionGone("/p", "s", started, "rt")).toBe(true)
+  expect(markSessionGone("/p", "s", started, "rt")).toBe(false) // Already gone: the caller does nothing again.
   expect(isSessionGone("/other", "s", "rt")).toBe(false)
   expect(isSessionGone("/p", "s", "other-runtime")).toBe(false)
-  // The bounded back-off for other sessions runs out as before; gone does not.
   expect(isSessionReadSuppressed("/p", "s", now + TERMINAL_SESSION_READ_BACKOFF_MS, "rt")).toBe(false)
   expect(isSessionGone("/p", "s", "rt")).toBe(true)
   clearSessionGone("/p", "s", "rt")
   expect(isSessionGone("/p", "s", "rt")).toBe(false)
-  recordSessionReadFailure("/p", "s", { status: 404 }, "rt", now)
+  expect(markSessionGone("/p", "s", started, "rt")).toBe(false) // Read started before that listing: stale.
+  expect(markSessionGone("/p", "s", sessionListingGeneration("/p", "s", "rt"), "rt")).toBe(true)
   clearSessionReadFailure("/p", "s", "rt")
   expect(isSessionGone("/p", "s", "rt")).toBe(false)
 })
