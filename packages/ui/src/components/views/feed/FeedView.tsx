@@ -14,6 +14,8 @@ import { useInboxStore } from '@/lib/smartyInbox';
 import { useUIStore } from '@/stores/useUIStore';
 import { loadSmartyFeed, openSmartyStream, type FeedQuery, sendSmartyMessage, SmartiesRequestError, type Smarty, type SmartyActivity, type SmartyBlock, type SmartyFeed, type SmartyStream } from '@/lib/smarties';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { createInputHistoryIdentity, createInputHistorySubmission, selectInputHistoryEntries, useInputHistoryStore, type InputHistoryIdentity } from '@/stores/useInputHistoryStore';
+import { useMessageHistory, type MessageHistoryValue } from '@/components/chat/composer/state/useMessageHistory';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
 import { draftKey, ensureSmartiesLoaded, isOwnerLine, isTrivialSmartyBlock, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
@@ -55,7 +57,7 @@ export function FeedView({ compact = false, services }: { onClose?: () => void; 
   const smarty = smarties.state === 'ready' ? smarties.smarties.find(item => item.id === selectedId) : undefined;
   // Until the list answers there is nothing true to show: an empty page, never a spinner that a blank replaces.
   if (smarties.state !== 'ready' || !smarty) return <div className="h-full bg-background" />;
-  return <SmartyPage key={`${getRuntimeKey()}\u0000${smarty.id}`} smarty={smarty} all={smarties.smarties} me={smarties.me} compact={compact} services={{ ...defaultServices, ...services }} />;
+  return <SmartyPage key={`${getRuntimeKey()}\u0000${smarties.me}\u0000${smarty.id}`} smarty={smarty} all={smarties.smarties} me={smarties.me} compact={compact} services={{ ...defaultServices, ...services }} />;
 }
 
 /** First paint shows the newest 50 blocks; "Show earlier" adds 100 at a time (smarty-code#1407, for a fast first paint). */
@@ -253,7 +255,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
             : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} pending={pending.filter(item => !echoed.includes(item.clientId))}
                 smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
           {smarty.own && feed.state === 'ready' ? <SmartyTypingLine name={ownerName} shown={typing} /> : null}
-          {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
+          {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} me={me} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
         </section>
         {!compact && ownInbox && inboxShown ? (
           <aside className="w-1/3 min-w-[320px] min-h-0 shrink-0 border-l border-border bg-background">{inbox}</aside>) : null}
@@ -287,7 +289,31 @@ type Notice = { kind: 'tooLong' } | { kind: 'refused'; text: string };
 const DEDUPE_MS = 24 * 3_600_000;
 const tooOld = (message: FailedSend) => Date.now() - message.at >= DEDUPE_MS;
 
-function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
+/**
+ * Feed recall: the person's own successful sends, in the shared input-history store under a namespace of its own
+ * (runtime, signed-in person, "feed"), always that Smarty's session bucket whatever the Chat recall setting says. So
+ * the chat never recalls feed messages, and another person on this device never recalls them either.
+ */
+const feedHistoryIdentity = (me: string, smartyId: string) => createInputHistoryIdentity(JSON.stringify([getRuntimeKey(), me, 'feed']), 'feed', smartyId);
+const NO_HISTORY: readonly MessageHistoryValue<never>[] = [];
+const NO_ATTACHMENTS: readonly never[] = [];
+
+function useFeedHistory(identity: InputHistoryIdentity | null) {
+  const entries = useInputHistoryStore(React.useCallback(state => selectInputHistoryEntries(
+    { scope: 'session', globalBuckets: state.globalBuckets, sessionBuckets: state.sessionBuckets }, identity), [identity]));
+  const values = React.useMemo(() => entries.length ? entries.map(entry => ({ text: entry.text, attachments: NO_ATTACHMENTS })) : NO_HISTORY, [entries]);
+  return useMessageHistory<never>(values, identity ? JSON.stringify(identity) : '');
+}
+
+/** Up recalls only from the first line (or an empty box), Down only from the last; a selection is the browser's. */
+const historyKeyAllowed = (box: HTMLTextAreaElement, key: 'ArrowUp' | 'ArrowDown') => {
+  const { value, selectionStart: start, selectionEnd: end } = box;
+  if (!value) return true;
+  if (start !== end) return false;
+  return key === 'ArrowUp' ? !value.slice(0, start).includes('\n') : !value.slice(end).includes('\n');
+};
+
+function FeedMessageBox({ smarty, me, send, knownOwnerLines }: { smarty: Smarty; me: string; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
   const { t } = useI18n();
   // The draft key (runtime and Smarty) is fixed per send: a late answer touches only this key's failed list.
   const key = draftKey(smarty.id);
@@ -296,6 +322,18 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
   const [sending, setSending] = React.useState(0);
   const [notice, setNotice] = React.useState<Notice | null>(null);
   const label = t('feed.message.label', { name: smarty.label });
+  const historyIdentity = React.useMemo(() => feedHistoryIdentity(me, smarty.id), [me, smarty.id]);
+  const history = useFeedHistory(historyIdentity);
+  const box = React.useRef<HTMLTextAreaElement | null>(null);
+  // A recalled message reads from its start (Up) or continues at its end (Down), once React has committed it.
+  const caret = React.useRef<'start' | 'end' | null>(null);
+  React.useLayoutEffect(() => {
+    const element = box.current, at = caret.current;
+    if (!element || !at) return;
+    caret.current = null;
+    const position = at === 'start' ? 0 : element.value.length;
+    element.setSelectionRange(position, position);
+  });
 
   const deliver = async (message: FailedSend) => {
     setSending(n => n + 1);
@@ -315,15 +353,19 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
       if (refused && !readDraftAt(key)) store.setDraftAt(key, message.text);
       // A refused send was never accepted: its retry is a NEW message, with a fresh client ID and a fresh 24 h window.
       else store.addFailedSend(key, refused ? { ...message, clientId: ascendingId('msg'), at: Date.now() } : message);
+      return;
     } finally {
       setSending(n => n - 1);
     }
+    // Only a delivered message is recalled, in the bucket of the person and Smarty it was sent as.
+    if (historyIdentity) useInputHistoryStore.getState().appendSubmissions(historyIdentity, [createInputHistorySubmission(message.text, [])]);
   };
   const submit = () => {
     const text = readDraftAt(key);
     if (!text.trim()) return;
     if (utf8Bytes(text) > MAX_MESSAGE_BYTES) { setNotice({ kind: 'tooLong' }); return; }
     useFeedStore.getState().setDraftAt(key, '');
+    history.reset();
     void deliver({ text, clientId: ascendingId('msg'), at: Date.now() });
   };
   // Always the same client ID: the original may have been accepted with its answer lost, and only the ID lets the
@@ -342,9 +384,19 @@ function FeedMessageBox({ smarty, send, knownOwnerLines }: { smarty: Smarty; sen
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-1">
         <div className="flex items-end gap-2">
           {/* smarty-code#1488 (Paul): a message box is prose, so phone spell check, autocorrect and sentence capitals stay on. */}
-          <Textarea aria-label={label} placeholder={label} rows={2} value={draft} spellCheck autoCorrect="on" autoCapitalize="sentences"
+          <Textarea ref={box} aria-label={label} placeholder={label} rows={2} value={draft} spellCheck autoCorrect="on" autoCapitalize="sentences"
             outerClassName="min-w-0 flex-1" onChange={event => { setNotice(null); useFeedStore.getState().setDraftAt(key, event.target.value); }}
             onKeyDown={event => {
+              if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey
+                && !event.nativeEvent.isComposing && historyKeyAllowed(event.currentTarget, event.key)) {
+                const current = { text: readDraftAt(key), attachments: NO_ATTACHMENTS };
+                const recalled = event.key === 'ArrowUp' ? history.older(current) : history.newer(current);
+                if (!recalled) return;
+                event.preventDefault();
+                caret.current = event.key === 'ArrowUp' ? 'start' : 'end';
+                useFeedStore.getState().setDraftAt(key, recalled.text);
+                return;
+              }
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
               event.preventDefault();
               submit();
