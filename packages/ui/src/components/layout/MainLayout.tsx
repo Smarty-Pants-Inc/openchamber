@@ -35,6 +35,9 @@ import { useSessionListSync } from '@/components/session/sidebar/list/useSession
 import { ChatView } from '@/components/views/ChatView';
 import { InboxView } from '@/components/views/InboxView';
 import { useInboxStore, watchInbox } from '@/lib/smartyInbox';
+import { FeedView } from '@/components/views/feed/FeedView';
+import { useFeedStore } from '@/components/views/feed/feedStore';
+import { StepsLayout } from '@/components/chat/steps/StepsLayout';
 
 const SettingsWindow = lazyWithChunkRecovery(() => import('@/components/views/SettingsWindow').then(m => ({ default: m.SettingsWindow })));
 
@@ -73,10 +76,11 @@ export const MainLayout: React.FC = () => {
     // through, and selecting a session or draft anywhere closes the surface.
     const isInboxOpen = useInboxStore((state) => state.pageOpen);
     React.useEffect(() => watchInbox(), []);
-    const isSurfacePageOpen = isScheduledTasksPageOpen || isArchivePageOpen || Boolean(worktreesPageProjectId) || isMultiRunLauncherOpen || isInboxOpen;
+    const isFeedOpen = useFeedStore((state) => state.pageOpen);
+    const isSurfacePageOpen = isScheduledTasksPageOpen || isArchivePageOpen || Boolean(worktreesPageProjectId) || isMultiRunLauncherOpen || isInboxOpen || isFeedOpen;
 
     React.useEffect(() => {
-        const closeSurfacePages = () => { useUIStore.getState().closeMainSurfaces(); useInboxStore.getState().setPageOpen(false); };
+        const closeSurfacePages = () => { useUIStore.getState().closeMainSurfaces(); useInboxStore.getState().setPageOpen(false); useFeedStore.getState().setPageOpen(false); };
         const unsubscribeSession = useSessionUIStore.subscribe((state, prev) => {
             const sessionSelected = Boolean(state.currentSessionId) && state.currentSessionId !== prev.currentSessionId;
             // Draft identity change covers re-opening a draft while one is
@@ -88,7 +92,7 @@ export const MainLayout: React.FC = () => {
         const unsubscribeSurfaces = useUIStore.subscribe((state, prev) => {
             const opened = (state.isScheduledTasksDialogOpen && !prev.isScheduledTasksDialogOpen) || (state.isArchivePageOpen && !prev.isArchivePageOpen)
                 || (Boolean(state.worktreesPageProjectId) && !prev.worktreesPageProjectId) || (state.isMultiRunLauncherOpen && !prev.isMultiRunLauncherOpen);
-            if (opened) useInboxStore.getState().setPageOpen(false);
+            if (opened) { useInboxStore.getState().setPageOpen(false); useFeedStore.getState().setPageOpen(false); }
         });
         return () => {
             unsubscribeSession();
@@ -150,7 +154,7 @@ export const MainLayout: React.FC = () => {
                                     <div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden" data-page-scroll-lock="true" data-chat-area="true">
                                         <main className="flex-1 overflow-hidden bg-background relative" data-page-scroll-lock="true">
                                             <div className={cn('absolute inset-0', isSurfacePageOpen && 'invisible')}>
-                                                <ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary>
+                                                <StepsLayout><ErrorBoundary><ChatView active={!isSettingsDialogOpen && !isSurfacePageOpen} /></ErrorBoundary></StepsLayout>
                                             </div>
                                             {isMultiRunLauncherOpen && (
                                                 <div className="absolute inset-0 z-10 bg-background">
@@ -171,6 +175,11 @@ export const MainLayout: React.FC = () => {
                                             {isInboxOpen ? (
                                                 <div className="absolute inset-0 z-10 bg-background">
                                                     <ErrorBoundary><InboxView onClose={() => useInboxStore.getState().setPageOpen(false)} /></ErrorBoundary>
+                                                </div>
+                                            ) : null}
+                                            {isFeedOpen ? (
+                                                <div className="absolute inset-0 z-10 bg-background">
+                                                    <ErrorBoundary><FeedView onClose={() => useFeedStore.getState().setPageOpen(false)} /></ErrorBoundary>
                                                 </div>
                                             ) : null}
                                             <ErrorBoundary><WorktreesView /></ErrorBoundary>

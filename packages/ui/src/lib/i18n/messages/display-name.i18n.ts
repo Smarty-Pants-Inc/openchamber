@@ -1,14 +1,20 @@
 import { humanAuthI18n } from './human-auth.i18n';
 import { voiceTurnI18n } from './voice-turn.i18n';
 import { sendPendingI18n } from './send-pending.i18n';
+import { feedI18n } from './feed.i18n';
 import { historyJumpI18n } from './history-jump.i18n';
+import { homeScreenHintI18n } from './home-screen-hint.i18n';
+import { connectIphoneI18n } from './connect-iphone.i18n';
 
 export const displayNameI18n = {
   en: {
     ...sendPendingI18n.en,
+    ...feedI18n.en,
     ...humanAuthI18n.en,
     ...voiceTurnI18n.en,
     ...historyJumpI18n.en,
+    ...homeScreenHintI18n.en,
+    ...connectIphoneI18n.en,
     'chat.displayName.backendUnsupported': 'This backend does not support display attribution. Message was not sent.',
     'chat.displayName.label': 'Display name for this tab',
     'chat.displayName.apply': 'Apply name',
@@ -22,9 +28,12 @@ export const displayNameI18n = {
   },
   de: {
     ...sendPendingI18n.de,
+    ...feedI18n.de,
     ...humanAuthI18n.de,
     ...voiceTurnI18n.de,
     ...historyJumpI18n.de,
+    ...homeScreenHintI18n.de,
+    ...connectIphoneI18n.de,
     'chat.displayName.backendUnsupported': 'Dieses Backend unterstützt keine Anzeigenamen für Nachrichten. Die Nachricht wurde nicht gesendet.',
     'chat.displayName.label': 'Anzeigename für diesen Tab',
     'chat.displayName.apply': 'Name übernehmen',
@@ -38,9 +47,12 @@ export const displayNameI18n = {
   },
   es: {
     ...sendPendingI18n.es,
+    ...feedI18n.es,
     ...humanAuthI18n.es,
     ...voiceTurnI18n.es,
     ...historyJumpI18n.es,
+    ...homeScreenHintI18n.es,
+    ...connectIphoneI18n.es,
     'chat.displayName.backendUnsupported': 'Este servidor no admite etiquetas de remitente. El mensaje no se ha enviado.',
     'chat.displayName.label': 'Nombre visible de esta pestaña',
     'chat.displayName.apply': 'Aplicar nombre',
@@ -54,9 +66,12 @@ export const displayNameI18n = {
   },
   fr: {
     ...sendPendingI18n.fr,
+    ...feedI18n.fr,
     ...humanAuthI18n.fr,
     ...voiceTurnI18n.fr,
     ...historyJumpI18n.fr,
+    ...homeScreenHintI18n.fr,
+    ...connectIphoneI18n.fr,
     'chat.displayName.backendUnsupported': 'Ce serveur ne prend pas en charge les noms d’expéditeur. Le message n’a pas été envoyé.',
     'chat.displayName.label': 'Nom affiché pour cet onglet',
     'chat.displayName.apply': 'Appliquer le nom',
@@ -70,9 +85,12 @@ export const displayNameI18n = {
   },
   ja: {
     ...sendPendingI18n.ja,
+    ...feedI18n.ja,
     ...humanAuthI18n.ja,
     ...voiceTurnI18n.ja,
     ...historyJumpI18n.ja,
+    ...homeScreenHintI18n.ja,
+    ...connectIphoneI18n.ja,
     'chat.displayName.backendUnsupported': 'このバックエンドは表示名による送信者ラベルに対応していません。メッセージは送信されませんでした。',
     'chat.displayName.label': 'このタブの表示名',
     'chat.displayName.apply': '名前を適用',
@@ -86,9 +104,12 @@ export const displayNameI18n = {
   },
   ko: {
     ...sendPendingI18n.ko,
+    ...feedI18n.ko,
     ...humanAuthI18n.ko,
     ...voiceTurnI18n.ko,
     ...historyJumpI18n.ko,
+    ...homeScreenHintI18n.ko,
+    ...connectIphoneI18n.ko,
     'chat.displayName.backendUnsupported': '이 백엔드는 표시 이름을 통한 발신자 표기를 지원하지 않습니다. 메시지를 보내지 않았습니다.',
     'chat.displayName.label': '이 탭의 표시 이름',
     'chat.displayName.apply': '이름 적용',
@@ -102,9 +123,12 @@ export const displayNameI18n = {
   },
   pl: {
     ...sendPendingI18n.pl,
+    ...feedI18n.pl,
     ...humanAuthI18n.pl,
     ...voiceTurnI18n.pl,
     ...historyJumpI18n.pl,
+    ...homeScreenHintI18n.pl,
+    ...connectIphoneI18n.pl,
     'chat.displayName.backendUnsupported': 'Ten serwer nie obsługuje etykiet nadawcy. Wiadomość nie została wysłana.',
     'chat.displayName.label': 'Nazwa wyświetlana w tej karcie',
     'chat.displayName.apply': 'Zastosuj nazwę',
@@ -118,9 +142,12 @@ export const displayNameI18n = {
   },
   'pt-BR': {
     ...sendPendingI18n['pt-BR'],
+    ...feedI18n['pt-BR'],
     ...humanAuthI18n['pt-BR'],
     ...voiceTurnI18n['pt-BR'],
     ...historyJumpI18n['pt-BR'],
+    ...homeScreenHintI18n['pt-BR'],
+    ...connectIphoneI18n['pt-BR'],
     'chat.displayName.backendUnsupported': 'Este servidor não oferece suporte a rótulos de remetente. A mensagem não foi enviada.',
     'chat.displayName.label': 'Nome de exibição desta aba',
     'chat.displayName.apply': 'Aplicar nome',
@@ -134,9 +161,12 @@ export const displayNameI18n = {
   },
   tr: {
     ...sendPendingI18n.tr,
+    ...feedI18n.tr,
     ...humanAuthI18n.tr,
     ...voiceTurnI18n.tr,
     ...historyJumpI18n.tr,
+    ...homeScreenHintI18n.tr,
+    ...connectIphoneI18n.tr,
     'chat.displayName.backendUnsupported': 'Bu sunucu görünen adla gönderen etiketlemeyi desteklemiyor. Mesaj gönderilmedi.',
     'chat.displayName.label': 'Bu sekmenin görünen adı',
     'chat.displayName.apply': 'Adı uygula',
@@ -150,9 +180,12 @@ export const displayNameI18n = {
   },
   uk: {
     ...sendPendingI18n.uk,
+    ...feedI18n.uk,
     ...humanAuthI18n.uk,
     ...voiceTurnI18n.uk,
     ...historyJumpI18n.uk,
+    ...homeScreenHintI18n.uk,
+    ...connectIphoneI18n.uk,
     'chat.displayName.backendUnsupported': 'Цей сервер не підтримує мітки відправника. Повідомлення не надіслано.',
     'chat.displayName.label': 'Відображуване ім’я для цієї вкладки',
     'chat.displayName.apply': 'Застосувати ім’я',
@@ -166,9 +199,12 @@ export const displayNameI18n = {
   },
   'zh-CN': {
     ...sendPendingI18n['zh-CN'],
+    ...feedI18n['zh-CN'],
     ...humanAuthI18n['zh-CN'],
     ...voiceTurnI18n['zh-CN'],
     ...historyJumpI18n['zh-CN'],
+    ...homeScreenHintI18n['zh-CN'],
+    ...connectIphoneI18n['zh-CN'],
     'chat.displayName.backendUnsupported': '此后端不支持显示名称归属标签。消息未发送。',
     'chat.displayName.label': '此标签页的显示名称',
     'chat.displayName.apply': '应用名称',
@@ -182,9 +218,12 @@ export const displayNameI18n = {
   },
   'zh-TW': {
     ...sendPendingI18n['zh-TW'],
+    ...feedI18n['zh-TW'],
     ...humanAuthI18n['zh-TW'],
     ...voiceTurnI18n['zh-TW'],
     ...historyJumpI18n['zh-TW'],
+    ...homeScreenHintI18n['zh-TW'],
+    ...connectIphoneI18n['zh-TW'],
     'chat.displayName.backendUnsupported': '此後端不支援顯示名稱歸屬標籤。訊息未傳送。',
     'chat.displayName.label': '此分頁的顯示名稱',
     'chat.displayName.apply': '套用名稱',

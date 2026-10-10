@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import { useUIStore, type ContextPanelMode } from '@/stores/useUIStore';
+import { smartyHeaderTitle, useFeedStore } from '@/components/views/feed/feedStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionWorktreeStore } from '@/sync/session-worktree-store';
 import { formatSessionWorktreeBadge } from '@/sync/session-worktree-contract';
@@ -960,7 +961,12 @@ export const Header: React.FC = () => {
     const project = visibleProjects(state).find((entry) => entry.id === worktreesSurfaceProjectId);
     return project?.label?.trim() || project?.path?.split('/').pop() || null;
   });
+  // smarty-code#1407: a Smarty fills the chat area: the bar names it, never the session under it.
+  const smartyLabel = useFeedStore(smartyHeaderTitle);
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
+    if (smartyLabel !== null) {
+      return { title: smartyLabel, subtitle: null };
+    }
     if (isScheduledSurfaceOpen) {
       return { title: t('sessions.scheduledTasks.dialog.title'), subtitle: null };
     }
@@ -977,7 +983,7 @@ export const Header: React.FC = () => {
       return { title: t('sessions.sidebar.header.actions.newMultiRun'), subtitle: null };
     }
     return null;
-  }, [isArchiveSurfaceOpen, isMultiRunSurfaceOpen, isScheduledSurfaceOpen, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
+  }, [isArchiveSurfaceOpen, isMultiRunSurfaceOpen, isScheduledSurfaceOpen, smartyLabel, t, worktreesSurfaceProjectId, worktreesSurfaceProjectLabel]);
 
 
   const actionDirectory = React.useMemo(() => {

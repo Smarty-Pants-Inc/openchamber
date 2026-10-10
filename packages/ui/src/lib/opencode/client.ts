@@ -5,8 +5,9 @@ import { noteSessionReadFailed } from "@/lib/openSessionReadFailure";
 import type { PermissionV2Request, PermissionV2Effect, PermissionV2Source, SessionStatus as SDKSessionStatus } from "@opencode-ai/sdk/v2/client";
 import { z } from "zod";
 import { displayNameSchema, displayAttributionHealthSchema } from '@/lib/messages/displayName';
-import { sessionVoiceSchema, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
+import { sessionVoiceSchema, NativeCreationError, nativeCreatedSession, nativeCreationHealthSchema, nativeCreationFailure, nativeCreationResponseSchema,
   nativeCreationListSchema, type NativeCreationResult, type NativeCreationReply } from './nativeCreation';
+import { withNativeCreationDeadline } from './nativeCreationDeadline';
 import type { FilesAPI } from "../api/types";
 import { getDesktopHomeDirectory } from "../desktop";
 import type {
@@ -756,28 +757,35 @@ class OpencodeService {
     return { mode, clientRequestId: capabilities?.creationClientRequestId === 1, abandon: capabilities?.creationAbandon === 1 };
   }
 
+  /** An explicit selected-project capability, not inferred from ordinary Create support. */
+  async supportsNativeResume(directory: string): Promise<boolean> {
+    const scope = captureRuntimeRequestScope();
+    const response = await withNativeCreationDeadline(signal => {
+      assertRuntimeRequestScope(scope);
+      return this.getScopedSdkClient(directory).global.health({ signal });
+    });
+    assertRuntimeRequestScope(scope);
+    return nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities?.ordinaryResume === 1;
+  }
+
   /**
    * Whether this session takes voice calls. A gateway with `sessionVoiceStatus` answers per session, with one plain
-   * reason when not (smarty-code#126); a failed status read has no reason (the caller shows a generic one). An older
-   * gateway answers per directory with `sessionVoice`.
+   * reason and optional retry hint when not. Failed health/status reads reject so callers can preserve prior state.
+   * An older gateway answers per directory with `sessionVoice`.
    */
-  async sessionVoiceAvailability(sessionId: string, directory: string): Promise<{ available: boolean; reason?: string }> {
+  async sessionVoiceAvailability(sessionId: string, directory: string): Promise<{ available: boolean; reason?: string; retry?: boolean }> {
     const runtimeKey = getRuntimeKey();
     const response = await this.getScopedSdkClient(directory).global.health();
     this.assertRuntimeUnchanged(runtimeKey);
     const capabilities = nativeCreationHealthSchema.parse(unwrapSdkData(response, 'global.health')).capabilities;
     if (capabilities?.sessionVoiceStatus !== 1) return capabilities?.sessionVoice === 1 ? { available: true } : { available: false };
-    try {
-      const scope = captureRuntimeRequestScope();
-      const status = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/voice`, { query: { directory } });
-      const body: unknown = await status.json();
-      assertRuntimeRequestScope(scope);
-      if (!status.ok) return { available: false };
-      return sessionVoiceSchema.parse(body);
-    } catch {
-      this.assertRuntimeUnchanged(runtimeKey);
-      return { available: false };
-    }
+    const scope = captureRuntimeRequestScope();
+    const status = await runtimeFetch(`/api/session/${encodeURIComponent(sessionId)}/voice`, { query: { directory } });
+    assertRuntimeRequestScope(scope);
+    if (!status.ok) throw new Error(`Session voice status read failed (${status.status})`);
+    const body: unknown = await status.json();
+    assertRuntimeRequestScope(scope);
+    return sessionVoiceSchema.parse(body);
   }
 
   /** One SDK create request. No model, prompt, metadata, retry or fallback runtime. */
@@ -803,17 +811,23 @@ class OpencodeService {
   }
 
   /** Existing authenticated runtime transport; reads never repeat a Create or choice. */
-  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never>) {
+  private async nativeCreationRequest(directory: string, suffix = '', reply?: NativeCreationReply | Record<string, never> | { sessionID: string; clientRequestId: string }) {
     const scope = captureRuntimeRequestScope();
     const options: RuntimeFetchOptions = { query: { directory }, method: reply ? 'POST' : 'GET', headers: { ...NATIVE_CREATION_FIELDS } };
     if (reply) {
       options.headers = { ...NATIVE_CREATION_FIELDS, 'Content-Type': 'application/json' };
       options.body = JSON.stringify(reply);
     }
-    const response = await runtimeFetch(`/api/session/creation${suffix}`, options);
-    const body: unknown = await response.json();
+    const body = await withNativeCreationDeadline(async signal => {
+      assertRuntimeRequestScope(scope);
+      const response = await runtimeFetch(`/api/session/creation${suffix}`, { ...options, signal });
+      assertRuntimeRequestScope(scope);
+      const body: unknown = await response.json();
+      assertRuntimeRequestScope(scope);
+      if (!response.ok) throw nativeCreationFailure(body, response.status);
+      return body;
+    });
     assertRuntimeRequestScope(scope);
-    if (!response.ok) throw nativeCreationFailure(body, response.status);
     return body;
   }
 
@@ -828,6 +842,15 @@ class OpencodeService {
   /** Leave an unsettled start behind for good (smarty-code#340): the server settles it cancelled and admits a new one. */
   async abandonNativeCreation(directory: string, operationId: string) {
     return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, `/${encodeURIComponent(operationId)}/abandon`, {})).nativeCreation;
+  }
+
+  /** smarty-code#365: request one new Pi for an ended session and return its authoritative start state. */
+  async resumeNativeSession(directory: string, sessionID: string, clientRequestId: string) {
+    const scope = captureRuntimeRequestScope();
+    const supported = await this.supportsNativeResume(directory);
+    assertRuntimeRequestScope(scope);
+    if (!supported) throw new NativeCreationError('unsupported', undefined, 'Continuing a session is not supported here', undefined, 501);
+    return nativeCreationResponseSchema.parse(await this.nativeCreationRequest(directory, '/resume', { sessionID, clientRequestId })).nativeCreation;
   }
 
   async replyNativeCreation(directory: string, operationId: string, reply: NativeCreationReply) {
@@ -1899,16 +1922,19 @@ class OpencodeService {
     return this.getProvidersForConfig(this.currentDirectory);
   }
 
-  async getProvidersForConfig(directory?: string | null): Promise<{
+  // Smarty gateway extension: a session query asks only that native session, never the project catalog.
+  async getProvidersForConfig(directory?: string | null, sessionId?: string): Promise<{
     providers: Provider[];
     default: { [key: string]: string };
   }> {
     this.reconnectToRuntimeBaseUrl();
     const scope = this.runtimeScope;
     const effectiveDirectory = this.normalizeCandidatePath(directory) ?? directory ?? this.currentDirectory ?? undefined;
-    const key = effectiveDirectory ?? '';
+    const key = JSON.stringify([effectiveDirectory ?? '', sessionId ?? null]);
 
-    const existing = this.configProvidersInFlight.get(key);
+    // Native recovery/relaunch must not reuse a catalog read dispatched for an older generation.
+    // Only project catalog reads share an in-flight request.
+    const existing = sessionId ? undefined : this.configProvidersInFlight.get(key);
     if (existing) {
       return existing;
     }
@@ -1916,11 +1942,18 @@ class OpencodeService {
     const request = (async () => {
       const response = await this.client.config.providers(
         effectiveDirectory ? { directory: effectiveDirectory } : undefined,
+        // The SDK does not yet expose the gateway's session parameter. Keep its generated request and transport.
+        sessionId ? { querySerializer: () => {
+          const query = new URLSearchParams({ session: sessionId });
+          if (effectiveDirectory) query.set('directory', effectiveDirectory);
+          return query.toString();
+        } } : undefined,
       );
       assertRuntimeRequestScope(scope);
       return unwrapSdkData(response, 'config.providers');
     })();
 
+    if (sessionId) return request;
     this.configProvidersInFlight.set(key, request);
     try {
       return await request;

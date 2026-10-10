@@ -4,10 +4,13 @@ import { createBillingRole, registerBillingRoleRoute } from './billing-role.js';
 // smarty-net#136 L3: the owner check reads the Node's published registry record (Record B, format 1).
 const G = 'https://accounts.google.com';
 const record = (over = {}) => JSON.stringify({ format: 1, revision: 41,
+  node: { id: 'test-node', trusted_issuers: [G] },
   orgs: [{ id: 'smartypants', name: 'smartypants', placement: 'primary', members: [
-    { smarty_id: 'sp-paul', role: 'owner', status: 'active' }, { smarty_id: 'sp-kate', role: 'member', status: 'active' },
-    { smarty_id: 'sp-old', role: 'owner', status: 'removed' }] },
-  { id: 'other', name: 'other', placement: 'other', members: [{ smarty_id: 'sp-kate', role: 'owner', status: 'active' }] }],
+    { smarty_id: 'sp-paul', kind: 'person', role: 'owner', status: 'active' },
+    { smarty_id: 'sp-kate', kind: 'person', role: 'member', status: 'active' },
+    { smarty_id: 'sp-old', kind: 'person', role: 'owner', status: 'removed' }] },
+  { id: 'other', name: 'other', placement: 'other', members: [
+    { smarty_id: 'sp-kate', kind: 'person', role: 'owner', status: 'active' }] }],
   logins: [{ issuer: G, subject: 'g-paul', smarty_id: 'sp-paul' }, { issuer: G, subject: 'g-kate', smarty_id: 'sp-kate' },
     { issuer: G, subject: 'g-old', smarty_id: 'sp-old' }, { issuer: 'https://other.example', subject: 'g-kate-2', smarty_id: 'sp-paul' }],
   ...over });
@@ -35,7 +38,7 @@ describe('billing role from the Node record (smarty-net#136 L3)', () => {
     const routes = new Map(); const app = { get: (p, h) => routes.set(p, h) };
     const account = { 'u-paul': 'g-paul', 'u-kate': 'g-kate' };
     const humanAuth = (user) => ({ resolve: async () => user && { user: { id: user } },
-      auth: { $context: Promise.resolve({ adapter: { findOne: async ({ where }) => ({ accountId: account[where[0].value] }) } }) } });
+      auth: { $context: Promise.resolve({ adapter: { findMany: async ({ where }) => [{ accountId: account[where[0].value] }] } }) } });
     const run = async (user, billingRole) => {
       routes.clear(); registerBillingRoleRoute(app, humanAuth(user), { billingRole });
       let status = 200, body; const res = { set() {}, status(s) { status = s; return this; }, json(b) { body = b; } };

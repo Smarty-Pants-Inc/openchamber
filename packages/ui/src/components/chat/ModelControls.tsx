@@ -37,7 +37,7 @@ import { OrdinaryModelControls } from './OrdinaryModelControls';
 import { isOrdinaryReloading } from '@/lib/herdrSession';
 import type { NativeCreatedSession } from '@/lib/opencode/nativeCreation';
 import { applyNativeDraftModel } from '@/sync/native-draft-creation';
-import { useChatColumnSession } from './chatColumnSession';
+import { useSessionModelSlot } from './useSessionModelSlot';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
@@ -321,17 +321,10 @@ interface ModelControlsProps {
 }
 
 export const ModelControls: React.FC<ModelControlsProps> = (props) => {
-    const liveSessionId = useSessionUIStore(state => state.currentSessionId);
-    const column = useChatColumnSession();
-    const sessionId = column ? column.sessionId : liveSessionId;
-    const directory = useSessionUIStore(state => sessionId ? state.getDirectoryForSession(sessionId) : undefined);
-    const session = useSession(sessionId, column?.directory ?? directory ?? undefined);
-    const ordinary = React.useMemo(() => readOrdinaryModel(session), [session]);
-    // Keep ordinary state ahead of all historical, saved and directory-wide choices.
-    if (ordinary !== undefined) {
-        const target = session && sessionId ? { sessionId, directory: session.directory } : undefined;
-        return <OrdinaryModelControls key={sessionId} state={ordinary} target={target} className={props.className}
-            reloading={isOrdinaryReloading(session)} />;
+    const slot = useSessionModelSlot(props.className);
+    if (slot) {
+        // The mobile sheet host is hidden; on mobile the visible pill (MobileModelButton) shows this slot.
+        return props.onMobilePanelChange ? null : slot;
     }
     return <ConfiguredModelControls {...props} />;
 };

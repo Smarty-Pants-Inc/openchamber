@@ -8,7 +8,12 @@ import { settingsDict } from './pl.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
+import { inboxStepsI18n } from './inbox-steps.i18n';
+import { inboxCardI18n } from './inbox-card.i18n';
+
 export const dict: Record<I18nKey, string> = {
+  ...inboxStepsI18n.pl,
+  ...inboxCardI18n.pl,
   'sessions.sidebar.projectAction.active': 'Trwa wykonywanie akcji projektu',
   ...settingsDict,
   ...displayNameI18n.pl,

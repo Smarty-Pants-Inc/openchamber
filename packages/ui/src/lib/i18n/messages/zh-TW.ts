@@ -8,7 +8,12 @@ import { settingsDict } from './zh-TW.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
+import { inboxStepsI18n } from './inbox-steps.i18n';
+import { inboxCardI18n } from './inbox-card.i18n';
+
 export const dict: Record<I18nKey, string> = {
+  ...inboxStepsI18n['zh-TW'],
+  ...inboxCardI18n['zh-TW'],
   'sessions.sidebar.projectAction.active': '專案操作正在執行',
   ...settingsDict,
   ...displayNameI18n['zh-TW'],

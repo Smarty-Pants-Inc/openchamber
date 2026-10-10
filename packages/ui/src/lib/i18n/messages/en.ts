@@ -7,7 +7,12 @@ import { settingsDict } from './en.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
+import { inboxStepsI18n } from './inbox-steps.i18n';
+import { inboxCardI18n } from './inbox-card.i18n';
+
 export const dict = {
+  ...inboxStepsI18n.en,
+  ...inboxCardI18n.en,
   'sessions.sidebar.projectAction.active': 'Project action active',
   ...settingsDict,
   ...displayNameI18n.en,

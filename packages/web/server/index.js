@@ -14,6 +14,7 @@ import { PRODUCT_NAME } from '../brand.generated.js';
 import { exposedProxyResponseHeaders } from './proxy-headers.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createConfiguredHumanAuth } from './lib/ui-auth/human-auth-config.js';
+import { createResponsePolicyMiddleware } from './lib/http-response-policy.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
 import { createTunnelProviderRegistry } from './lib/tunnels/registry.js';
@@ -1485,17 +1486,23 @@ const gracefulShutdownRuntime = createGracefulShutdownRuntime({
 
 const gracefulShutdown = (...args) => gracefulShutdownRuntime.gracefulShutdown(...args);
 
+const HTTP_RESPONSE_POLICY_VERSION = 1;
+
 async function main(options = {}) {
+  const responsePolicy = options.responsePolicy;
+  if (responsePolicy !== undefined && !(responsePolicy instanceof Function)) {
+    throw new TypeError('responsePolicy must be a function');
+  }
   const humanAuth = await createConfiguredHumanAuth(process.env);
   try {
-    return await startConfiguredWebUiServer(options, humanAuth);
+    return await startConfiguredWebUiServer(options, humanAuth, createResponsePolicyMiddleware(responsePolicy, humanAuth));
   } catch (error) {
     humanAuth?.dispose();
     throw error;
   }
 }
 
-async function startConfiguredWebUiServer(options, humanAuth) {
+async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMiddleware) {
   const humanMode = humanAuth !== null;
   const authorizeUiSession = humanAuth?.authorizeUiSession ?? null;
   pushRuntime = createPushRuntime({
@@ -1686,6 +1693,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
       return next();
     });
   }
+  if (responsePolicyMiddleware) app.use(responsePolicyMiddleware);
   // Keep self-hosted instances out of search engines. The app shell is served
   // publicly (it loads before prompting for the UI password), so without this
   // even a password-protected instance gets crawled and indexed. Applies to
@@ -1705,7 +1713,7 @@ async function startConfiguredWebUiServer(options, humanAuth) {
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,If-Match,X-Requested-With,Cache-Control,X-OpenCode-Directory,X-OpenCode-Directory-Encoding,X-Smarty-Creation-Fields,Ngrok-Skip-Browser-Warning');
       res.setHeader('Access-Control-Expose-Headers', exposedProxyResponseHeaders);
-      res.setHeader('Vary', 'Origin');
+      res.vary('Origin');
       if (req.method === 'OPTIONS') {
         res.status(204).end();
         return;
@@ -2121,6 +2129,7 @@ runCliEntryIfMain({
 });
 
 export {
+  HTTP_RESPONSE_POLICY_VERSION,
   gracefulShutdown,
   setupProxy,
   restartOpenCode,

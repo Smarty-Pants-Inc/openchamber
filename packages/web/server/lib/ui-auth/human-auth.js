@@ -5,10 +5,14 @@ import { getMigrations } from 'better-auth/db/migration';
 import { fromNodeHeaders, toNodeHandler } from 'better-auth/node';
 import { createHumanAudience } from './human-audience.js';
 import { createHumanSidebarView } from './human-sidebar-view.js';
+import { createHumanMemberBinding } from './human-member.js';
+import { createHumanConnectionLifetime } from './human-connection.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
-export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains }) {
+export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
+  env = process.env }) {
   const admits = createHumanAudience(allowedDomains);
+  const members = createHumanMemberBinding(env);
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
@@ -20,11 +24,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   if (!database || typeof secret !== 'string' || secret.length < 32 || !googleClientId || !googleClientSecret) {
     throw new Error('Human authentication configuration is incomplete');
   }
-  const liveResponses = new Map();
-  const closeSession = (id) => {
-    for (const response of liveResponses.get(id) || []) response.destroy();
-    liveResponses.delete(id);
-  };
+  let connections;
   const deny = () => { throw new APIError('FORBIDDEN', { message: 'This account is not allowed to use this instance' }); };
   const options = {
     database, baseURL, secret,
@@ -70,7 +70,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
           if (!admits(user)) deny();
           return { data: { ...session, workspacePolicy: `google-hd:${hostedDomain}` } };
         } },
-        delete: { after: async (session) => { closeSession(session.id); } },
+        delete: { after: async (session) => { connections?.closeSession(session.id); } },
       },
     },
   };
@@ -93,11 +93,15 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   const resolve = async (req) => {
     // Device bearer credentials do not become people through an ambient cookie.
     if (req.headers.authorization) return null;
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
-    if (!session || !admits(session.user)) return null;
-    return session;
+    try {
+      const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers), query: { disableCookieCache: true } });
+      if (!session || !admits(session.user) || !await members.admit(adapter, session)
+        || new Date(session.session.expiresAt).getTime() <= Date.now()) return null;
+      return session;
+    } catch { return null; } // Lookup failure is a refusal, never an admitted or guessed member.
   };
-  const actor = (session) => {
+  connections = createHumanConnectionLifetime({ resolve, members, adapter });
+  const actor = (session, { forwarded = false } = {}) => {
     const identity = {
       version: 1, issuer: baseURL, subject: session.user.id,
       name: validName(session.user.name) ? session.user.name : 'User',
@@ -106,6 +110,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     // smarty-code#701: the admitted (verified, allowed-domain) email names the person's inbox. The gateway must accept
     // it (installed first) and never copy it into message metadata.
     identity.email = session.user.email;
+    const member = forwarded ? members.forwardedMember(session) : null;
+    if (member) identity.member = member;
     return identity;
   };
   const authorizeUiSession = async (groupKey) => {
@@ -117,7 +123,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return false;
       const user = await adapter.findOne({ model: 'user', where: [{ field: 'id', value: session.userId }],
         select: ['email', 'emailVerified'] });
-      if (!admits(user)) return false;
+      if (!admits(user) || (members.required && !await members.lookup(adapter, session.userId))) return false;
       const current = await adapter.findOne({ model: 'session', where: [{ field: 'id', value: session.id }],
         select: ['userId', 'expiresAt'] });
       return current?.userId === session.userId && new Date(current.expiresAt).getTime() > Date.now();
@@ -128,29 +134,10 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const checked = startWebTiming(req); // smarty-code#827: the web server's share of a request, forwarded to Code.
     const session = await resolve(req);
     if (!session) return reject(res);
-    const responses = liveResponses.get(session.session.id) || new Set();
-    liveResponses.set(session.session.id, responses);
-    responses.add(res);
-    // Session expiry also closes already-open streams, not just later HTTP requests.
-    const remaining = new Date(session.session.expiresAt).getTime() - Date.now();
-    if (remaining <= 0) { closeSession(session.session.id); return; }
-    const timer = setTimeout(() => res.destroy(), Math.min(remaining, 2_147_483_647));
-    timer.unref?.();
-    let closed = false;
-    const cleanup = () => {
-      closed = true;
-      clearTimeout(timer); responses.delete(res);
-      if (!responses.size) liveResponses.delete(session.session.id);
-    };
-    res.once('close', cleanup);
-    res.once('finish', cleanup);
-    // Register before rechecking so deletion cannot fall between admission and tracking.
-    const current = await resolve(req);
-    if (closed || res.destroyed || res.writableEnded || !current || current.session.id !== session.session.id) {
-      cleanup(); res.destroy(); return;
-    }
+    const current = await connections.admit(req, res, session);
+    if (!current) return;
     checked();
-    req.humanIdentity = actor(current);
+    req.humanIdentity = actor(current, { forwarded: true });
     return next();
   };
   return {
@@ -166,7 +153,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
       const session = await resolve(req);
       return session ? res.json({ authenticated: true, humanAuth: true, user: actor(session) }) : unauthorized(res);
     },
-    dispose: () => { for (const id of liveResponses.keys()) closeSession(id); },
+    dispose: () => connections.dispose(),
   };
 }
 

@@ -3,6 +3,7 @@ import { pillSendDisabledReason } from './composer/ui/pillSendDisabledReason';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { DisplayNameChoice } from './composer/ui/DisplayNameChoice';
+import { NativeDraftIdentity } from './composer/ui/NativeDraftIdentity';
 import { NativeCreationNotice } from './composer/ui/NativeCreationNotice';
 import { useNativeCreation } from './composer/state/useNativeCreation';
 import { ownNativeRequestId, useNativeDraftStarting } from '@/sync/native-draft-start';
@@ -200,6 +201,7 @@ import {
     mergeSessionInputHistory,
 } from './inputHistory';
 import { reconcileSessionIdleBeforeSend, refreshSessionRecord, useSessionStatus, useUserMessageHistory } from '@/sync/sync-context';
+import { isSessionGone } from '@/sync/terminal-session-reads';
 import { useStatusUnavailable } from '@/sync/status-unavailable';
 
 // Lazy like in ChatMessage: a static import would pull the @pierre/diffs and
@@ -1124,7 +1126,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const timer = setInterval(() => {
             recheckOrdinary();
             tick += 1;
-            if (tick % 2 === 0 && directory && sessionID) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
+            // A session that answered 404 is gone until a listing names it again (smarty-code#1575): not read again.
+            if (tick % 2 === 0 && directory && sessionID && !isSessionGone(directory, sessionID)) void refreshSessionRecord(sessionID, directory).catch(() => undefined);
         }, 1000);
         return () => clearInterval(timer);
     }, [unavailableKey]);
@@ -3494,6 +3497,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ) : null}
             <div className={cn('chat-input-column relative overflow-visible', isComposerExpanded && 'flex flex-1 min-h-0 flex-col')}>
                 <DisplayNameChoice />
+                <NativeDraftIdentity observedCapability={{ runtimeKey: activeRuntimeKey, directory: newSessionDraft.directoryOverride ?? currentDirectory ?? null, mode: nativeCreation.mode }} />
                 <NativeCreationNotice native={nativeCreation} draftOpen={newSessionDraftOpen} sent={sentStart} onSend={() => { void submitComposer(); }} />
                 {sessionLoadFailed ? (
                     <p role="alert" className="mb-2 text-sm text-[var(--status-error)]">

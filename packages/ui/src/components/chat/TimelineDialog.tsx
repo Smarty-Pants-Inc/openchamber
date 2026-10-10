@@ -26,6 +26,9 @@ interface TimelineDialogProps {
     canLoadEarlier?: boolean;
     isLoadingEarlier?: boolean;
     onLoadEarlier?: () => void;
+    /** The session to list (default: the current session); `directory` is that session's directory (default: the current one). */
+    sessionId?: string;
+    directory?: string;
 }
 
 const formats = new Map<string, Intl.DateTimeFormat>();
@@ -45,10 +48,13 @@ export const TimelineDialog: React.FC<TimelineDialogProps> = ({
     canLoadEarlier = false,
     isLoadingEarlier = false,
     onLoadEarlier,
+    sessionId,
+    directory,
 }) => {
     const { t } = useI18n();
-    const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-    const messages = useSessionMessageRecords(currentSessionId ?? '');
+    const storeSessionId = useSessionUIStore((state) => state.currentSessionId);
+    const currentSessionId = sessionId ?? storeSessionId;
+    const messages = useSessionMessageRecords(currentSessionId ?? '', directory);
     const revertToMessage = useSessionUIStore((state) => state.revertToMessage);
     const forkFromMessage = useSessionUIStore((state) => state.forkFromMessage);
     const { isMobile, isTablet } = useDeviceInfo();

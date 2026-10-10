@@ -7,7 +7,12 @@ import { settingsDict } from './tr.settings';
 import { linearIssuePickerI18n } from './linear-issue-picker.i18n';
 import { linearPanelI18n } from './linear-panel.i18n';
 
+import { inboxStepsI18n } from './inbox-steps.i18n';
+import { inboxCardI18n } from './inbox-card.i18n';
+
 export const dict = {
+  ...inboxStepsI18n.tr,
+  ...inboxCardI18n.tr,
   'sessions.sidebar.projectAction.active': 'Proje eylemi çalışıyor',
   ...settingsDict,
   ...displayNameI18n.tr,

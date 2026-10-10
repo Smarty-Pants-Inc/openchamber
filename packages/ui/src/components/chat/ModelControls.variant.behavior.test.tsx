@@ -47,6 +47,8 @@ let fixtureHistory: unknown[] = [];
 let forcePreserveManualOverride: boolean | null = null;
 /** Directories whose provider catalog the ordinary picker asked to re-read. */
 const providerLoads: Array<string | null> = [];
+/** #1138: reads of the SELECTED session's own catalog (directory, session); no project-store fallback. */
+const sessionCatalogReads: Array<{ directory: string | null; sessionId: string | null }> = [];
 /** Ordinary model switches sent to the gateway, and the outcome each one gets. */
 const modelChanges: Array<{ id: string; directory: string; change: OrdinaryModelChange }> = [];
 const unchanged: OrdinaryModelState = { generation: 'generation-B', sequence: 1, model: null, thinkingLevel: null };
@@ -274,6 +276,11 @@ mock.module('@/components/ui/select', () => ({
 }));
 mock.module('@/components/ui', () => ({ toast: { error: (message: string) => { toastErrors.push(message); } } }));
 mock.module('@/lib/opencode/client', () => ({ opencodeClient: {
+  // The selected session's own catalog (#1138): this fixture serves the config store's current providers.
+  getProvidersForConfig: async (directory?: string | null, sessionId?: string) => {
+    sessionCatalogReads.push({ directory: directory ?? null, sessionId: sessionId ?? null });
+    return { providers: useConfigStore.getState().providers ?? [], default: {} };
+  },
   setOrdinaryModel: async (id: string, directory: string, change: OrdinaryModelChange) => {
     modelChanges.push({ id, directory, change });
     return modelChangeResult();
@@ -376,7 +383,11 @@ const renderModelControls = async () => {
 
 beforeEach(() => {
   fixtureHistory = [];
-  useNativeSessions.setState({ sessions: {} });
+  // The open session's record is loaded (an OpenCode session); before it loads the composer shows Loading (#1580).
+  useNativeSessions.setState({ sessions: { [SESSION_ID]: {
+    id: SESSION_ID, slug: SESSION_ID, directory: '/workspace/project', projectID: 'fixture', title: SESSION_ID,
+    version: '1', time: { created: 1, updated: 1 },
+  } } });
   useSessionUIStore.setState({ currentSessionId: SESSION_ID });
   useConfigStore.setState({ providers: [provider] });
 });
@@ -482,7 +493,7 @@ describe('ordinary selected-session controls', () => {
     useSessionUIStore.setState({ currentSessionId: 'B' });
     useNativeSessions.setState({ sessions: { B: nativeSession() } });
     useConfigStore.setState({ currentProviderId: PROVIDER_ID, currentModelId: MODEL_ID });
-    providerLoads.length = 0; modelChanges.length = 0; viewRefreshes.length = 0; toastErrors.length = 0; draftModels.length = 0;
+    providerLoads.length = 0; sessionCatalogReads.length = 0; modelChanges.length = 0; viewRefreshes.length = 0; toastErrors.length = 0; draftModels.length = 0;
     modelChangeResult = async () => unchanged;
   });
 
@@ -605,11 +616,14 @@ describe('ordinary selected-session controls', () => {
     }
   });
 
-  test('a live model outside the loaded catalog stays read-only and re-reads the project catalog', async () => {
+  test('a live model outside the loaded catalog stays read-only and re-reads the SESSION catalog once (#1138)', async () => {
     const { dom, cleanup } = await renderModelControls();
     try {
+      await act(async () => { await new Promise(r => setTimeout(r, 0)); });
       expect(dom.container.querySelector('button')).toBeNull();
-      expect(providerLoads).toEqual(['/workspace/project']);
+      // The initial read plus exactly one refresh, both of the selected session's own catalog; never the project store.
+      expect(sessionCatalogReads).toEqual([{ directory: '/workspace/project', sessionId: 'B' }, { directory: '/workspace/project', sessionId: 'B' }]);
+      expect(providerLoads).toEqual([]);
     } finally { await cleanup(); }
   });
 

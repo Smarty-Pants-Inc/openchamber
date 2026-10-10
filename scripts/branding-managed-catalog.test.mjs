@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { responsePolicyOutputSha256 as currentOutput } from './branding-response-policy.mjs';
 
 const overlay = JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8'));
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -23,8 +24,8 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogSha256).map(entry => entry.path).sort(), paths.sort());
   assert.deepEqual(overlay.files.filter(entry => entry.managedCatalogAdded).map(entry => entry.path).sort(), consumers.sort());
   for (const entry of overlay.files.filter(entry => entry.managedCatalogSha256)) {
-    assert.equal(entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
-    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256);
+    assert.equal(entry.smarties1407Sha256 ?? entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256, entry.combinedSha256);
+    assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), currentOutput(entry.path, entry.smarties1407Sha256 ?? entry.sessionStatusReadSha256 ?? entry.inboxStepsSha256 ?? entry.humanSessionLifetimeSha256 ?? entry.humanHostBoundarySha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.voiceFabricSha256 ?? entry.design538Sha256 ?? entry.contextWindowSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256));
     assert.match(entry.preManagedCatalogCombinedSha256, /^[a-f0-9]{64}$/);
     if (entry.managedCatalogAdded) assert.equal(entry.preManagedCatalogCombinedSha256, entry.brandingSha256);
   }
@@ -36,6 +37,91 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
+  // smarty-dev#799 L2 (the iPhone share route) is the newest layer, above openchamber#542: unwind it first.
+  assert.equal(historical.share799Source, '7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e');
+  delete historical.share799Source;
+  const share799 = historical.files.filter(entry => 'share799Sha256' in entry);
+  assert.deepEqual(share799.map(entry => entry.path),
+    ['packages/web/server/lib/opencode/core-routes.js', 'packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of share799) {
+    assert.equal(entry.share799Sha256, entry.combinedSha256);
+    assert.ok(entry.share799Note);
+    entry.combinedSha256 = entry.preShare799CombinedSha256;
+    delete entry.preShare799CombinedSha256;
+    delete entry.share799Sha256;
+    delete entry.share799Note;
+  }
+  // openchamber#542 native ownership fields sit above the Smarties layer (smarty-code#1407): unwind them next.
+  assert.equal(historical.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
+  delete historical.nativeListSource;
+  const nativeList = historical.files.filter(entry => 'nativeListSha256' in entry);
+  assert.deepEqual(nativeList.map(entry => entry.path), ['packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of nativeList) {
+    assert.equal(entry.nativeListSha256, 'ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78');
+    assert.equal(entry.nativeListSha256, entry.combinedSha256);
+    assert.equal(entry.preNativeListCombinedSha256, '6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172');
+    assert.equal(entry.preNativeListCombinedSha256, entry.proxyConnectionSha256);
+    assert.ok(entry.nativeListNote);
+    entry.combinedSha256 = entry.preNativeListCombinedSha256;
+    delete entry.preNativeListCombinedSha256;
+    delete entry.nativeListSha256;
+    delete entry.nativeListNote;
+  }
+  // The Smarties layer (smarty-code#1407: the inbox-card locale import and the Smarty-named top bar) sits
+  // above PR486: unwind it next.
+  assert.equal(historical.smarties1407Source, '689ca2f8d21367829cf9b937ae64f6aa30d04cda');
+  delete historical.smarties1407Source;
+  for (const entry of historical.files.filter(file => file.smarties1407Sha256)) {
+    assert.equal(entry.smarties1407Sha256, entry.combinedSha256);
+    assert.ok(entry.smarties1407Note);
+    entry.combinedSha256 = entry.preSmarties1407CombinedSha256;
+    delete entry.preSmarties1407CombinedSha256;
+    delete entry.smarties1407Sha256;
+    delete entry.smarties1407Note;
+  }
+  // Then PR486: the layer above inbox Steps; all three successors must be removed before checking the complete predecessor ledger.
+  historical.files = historical.files.filter(entry => !entry.sessionStatusReadAdded);
+  for (const entry of historical.files.filter(file => file.preSessionStatusReadCombinedSha256)) {
+    assert.equal(entry.sessionStatusReadSha256, entry.combinedSha256);
+    assert.equal(entry.preSessionStatusReadCombinedSha256, entry.managedCatalogSha256);
+    entry.combinedSha256 = entry.preSessionStatusReadCombinedSha256;
+    delete entry.preSessionStatusReadCombinedSha256;
+    delete entry.sessionStatusReadSha256;
+    delete entry.sessionStatusReadNote;
+  }
+  delete historical.sessionStatusReadProvenance;
+  assert.equal(digest(JSON.stringify(historical)),
+    '6a636b11808d1e2b28ad0afc311e6592ebc838ab8194adaa809c0d693a04af10');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), '42cb0bcc611bd57ca55b84ac94f08906385546ab7f8f39ccadc27dcb6bc4c8e5');
+  // Unwind Steps to the exact upstream ledger, retaining Forge placement and provenance.
+  assert.equal(historical.inboxStepsSource, 'f2a293d2eb5f4570fcad5088ce39065ae1e59271');
+  delete historical.inboxStepsSource;
+  const inboxSteps = historical.files.filter(entry => 'inboxStepsSha256' in entry);
+  assert.deepEqual(inboxSteps.map(entry => entry.path).sort(), paths.filter(file => file.includes('/i18n/messages/')).sort());
+  for (const entry of inboxSteps) {
+    assert.equal(entry.inboxStepsSha256, entry.combinedSha256);
+    assert.equal(entry.preInboxStepsCombinedSha256, entry.statusUnavailableSha256);
+    assert.ok(entry.inboxStepsNote);
+    entry.combinedSha256 = entry.preInboxStepsCombinedSha256;
+    delete entry.preInboxStepsCombinedSha256;
+    delete entry.inboxStepsSha256;
+    delete entry.inboxStepsNote;
+  }
+  assert.equal(digest(JSON.stringify(historical)), '6db9d621c04a942e308030a4d7a7cf60d55af973bf8d5064659c1cab342aa2e3');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'ded363c23fa52c512a26726c144ff50e0a8a8d2aecafacfc99a2e48d058ecb56');
+  // Unwind Forge placement next; every older ledger assertion still runs below.
+  assert.equal(historical.forgeRunnerProvenance.reviewedHead, '7f2d8f550b160e7e74026a58dcd693d4befb3072');
+  delete historical.forgeRunnerProvenance;
+  historical.files = historical.files.filter(entry => !entry.forgeRunnerAdded);
+  const forgeWorkflow = historical.files.find(entry => entry.path === '.github/workflows/oc-review.yml');
+  assert.equal(forgeWorkflow.preForgeRunnerCombinedSha256, forgeWorkflow.humanAuthUiProofSha256);
+  assert.equal(forgeWorkflow.forgeRunnerSha256, forgeWorkflow.combinedSha256);
+  forgeWorkflow.combinedSha256 = forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.preForgeRunnerCombinedSha256;
+  delete forgeWorkflow.forgeRunnerBaseSha256;
+  delete forgeWorkflow.forgeRunnerSha256;
+  assert.equal(digest(JSON.stringify(historical)), '67dda5752d97d95c55e0415f2c91ceda67b13ccf36064bce2f4152aab4cd3ad2');
+  assert.equal(digest(`${JSON.stringify(historical, null, 2)}\n`), 'b9a267f250b259ec739f3b9de8bd414529917395a33ab924a46dbc99f49676f5');
   // Unwind the proxy Connection successor first, then run every earlier ledger assertion unchanged.
   assert.equal(historical.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   delete historical.proxyConnectionSource;

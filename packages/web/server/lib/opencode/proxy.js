@@ -9,6 +9,7 @@ import {
   shouldForwardProxyResponseHeader,
 } from '../../proxy-headers.js';
 import { createRealpathCache } from '../path-realpath-cache.js';
+import { isShareRequest, SHARE_TOKEN_HEADER } from './share-route.js';
 import { DEFAULT_UPSTREAM_STALL_TIMEOUT_MS } from '../event-stream/upstream-reader.js';
 import { recordStartupPerformance } from './startup-performance.js';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
@@ -238,6 +239,8 @@ const SESSION_LIST_ALLOWED_FIELDS = [
   'ordinaryReloading',
   // An unavailable Code-made session (smarty-code#957): the page keeps its composer, not the fleet View-only banner.
   'ordinaryCodeMade',
+  'nativeRuntime',
+  'ordinary',
 ];
 
 const sanitizeSessionListItem = (session) => {
@@ -908,6 +911,8 @@ export const registerOpenCodeProxy = (app, deps) => {
         for (const key of ['Authorization', 'cookie', 'x-smarty-human-identity']) {
           if (headers[key]) proxyReq.setHeader(key, headers[key]);
         }
+        // smarty-dev#799: the share token reaches the gateway unchanged, and only on the iPhone share route.
+        if (!isShareRequest(req)) proxyReq.removeHeader(SHARE_TOKEN_HEADER);
 
         if (req.headers?.['x-opencode-directory-encoding'] === 'uri') {
           const rawDirectory = req.headers['x-opencode-directory'];
