@@ -2316,6 +2316,9 @@ export function handleEvent(
     )
   }
 
+  // smarty-code#1501: a session shown from a journal-only answer reads its newest page again on its first live update.
+  if (ordinarySessionID) getImperativeSessionMessageLoader()?.noteLiveUpdate({ directory: resolvedDirectory, sessionID: ordinarySessionID })
+
   // Snapshot materialization is driven by typed reducer outcomes, not by
   // inferring meaning from a generic false/no-change result.
   if (materializationResult) {
@@ -2535,6 +2538,8 @@ export function SyncProvider(props: {
     messageLoaderRef.current = new SessionMessageLoader(childStores, {
       sdk: props.sdk,
       runtimeKey,
+      // smarty-code#867/#1501: journal-only re-reads of any other session are capped background reads.
+      isViewed: (target) => _activeSession === target.sessionID && sameDirectory(_activeDirectory, target.directory),
     })
   }
   const messageLoader = messageLoaderRef.current

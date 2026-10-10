@@ -769,11 +769,11 @@
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
-      "behaviorSha256": "f43649b42797b7e42b6c30ed3567ff83ce03c2ae2fd6ca9290e6698847bc4bf0",
-      "combinedSha256": "f43649b42797b7e42b6c30ed3567ff83ce03c2ae2fd6ca9290e6698847bc4bf0",
-      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
+      "behaviorSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e",
+      "combinedSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e",
+      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#867/#1501 cap composition (replaces 60293a3b579c7b7ca51c86bb3b53fa1bfb71d9601a6c9cca9e21b69c59b22e23): the loader is told which session is viewed, so journal-only re-reads of any other session are capped background reads. Merge of smarty-code#1501's successor (575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d) with smarty-code#867/#1575's (f43649b42797b7e42b6c30ed3567ff83ce03c2ae2fd6ca9290e6698847bc4bf0): background tail refreshes and the viewed-session 404 path keep the journal-only live-update nudge. smarty-code#1501 successor (replaces 7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b, merged with #1234's): wires the loader's live-update nudge for journal-only history; earlier smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "f43649b42797b7e42b6c30ed3567ff83ce03c2ae2fd6ca9290e6698847bc4bf0"
+      "sessionStatusReadSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e"
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
