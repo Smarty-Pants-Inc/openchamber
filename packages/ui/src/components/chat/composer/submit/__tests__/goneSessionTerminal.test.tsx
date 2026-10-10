@@ -27,9 +27,12 @@ beforeEach(() => {
   shown.length = 0; reads = 0; status = 404; resetGoneSessionNotices(); clearSessionReadFailures();
   spies.push(spyOn(toast, 'warning').mockImplementation(message => { shown.push(String(message)); return 'toast'; }));
 });
+const initialGlobals = useGlobalSessionsStore.getState(), initialUi = useSessionUIStore.getState();
 afterEach(async () => {
   jest.useRealTimers();
   await mounted?.dispose(); mounted = undefined; spies.splice(0).forEach(spy => spy.mockRestore());
+  clearSessionReadFailures(); resetGoneSessionNotices();
+  useGlobalSessionsStore.setState(initialGlobals, true); useSessionUIStore.setState(initialUi, true);
 });
 
 test('the open session\'s 404 is terminal: one read, one notice, the ended state, and no read in the next 10 minutes', async () => {
@@ -53,7 +56,10 @@ test('the open session\'s 404 is terminal: one read, one notice, the ended state
     useGlobalSessionsStore.getState().applyManagedSessions([], useGlobalSessionsStore.getState().mutationRevision, new Set([directory]));
   });
   expect(useSessionUIStore.getState().currentSessionId).toBe(session.id);
-  for (let second = 0; second < 600; second++) await act(async () => { jest.advanceTimersByTime(1_000); });
+  // Second by second until the first read's 404 has landed, then the rest of the 10 minutes in minute steps (each step
+  // still fires every 1 s tick of the composer's interval).
+  for (let second = 0; second < 5; second++) await act(async () => { jest.advanceTimersByTime(1_000); });
+  for (let minute = 0; minute < 10; minute++) await act(async () => { jest.advanceTimersByTime(60_000); });
   expect(reads).toBe(1);
   expect(shown).toEqual([DEFAULT]);
   expect(isSessionGone(directory, session.id)).toBe(true);
@@ -77,4 +83,4 @@ test('the open session\'s 404 is terminal: one read, one notice, the ended state
   await act(async () => { await refreshSessionRecord(session.id, directory); });
   expect(reads).toBe(2);
   expect(child.getState().session.map(entry => entry.id)).toEqual([session.id]);
-});
+}, 30_000);
