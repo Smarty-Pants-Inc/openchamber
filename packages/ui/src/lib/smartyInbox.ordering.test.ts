@@ -132,3 +132,50 @@ test('bootstrap held, newer refreshes A then A+B: bootstrap success shows until 
     expect(useInboxStore.getState().invalidStepGroups).toEqual([JSON.stringify(['paul', 'broken'])]);
   } finally { unsubscribe(); }
 });
+
+// #1661: after a failed read revokes authority, only a read started after that failure can restore it.
+const bootstrapThenHold = async () => {
+  const held = holdBootstrap([a]);
+  const pending: ((response: Response) => void)[] = [];
+  fetchInbox(() => new Promise(resolve => { pending.push(resolve); }));
+  stop = watchInbox(held.load); await settle();
+  held.release(); await settle();
+  expect(useInboxStore.getState()).toMatchObject({ snapshotValid: true, items: [a] });
+  const authority: boolean[] = [];
+  const unsubscribe = useInboxStore.subscribe(state => { authority.push(state.snapshotValid); });
+  return { pending, authority, unsubscribe };
+};
+
+test('older read A completing after newer B fails all and open keeps its items but never restores authority; a later read does', async () => {
+  const { pending, authority, unsubscribe } = await bootstrapThenHold();
+  try {
+    const refreshA = refreshInboxBadge(), refreshB = refreshInboxBadge(); await settle();
+    pending[1]!(overflow()); await settle();
+    pending[2]!(overflow()); await refreshB; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a] });
+    pending[0]!(json([a, b])); await refreshA; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a, b], openCount: 2 });
+    expect(authority).not.toContain(true); // No transient authority notification.
+    const refreshC = refreshInboxBadge(); await settle();
+    pending[3]!(json([a, b])); await refreshC; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: true, items: [a, b] });
+  } finally { unsubscribe(); }
+});
+
+test('a read newer than failed B but started before its open-fallback failure cannot grant authority', async () => {
+  const { pending, authority, unsubscribe } = await bootstrapThenHold();
+  try {
+    const refreshA = refreshInboxBadge(), refreshB = refreshInboxBadge(), refreshC = refreshInboxBadge(); await settle();
+    pending[1]!(overflow()); await settle();
+    pending[3]!(json([a])); await refreshB; await settle(); // Open fallback 200: badge only, no Steps authority.
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a] });
+    pending[2]!(json([a, c])); await refreshC; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: false, items: [a, c] });
+    pending[0]!(json([a, b])); await refreshA; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ snapshotValid: false, items: [a, c] }); // Older A publishes nothing.
+    expect(authority).not.toContain(true);
+    const refreshD = refreshInboxBadge(); await settle();
+    pending[4]!(json([a, c])); await refreshD; await settle();
+    expect(useInboxStore.getState()).toMatchObject({ available: true, snapshotValid: true, items: [a, c] });
+  } finally { unsubscribe(); }
+});

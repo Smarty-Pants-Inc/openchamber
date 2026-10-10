@@ -102,19 +102,20 @@ type Store = {
   snapshotScope: RuntimeRequestScope | null;
   available: boolean; openCount: number; p0Count: number; pageOpen: boolean; revision: number; items: InboxItem[]; snapshotValid: boolean; guardedReopen: boolean; invalidStepGroups: string[];
   setOpenItems: (available: boolean, items: InboxItem[]) => void; setPageOpen: (open: boolean) => void;
-  setItems: (available: boolean, items: InboxItem[], details?: SnapshotDetails, scope?: RuntimeRequestScope) => void;
+  setItems: (available: boolean, items: InboxItem[], details?: SnapshotDetails, scope?: RuntimeRequestScope, authoritative?: boolean) => void;
   recordItem: (item: InboxItem, scope?: RuntimeRequestScope) => void;
   invalidateSnapshot: () => void;
 };
 export const useInboxStore = create<Store>(set => ({
   snapshotScope: null, available: false, openCount: 0, p0Count: 0, pageOpen: false, revision: 0, items: [], snapshotValid: false, guardedReopen: false, invalidStepGroups: [],
-  setOpenItems: (available, items) => set(s => ({ available, openCount: items.length,
+  // Open counts are badge authority only, so they revoke Steps authority in the same notification.
+  setOpenItems: (available, items) => set(s => ({ available, snapshotValid: false, openCount: items.length,
     p0Count: items.filter(i => i.priority === 'p0').length, revision: s.revision + 1 })),
   setPageOpen: pageOpen => set({ pageOpen }),
-  setItems: (available, items, details, scope = captureRuntimeRequestScope()) => set(s => {
+  setItems: (available, items, details, scope = captureRuntimeRequestScope(), authoritative = true) => set(s => {
     if (!isRuntimeRequestScopeCurrent(scope)) return s;
     const open = items.filter(i => inboxItemState(i) === 'open');
-    return { snapshotScope: scope, available, items, snapshotValid: available, guardedReopen: details?.capabilities?.guardedReopen ?? false,
+    return { snapshotScope: scope, available, items, snapshotValid: available && authoritative, guardedReopen: details?.capabilities?.guardedReopen ?? false,
       invalidStepGroups: details?.invalidStepGroups ?? [], openCount: open.length, p0Count: open.filter(i => i.priority === 'p0').length, revision: s.revision + 1 };
   }),
   invalidateSnapshot: () => set({ snapshotValid: false }),
@@ -142,7 +143,7 @@ async function loadWatchSnapshot(load: () => Promise<InboxListResult>, current: 
     return { complete: false, result: await loadInbox('open') };
   }
 }
-function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof loadWatchSnapshot>>>, scope: RuntimeRequestScope) {
+function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof loadWatchSnapshot>>>, scope: RuntimeRequestScope, authoritative: boolean) {
   const store = useInboxStore.getState(), r = snapshot.result;
   if (snapshot.complete) {
     // A status/item receipt can be newer than a subsequent list projection. Preserve its version, not stale text.
@@ -152,18 +153,19 @@ function applyWatchSnapshot(snapshot: NonNullable<Awaited<ReturnType<typeof load
       return store.snapshotScope && isRuntimeRequestScopeCurrent(store.snapshotScope) && receipt?.to === item.to
         && Date.parse(receipt.updated) > Date.parse(item.updated) ? receipt : item;
     });
-    store.setItems(r.available, items, r, scope);
+    store.setItems(r.available, items, r, scope, authoritative);
     return;
   }
   // An open 403 is an answer (no inbox): retire retained Steps items, blockers and guarded reopen.
   if (!r.available) { store.setItems(false, [], undefined, scope); return; }
-  store.setOpenItems(r.available, r.items);
-  store.invalidateSnapshot(); // Open is badge authority, never a silently reduced Steps snapshot.
+  store.setOpenItems(r.available, r.items); // Open is badge authority, never a silently reduced Steps snapshot.
 }
 // One generation for every publisher (watch bootstrap, its retries and refreshes). A successful read publishes unless a
 // newer read already published, so a failed newer read never discards an older success. Read publications advance the
 // store revision; `readChain` records the span they alone reached, so only receipts and other writes fence older reads.
-let latestInboxRefresh = 0, publishedInboxRead = 0;
+// A failed read (total or open fallback) records every read started so far in `revokedThrough`: their later successes
+// still publish items, but only a read started after that failure restores Steps authority.
+let latestInboxRefresh = 0, publishedInboxRead = 0, revokedThrough = 0;
 let readChain = { base: 0, revision: 0 };
 const canPublishRead = (generation: number, revision: number, scope: RuntimeRequestScope) => {
   const now = useInboxStore.getState().revision;
@@ -173,7 +175,8 @@ const canPublishRead = (generation: number, revision: number, scope: RuntimeRequ
 function publishRead(snapshot: Parameters<typeof applyWatchSnapshot>[0], scope: RuntimeRequestScope, generation: number) {
   const before = useInboxStore.getState().revision;
   publishedInboxRead = generation;
-  applyWatchSnapshot(snapshot, scope);
+  if (!snapshot.complete) revokedThrough = latestInboxRefresh;
+  applyWatchSnapshot(snapshot, scope, generation > revokedThrough);
   readChain = { base: readChain.revision === before ? readChain.base : before, revision: useInboxStore.getState().revision };
 }
 let pendingInboxRefresh: { scope: RuntimeRequestScope; revision: number; promise: Promise<void> } | null = null;
@@ -191,7 +194,7 @@ export const refreshInboxBadge = (options?: { reusePending?: boolean }): Promise
       if (snapshot && current()) publishRead(snapshot, scope, generation);
     } catch {
       // Keep text/progress visible, but a malformed or unavailable list cannot grant actionable group authority.
-      if (current()) useInboxStore.getState().invalidateSnapshot();
+      if (current()) { revokedThrough = latestInboxRefresh; useInboxStore.getState().invalidateSnapshot(); }
     }
   })();
   const pending = { scope, revision, promise };
