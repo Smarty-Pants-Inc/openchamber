@@ -3168,6 +3168,46 @@ export function SyncProvider(props: {
     }
   }, [childStores, messageLoader])
 
+  useEffect(() => {
+    let needsHydration: { directory: string; sessionID: string } | undefined
+    // Selection publication is authoritative, including tab close and navigation to a draft.
+    const stopNavigation = useSessionUIStore.subscribe((state, previous) => {
+      if (state.currentSessionId === previous.currentSessionId && state.currentSessionDirectory === previous.currentSessionDirectory) return
+      needsHydration = undefined
+      if (previous.currentSessionId && previous.currentSessionDirectory) {
+        messageLoader.cancelReads({ directory: previous.currentSessionDirectory, sessionID: previous.currentSessionId }, "navigation")
+      }
+    })
+    const hidden = () => {
+      const { currentSessionId, currentSessionDirectory } = useSessionUIStore.getState()
+      if (document.visibilityState === "hidden") {
+        if (currentSessionId && currentSessionDirectory) {
+          const target = { directory: currentSessionDirectory, sessionID: currentSessionId }
+          const snapshot = messageLoader.getSnapshot(target)
+          if (!snapshot.resolved && snapshot.status === "loading") needsHydration = target
+        }
+        messageLoader.cancelReads(undefined, "hidden")
+      } else if (document.visibilityState === "visible" && needsHydration) {
+        const target = needsHydration
+        needsHydration = undefined
+        if (currentSessionId === target.sessionID && currentSessionDirectory === target.directory) {
+          // Restart the canceled first read even if no session update or stream reconnect follows.
+          void messageLoader.ensure(target, { reason: "reactive" })
+        }
+      }
+    }
+    const unload = () => messageLoader.cancelReads(undefined, "unload")
+    globalThis.document?.addEventListener("visibilitychange", hidden)
+    globalThis.window?.addEventListener?.("pagehide", unload)
+    globalThis.window?.addEventListener?.("beforeunload", unload)
+    return () => {
+      stopNavigation()
+      globalThis.document?.removeEventListener("visibilitychange", hidden)
+      globalThis.window?.removeEventListener?.("pagehide", unload)
+      globalThis.window?.removeEventListener?.("beforeunload", unload)
+    }
+  }, [messageLoader, props.sdk, runtimeKey])
+
   // Subscribe to child store for streaming state derivation
   useEffect(() => {
     if (!props.directory) return

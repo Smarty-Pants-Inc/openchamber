@@ -60,11 +60,22 @@ export type SessionMessageLoadState = {
 
 export type SessionPositions = { total: number; ranges: Range[]; epoch?: string }
 
+type LifecycleCancellationReason = "navigation" | "hidden" | "unload" | "disposed" | "superseded" | "runtime-changed"
+
+/** A reason owned by this loader, never inferred from an upstream AbortError's name or message. */
+class LifecycleReadCancellation extends Error {
+  override name = "AbortError"
+  constructor(readonly origin: LifecycleCancellationReason) { super("Session history lifecycle cancellation") }
+}
+
+type PendingHistoryRead = { controller: AbortController; kind: "load" | "window" | "replacement" }
+
 type LoaderEntry = {
   target: SessionMessageTarget
   snapshot: SessionMessageLoadState
   listeners: Set<() => void>
   inflight: Promise<void> | null
+  reads: Set<PendingHistoryRead>
   /** The open the page's reports name (#536): new on Try again (force) and after a success, so the page's automatic
    * reloads of one failed open are one error, however often they fail. */
   reportId: string
@@ -126,11 +137,16 @@ type FetchedPage = {
   ordinaryView?: string
   readOnly: boolean
   viewEpoch: number
+  /** The open read across reconnects through both replacement reads, not just a single stale refresh. */
+  replacementReadsExhausted?: boolean
   /** The journal state a View only newest page reflects (`x-smarty-journal-at`, #278 r11). */
   journalAt?: string
   /** The session's live message-event revision when the read started (sessionMessageEventCount). */
   eventsAtRead: number
 }
+
+/** Position keys forwarded by the SDK's `$query_` passthrough for history range reads. */
+type HistoryPositionQuery = { $query_at?: number; $query_epoch?: string }
 
 type LoadPerformanceDetails = {
   retryCount: number
@@ -204,10 +220,11 @@ const assertSdkSuccess = (result: {
 }
 
 /** A read the loader itself gave up: its view was read across a stream reconnect, or its owner cancelled it. When a newer
- * read took over, the load is stale and not reported; when the load is still current it failed for the person (the open
- * used up its replacement reads): reported as `SupersededReadError (superseded-exhausted)` (smarty-code#1058 r1). */
+ * read took over, the load is stale and not reported; when the load is still current it failed for the person. Only an
+ * open that used up its replacement reads reports ` (superseded-exhausted)` (smarty-code#1058 r1, #1125). */
 export class SupersededReadError extends Error {
   override name = "SupersededReadError"
+  constructor(message: string, readonly replacementReadsExhausted = false) { super(message) }
 }
 
 const filterIdentifiedParts = (parts: Part[]): Part[] => parts
@@ -234,6 +251,8 @@ export class SessionMessageLoader {
   private ordinaryEpoch = 0
   private disposed = false
   private readonly entries = new Map<string, LoaderEntry>()
+  /** Error identity preserves boundary provenance without changing the error the page sees or retaining failures. */
+  private readonly fetchFailures = new WeakSet<Error>()
   private backgroundActive = 0
   private readonly backgroundQueue: Array<() => void> = []
   private readonly backgroundPending = new Map<string, Promise<void>>()
@@ -254,6 +273,11 @@ export class SessionMessageLoader {
     this.runtimeKey = configuration.runtimeKey
     this.sdkEpoch += 1
     for (const entry of this.entries.values()) {
+      this.abortReads(entry, "runtime-changed")
+      entry.replaceEpoch++
+      entry.windowLoads.clear()
+      entry.queuedRefresh = null
+      entry.queuedRefreshLimit = 0
       entry.snapshot = {
         ...entry.snapshot,
         status: entry.snapshot.resolved ? "ready" : "idle",
@@ -484,7 +508,7 @@ export class SessionMessageLoader {
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
         : null
       const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance, undefined,
-        undefined, undefined, background)
+        undefined, undefined, undefined, undefined, background)
       if (!isCurrent()) return
       // The first tail page after the session left View only replaces what was shown, as a first open, with its own
       // coverage (smarty-code#497): merged into the View only coverage it could leave a gap marked complete. Like
@@ -547,12 +571,13 @@ export class SessionMessageLoader {
     // connections) converges: View only events are full-state only, and the gateway tail publishes anything a read saw
     // beyond its baseline at its next tick, because a read never moves that baseline (the gateway's readOnlyReadBaseline
     // capability, smarty-code#507; view-only-watch.ts watches only such a gateway).
+    this.abortReads(entry, "superseded", (read) => read.kind === "replacement")
     const epoch = ++entry.replaceEpoch
     const owns = () => !this.disposed && !signal?.aborted && entry.replaceEpoch === epoch
       && this.entries.get(this.keyFor(normalized)) === entry && this.childStores.getChild(normalized.directory) === store
     for (let attempt = 0; owns(); attempt++) {
       const events = sessionMessageEventCount(normalized.sessionID), commits = entry.commits, demand = entry.demand
-      const page = await this.fetchPage(normalized, getInitialPageSize(), undefined, "refresh", undefined, () => !owns())
+      const page = await this.fetchPage(normalized, getInitialPageSize(), undefined, "refresh", undefined, () => !owns(), undefined, undefined, signal, "replacement")
         .catch(() => null)
       if (!owns() || entry.ordinary) return // Another load adopted an ordinary view: the session left View only.
       // It left View only: the ordinary loading path owns that transition, including its coverage (smarty-code#497).
@@ -712,7 +737,10 @@ export class SessionMessageLoader {
     if (!normalized) return () => undefined
     const entry = this.getEntry(normalized)
     entry.listeners.add(listener)
-    return () => entry.listeners.delete(listener)
+    return () => {
+      if (!entry.listeners.delete(listener)) return
+      if (!entry.listeners.size && this.entries.get(this.keyFor(normalized)) === entry) this.cancelReads(normalized, "disposed")
+    }
   }
 
   /** The store holding a session's messages and parts, if this page has it (its updates are the store's own). */
@@ -794,8 +822,38 @@ export class SessionMessageLoader {
     }
   }
 
+  /** Retire owned reads without erasing materialized history or turning cancellation into a load failure. */
+  cancelReads(target: SessionMessageTarget | undefined, reason: LifecycleCancellationReason): void {
+    const normalized = target ? this.normalizeTarget(target) : undefined
+    if (target && !normalized) return
+    const selected = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
+    const entries = normalized ? selected ? [selected] : [] : this.entries.values()
+    for (const entry of entries) {
+      if (!entry.inflight && !entry.reads.size && !entry.windowLoads.size) continue
+      // Mounted consumers still need their reads, including first hydration and visible gap windows.
+      // Keep that bounded work alive on hide; releasing the last subscriber still cancels it.
+      if (reason === "hidden" && entry.listeners.size) continue
+      this.abortReads(entry, reason)
+      this.bumpGeneration(entry)
+      entry.replaceEpoch++
+      entry.inflight = null
+      entry.queuedRefresh = null
+      entry.queuedRefreshLimit = 0
+      entry.windowLoads.clear()
+      this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null, error: null })
+    }
+  }
+
+  private abortReads(entry: LoaderEntry, reason: LifecycleCancellationReason,
+    includes: (read: PendingHistoryRead) => boolean = () => true): void {
+    for (const read of entry.reads) {
+      if (includes(read) && !read.controller.signal.aborted) read.controller.abort(new LifecycleReadCancellation(reason))
+    }
+  }
+
   dispose(): void {
     this.disposed = true
+    this.cancelReads(undefined, "disposed")
     this.sdkEpoch += 1
     for (const entry of this.entries.values()) {
       this.bumpGeneration(entry)
@@ -837,6 +895,7 @@ export class SessionMessageLoader {
         : createDefaultState(),
       listeners: new Set(),
       inflight: null,
+      reads: new Set(),
       reportId: newOperationId(),
       openUnanswered: false,
       loadedOnce: false,
@@ -867,7 +926,8 @@ export class SessionMessageLoader {
 
   /** keepWindows: a same-epoch tail refresh; window reads in flight stay valid (openchamber#363 r13). */
   private bumpGeneration(entry: LoaderEntry, keepWindows = false): number {
-    if (!keepWindows) entry.windowGeneration++
+    this.abortReads(entry, "superseded", (read) => read.kind === "load" || (!keepWindows && read.kind === "window"))
+    if (!keepWindows) { entry.windowGeneration++; entry.windowLoads.clear() }
     const generation = entry.snapshot.generation + 1
     entry.snapshot = { ...entry.snapshot, generation }
     return generation
@@ -928,7 +988,8 @@ export class SessionMessageLoader {
           const failure = error instanceof Error ? error : new Error(formatSdkError(error))
           this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null, error: null })
           reportClientError({ kind: `session-messages.refresh.background${unanswered(failure) ? ".timeout" : ""}`,
-            sessionID: target.sessionID, runtimeKey, operationId, ...failureReport(failure) })
+            sessionID: target.sessionID, runtimeKey, operationId,
+            ...failureReport(failure, this.fetchFailures.has(failure) ? "fetch" : "processing") })
           return
         }
         entry.openUnanswered = opening && error instanceof Error && unanswered(error)
@@ -938,8 +999,8 @@ export class SessionMessageLoader {
         // The page now shows "Session could not be loaded": the fleet sees it too (smarty-code#536), with the error's name
         // and HTTP status (smarty-code#1058). Only an obsolete read is silent (the !isCurrent() return above): a current
         // abort (a relay body cut by the read limit, #451 r2) or a superseded read with no successor (r1) is reported.
-        const report = failureReport(failure)
-        if (failure instanceof SupersededReadError) report.message += " (superseded-exhausted)"
+        const report = failureReport(failure, this.fetchFailures.has(failure) ? "fetch" : "processing")
+        if (failure instanceof SupersededReadError && failure.replacementReadsExhausted) report.message += " (superseded-exhausted)"
         // A read that did not answer in time (a frozen or slow Pi) is its own diagnostic: session-messages.<kind>.timeout.
         const timedOut = unanswered(failure) // The client read limit, or the gateway's smarty.pi-timed-out.
         reportClientError({ kind: `session-messages.${kind}${timedOut ? ".timeout" : ""}`, sessionID: target.sessionID, runtimeKey, operationId,
@@ -1022,7 +1083,8 @@ export class SessionMessageLoader {
     performance?: LoadPerformanceDetails): Promise<FetchedPage> {
     for (let attempt = 0; ; attempt++) {
       const page = await this.fetchPage(target, limit, undefined, "initial-page", performance)
-      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || attempt >= 2 || !isCurrent()) return page
+      if (!page.ordinaryView || page.viewEpoch === this.ordinaryEpoch || !isCurrent()) return page
+      if (attempt >= 2) return { ...page, replacementReadsExhausted: true }
     }
   }
 
@@ -1035,8 +1097,17 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
     at?: number,
     epoch?: string,
+    release?: AbortSignal,
+    kind: PendingHistoryRead["kind"] = at !== undefined ? "window" : "load",
     background = false,
   ): Promise<FetchedPage> {
+    const entry = this.entries.get(this.keyFor(target))
+    const read: PendingHistoryRead = { controller: new AbortController(), kind }
+    entry?.reads.add(read)
+    const { controller } = read
+    const released = () => controller.abort(new LifecycleReadCancellation("navigation"))
+    release?.addEventListener("abort", released, { once: true })
+    if (release?.aborted) released()
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
     const finishPagePerformance = startSessionLoadPerformanceEvent({
@@ -1055,21 +1126,26 @@ export class SessionMessageLoader {
       // too slow to load) will not answer sooner, and three tries kept the page on its loading skeleton for over a
       // minute with nothing said (smarty-code#536, #562). It fails at once; the page shows why, with Try again.
       const result = await retry(async () => {
-        if (cancelled?.()) throw new SupersededReadError("Session history read cancelled") // Not transient: no retry, no request.
+        if (cancelled?.() && !controller.signal.aborted) controller.abort(new LifecycleReadCancellation("superseded"))
+        controller.signal.throwIfAborted() // Only this read's owned cancellation stops dispatch and retries.
         attempts += 1
-        const response = await this.sdk.session.messages({
-          sessionID: target.sessionID,
-          directory: target.directory,
-          limit,
-          before,
-          // smarty-code#583: a window by position (the gateway's range read); the SDK passes `$query_` keys through.
-          // A newest page asks from the end (`at=-n`): the gateway then tells its position and the session's size. An
-          // older gateway ignores `at` and serves the same newest page.
-          ...(at !== undefined ? { $query_at: at } : before === undefined && limit <= 500 ? { $query_at: -limit } : {}),
-          // A window names the index epoch its positions came from: the gateway answers 409 once it has changed.
-          ...(at !== undefined && epoch !== undefined ? { $query_epoch: epoch } : {}),
-        } as Parameters<OpencodeClient["session"]["messages"]>[0])
-        assertSdkSuccess(response, "session.messages")
+        // smarty-code#583: the SDK passes `$query_` keys through. A newest page asks from the end (`at=-n`);
+        // an older gateway ignores it. Window reads also name their index epoch so a changed index returns 409.
+        const query: HistoryPositionQuery = {}
+        if (at !== undefined) query.$query_at = at
+        else if (before === undefined && limit <= 500) query.$query_at = -limit
+        if (at !== undefined && epoch !== undefined) query.$query_epoch = epoch
+        let response: Awaited<ReturnType<OpencodeClient["session"]["messages"]>>
+        try {
+          response = await this.sdk.session.messages({ sessionID: target.sessionID, directory: target.directory,
+            limit, before, ...query }, { signal: controller.signal })
+          controller.signal.throwIfAborted()
+          assertSdkSuccess(response, "session.messages")
+        } catch (error) {
+          // Only the SDK fetch/body read and its returned error, never page processing below, name a network failure.
+          if (error instanceof Error) this.fetchFailures.add(error)
+          throw error
+        }
         const data = response.data
         if (!Array.isArray(data)) {
           const error: Error & { status?: number } = new Error("session.messages returned no data")
@@ -1078,7 +1154,8 @@ export class SessionMessageLoader {
         }
         return { data, response: response.response }
       // A background refresh that timed out is not retried at once either (smarty-code#867): its retries were the ~40 s burst.
-      }, { retryIf: error => isTransientError(error) && !((opening || background) && error instanceof Error && unanswered(error)) })
+      }, { retryIf: error => !controller.signal.aborted && isTransientError(error)
+        && !((opening || background) && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
@@ -1110,6 +1187,8 @@ export class SessionMessageLoader {
       finishPagePerformance("error", { retryCount: Math.max(0, attempts - 1), recordCount })
       throw error
     } finally {
+      release?.removeEventListener("abort", released)
+      entry?.reads.delete(read)
       if (performance) performance.retryCount += Math.max(0, attempts - 1)
     }
   }
@@ -1135,7 +1214,7 @@ export class SessionMessageLoader {
       entry.positionOf.clear()
     }
     if (page.ordinaryView && page.viewEpoch !== this.ordinaryEpoch) {
-      throw new SupersededReadError("Ordinary history view was disconnected before materialization")
+      throw new SupersededReadError("Ordinary history view was disconnected before materialization", page.replacementReadsExhausted)
     }
     // A session shown live whose Pi then ended is read from its journal: read-only, with no view. It leaves ordinary mode
     // here, not "could not be loaded" (smarty-code#963 residual, 3.54). A live page without a view is still refused.
@@ -1266,6 +1345,23 @@ export class SessionMessageLoader {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
     const entry = this.getEntry(normalized)
+    // Only committed ranges of the current index epoch are authority. A loaded start does not cover a missing suffix.
+    const missing = gapsOf(entry.snapshot.positions?.ranges ?? [], at + limit)
+      .map(range => ({ start: Math.max(at, range.start), end: range.end }))
+      .filter(range => range.end > range.start)
+    if (!missing.length) return Promise.resolve()
+    if (missing.length !== 1 || missing[0]!.start !== at || missing[0]!.end !== at + limit) {
+      const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch
+      const store = this.childStores.getChild(normalized.directory)
+      return (async () => {
+        for (const range of missing) {
+          if (this.disposed || this.sdkEpoch !== sdkEpoch || entry.windowGeneration !== generation
+            || this.childStores.getChild(normalized.directory) !== store) return
+          // Recheck coverage before each dispatch in case another read committed while the previous part loaded.
+          await this.loadAt(normalized, range.start, range.end - range.start)
+        }
+      })()
+    }
     const key = `${at}:${limit}`
     const pending = entry.windowLoads.get(key)
     if (pending) return pending
@@ -1282,6 +1378,7 @@ export class SessionMessageLoader {
         if (!isCurrent()) return
         this.commitPage(normalized, entry, store, page, "prepend", isCurrent)
       }, (error: unknown) => {
+        if (!isCurrent()) return
         // 409: the positions this window was asked by belong to an older index epoch: start over (contract section 3).
         if ((error as { status?: number })?.status === 409 && isCurrent()) {
           this.epochChanged(normalized, entry, entry.snapshot.positions?.total ?? 0, undefined)
@@ -1289,7 +1386,7 @@ export class SessionMessageLoader {
         }
         throw error
       })
-      .finally(() => { entry.windowLoads.delete(key) })
+      .finally(() => { if (entry.windowLoads.get(key) === load) entry.windowLoads.delete(key) })
     entry.windowLoads.set(key, load)
     return load
   }
