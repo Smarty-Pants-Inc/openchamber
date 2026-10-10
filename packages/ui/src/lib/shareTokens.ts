@@ -4,6 +4,8 @@
 import { z } from 'zod';
 import { create } from 'zustand';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 
 const tokenSchema = z.object({ id: z.string().min(1), createdAt: z.string(), lastUsedAt: z.string().nullable().optional() });
 const createdSchema = z.object({ id: z.string().min(1), token: z.string().min(1), createdAt: z.string() });
@@ -69,6 +71,8 @@ type ShareTokensStore = {
 const initial: Pick<ShareTokensStore, 'list' | 'created' | 'creating' | 'createFailed' | 'removing' | 'removeFailed'> = {
   list: { state: 'loading' }, created: null, creating: false, createFailed: false, removing: null, removeFailed: null };
 
+let pageGeneration = 0;
+
 export const useShareTokensStore = create<ShareTokensStore>((set, get) => ({
   ...initial,
   load: async (fetcher) => {
@@ -82,17 +86,25 @@ export const useShareTokensStore = create<ShareTokensStore>((set, get) => ({
     }
   },
   create: async (fetcher) => {
-    if (get().creating) return;
+    if (get().creating || useAuthSessionStore.getState().state !== 'ok') return;
+    const generation = pageGeneration;
+    const scope = captureRuntimeRequestScope();
     set({ creating: true, createFailed: false });
     try {
       const created = await createShareToken(fetcher);
+      if (generation !== pageGeneration) return;
+      if (!isRuntimeRequestScopeCurrent(scope) || useAuthSessionStore.getState().state !== 'ok') {
+        set({ creating: false });
+        return;
+      }
       const list = get().list;
       const row: ShareToken = { id: created.id, createdAt: created.createdAt, lastUsedAt: null };
       set({ created, creating: false,
         list: list.state === 'ready' ? { state: 'ready', tokens: [row, ...list.tokens.filter(token => token.id !== row.id)] } : list });
       if (list.state !== 'ready') void get().load(fetcher);
     } catch {
-      set({ creating: false, createFailed: true });
+      if (generation !== pageGeneration) return;
+      set({ creating: false, createFailed: isRuntimeRequestScopeCurrent(scope) && useAuthSessionStore.getState().state === 'ok' });
     }
   },
   remove: async (id, fetcher) => {
@@ -108,8 +120,14 @@ export const useShareTokensStore = create<ShareTokensStore>((set, get) => ({
       return false;
     }
   },
-  forgetCreated: () => set({ created: null, createFailed: false, removeFailed: null }),
+  forgetCreated: () => {
+    pageGeneration += 1;
+    set({ created: null, creating: false, createFailed: false, removeFailed: null });
+  },
 }));
 
 /** Tests: back to a fresh page. */
-export const resetShareTokensStore = () => useShareTokensStore.setState(initial);
+export const resetShareTokensStore = () => {
+  pageGeneration += 1;
+  useShareTokensStore.setState(initial);
+};
