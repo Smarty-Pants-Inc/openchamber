@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { act } from 'react';
+import { NATIVE_CREATION_DEADLINE_MS } from '@/lib/opencode/nativeCreationDeadline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 import { mountedChat, ended, target } from './365-mounted-chat.fixture';
@@ -8,6 +9,10 @@ import { operation, pageReply, stateReply } from './365-mounted-http.fixture';
 const CONTINUE = 'Continue in a new Pi', CHECK = 'Check again';
 for (const health of ['absent', 'failed'] as const) test(`unknown Check again survives ${health} capability and clears only after writable loader recovery`, async () => {
   const f = await mountedChat();
+  const timing = { ...f.resume.resumeTiming };
+  let now = Date.now();
+  f.resume.resumeTiming.now = () => now;
+  f.resume.resumeTiming.poll = async () => { now += NATIVE_CREATION_DEADLINE_MS + 1; };
   try {
     (await f.page.take()).reply(pageReply(true));
     await f.settle(() => f.loader.getSnapshot(target).status === 'ready' && f.buttons().includes(CONTINUE));
@@ -42,5 +47,5 @@ for (const health of ['absent', 'failed'] as const) test(`unknown Check again su
     expect(f.loader.getSnapshot(target)).toMatchObject({ status: 'ready', resolved: true, readOnly: false });
     expect(f.children.getChild(target.directory)?.getState().message[target.sessionID]).toHaveLength(1);
     expect(f.requests.filter(request => request.url.pathname.endsWith('/resume'))).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally { Object.assign(f.resume.resumeTiming, timing); await f.close(); }
 });
