@@ -757,17 +757,17 @@
       "path": "packages/ui/src/sync/global-session-status.ts",
       "behaviorSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
       "combinedSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
-      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
+      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#867 refresh burst cap and smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
       "sessionStatusReadSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646"
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
-      "behaviorSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
-      "combinedSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
+      "behaviorSha256": "8ac9489d7c98ac38b76adb1365ee147032d36dba968a7174eaf36c7a30eee497",
+      "combinedSha256": "8ac9489d7c98ac38b76adb1365ee147032d36dba968a7174eaf36c7a30eee497",
       "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b"
+      "sessionStatusReadSha256": "8ac9489d7c98ac38b76adb1365ee147032d36dba968a7174eaf36c7a30eee497"
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
