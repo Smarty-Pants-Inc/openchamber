@@ -763,11 +763,11 @@
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
-      "behaviorSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
-      "combinedSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b",
+      "behaviorSha256": "ada528ef40f41d6fecfad1104a8981db5ccdd03d311a565ee4d8845c813e995c",
+      "combinedSha256": "ada528ef40f41d6fecfad1104a8981db5ccdd03d311a565ee4d8845c813e995c",
       "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b"
+      "sessionStatusReadSha256": "ada528ef40f41d6fecfad1104a8981db5ccdd03d311a565ee4d8845c813e995c"
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
