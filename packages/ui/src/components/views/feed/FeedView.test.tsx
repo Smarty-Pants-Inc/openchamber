@@ -37,11 +37,12 @@ await plugin({ name: 'feed-view-vite-transforms', setup(build) {
 } });
 const { FeedView } = await import('./FeedView');
 const { SmartiesNavSection, ClassicViewToggle } = await import('./FeedNav');
-const { useFeedStore, ensureSmartiesLoaded, draftKey, smartyHeaderTitle } = await import('./feedStore');
+const { useFeedStore, ensureSmartiesLoaded, refreshSmarties, draftKey, smartyHeaderTitle } = await import('./feedStore');
 const { SidebarNav } = await import('@/components/session/sidebar/shell/SidebarNav');
 const { I18nProvider } = await import('@/lib/i18n');
 const { useInboxStore } = await import('@/lib/smartyInbox');
 const { SmartiesRequestError } = await import('@/lib/smarties');
+const { useUIStore } = await import('@/stores/useUIStore');
 
 afterAll(async () => {
   for (const [key, descriptor] of previous) {
@@ -360,8 +361,11 @@ test('2: while a Smarty fills the app, the top bar names it; in the old view it 
 
 test('3: in the Smarty view the nav is only the Smarties section; the old view adds New session back', async () => {
   const { host, unmount } = await mount(<SidebarNav onNewSession={() => undefined} />);
-  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
-  await act(async () => { useFeedStore.getState().showClassic(); });
+  expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty', 'Connect your iPhone']);
+  // smarty-dev#799: the Smarties menu's way to the "Connect your iPhone" Settings page.
+  await act(async () => { host.querySelector<HTMLButtonElement>('[data-connect-iphone]')?.click(); });
+  expect(useUIStore.getState()).toMatchObject({ settingsPage: 'connect-iphone', isSettingsDialogOpen: true });
+  await act(async () => { useUIStore.getState().setSettingsDialogOpen(false); useFeedStore.getState().showClassic(); });
   expect(host.textContent).toContain('New session');
   await unmount();
 });
@@ -418,6 +422,116 @@ test('a failed list read is a failure with Try again, never "no Smarties"', asyn
   expect(host.querySelector('[role="alert"]')?.textContent).toBe('Could not load the Smarties.');
   expect(useFeedStore.getState().pageOpen).toBe(true);
   await unmount();
+});
+
+test('smarty-code#1484: a real 403 keeps the Smarties nav and main error visible; Try again reloads the real list', async () => {
+  const realFetch = globalThis.fetch;
+  const paths: string[] = [];
+  let retry = false;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => {
+    const path = new URL(input instanceof Request ? input.url : String(input), win.location.href).pathname;
+    paths.push(path);
+    if (path !== '/api/me/smarties') return values.fetch();
+    return new Response(retry
+      ? '{"me":"paul","smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true}]}'
+      : '{"name":"APIError","data":{"message":"Not authorized to view Smarties."}}',
+    { status: retry ? 200 : 403, headers: { 'content-type': 'application/json' } });
+  } });
+  try {
+    await ensureSmartiesLoaded(undefined, true);
+    expect(paths).toEqual(['/api/me/smarties']);
+    const { host, unmount } = await mount(<><SmartiesNavSection /><main>{view()}</main></>);
+    try {
+      const nav = host.querySelector('nav[aria-label="Smarties"]');
+      expect(nav?.querySelector('h2')?.textContent).toBe('Smarties');
+      expect(nav?.querySelector('[role="alert"]')?.textContent).toContain('Could not load the Smarties.');
+      expect(button(nav!, 'Try again')).toBeDefined();
+      expect(host.querySelector('main [role="alert"]')?.textContent).toBe('Could not load the Smarties.');
+      expect(useFeedStore.getState().pageOpen).toBe(true);
+      retry = true;
+      await act(async () => { button(nav!, 'Try again')!.click(); }); await settle();
+      expect(paths.filter(path => path === '/api/me/smarties')).toEqual(['/api/me/smarties', '/api/me/smarties']);
+      expect(useFeedStore.getState().smarties).toEqual({ state: 'ready', me: 'paul', smarties: [
+        { id: 'paul', label: 'Paul’s Smarty', own: true, writable: true }] });
+      expect(host.querySelector('nav [data-smarty-row="paul"]')?.textContent).toBe('Paul’s Smarty');
+      expect(host.querySelector('main h1')?.textContent).toBe('Paul’s Smarty');
+      expect(host.textContent).toContain('Good evening, Paul.');
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally { await unmount(); }
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
+
+test('openchamber#611: a real quiet 500 keeps ready rows, but a 403 removes them and the transcript until a real retry', async () => {
+  const realFetch = globalThis.fetch;
+  const paths: string[] = [];
+  let phase = 'initial';
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => {
+    const path = new URL(input instanceof Request ? input.url : String(input), win.location.href).pathname;
+    paths.push(path);
+    if (path === '/api/me/smarties') {
+      const status = phase === 'transient' ? 500 : phase === 'refused' ? 403 : 200;
+      const body = phase === 'transient' ? '{"error":"Server unavailable"}'
+        : phase === 'refused' ? '{"name":"APIError","data":{"message":"Not authorized to view Smarties."}}'
+        : phase === 'fresh' ? '{"me":"paul","smarties":[{"id":"paul","label":"Paul’s fresh Smarty","own":true,"writable":true}]}'
+        : '{"me":"paul","smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true},{"id":"kate","label":"Kate’s Smarty","own":false,"writable":false}]}';
+      return new Response(body, { status, headers: { 'content-type': 'application/json' } });
+    }
+    if (path === '/api/me/smarties/paul/feed') {
+      const body = phase === 'fresh'
+        ? '{"blocks":[{"id":"fresh1","author":"org","at":"12:00 AM ET","text":"A fresh conversation."}],"offset":200}'
+        : JSON.stringify(paulFeed);
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return values.fetch();
+  } });
+  try {
+    await ensureSmartiesLoaded(undefined, true);
+    expect(useFeedStore.getState().smarties).toEqual(paul);
+    const { host, unmount } = await mount(<><SmartiesNavSection /><main><FeedView services={{ Text: services.Text, openStream: services.openStream }} /></main></>);
+    try {
+      expect(Array.from(host.querySelectorAll('[data-smarty-row]')).map(row => row.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
+      expect(host.querySelector('main')?.textContent).toContain('Good evening, Paul.');
+      expect(paths).toContain('/api/me/smarties/paul/feed');
+
+      phase = 'transient';
+      await act(async () => { await refreshSmarties(); }); await settle();
+      expect(useFeedStore.getState().smarties).toEqual(paul);
+      expect(Array.from(host.querySelectorAll('[data-smarty-row]')).map(row => row.textContent)).toEqual(['Paul’s Smarty', 'Kate’s Smarty']);
+      expect(host.querySelector('main')?.textContent).toContain('Good evening, Paul.');
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+
+      phase = 'refused';
+      await act(async () => { await refreshSmarties(); }); await settle();
+      expect(useFeedStore.getState().smarties).toEqual({ state: 'failed' });
+      expect(host.querySelectorAll('[data-smarty-row]')).toHaveLength(0);
+      expect(host.querySelectorAll('[data-feed-entry]')).toHaveLength(0);
+      expect(host.textContent).not.toContain('Paul’s Smarty');
+      expect(host.textContent).not.toContain('Kate’s Smarty');
+      expect(host.textContent).not.toContain('Good evening, Paul.');
+      const nav = host.querySelector('nav[aria-label="Smarties"]')!;
+      const main = host.querySelector('main')!;
+      expect(nav.querySelector('[role="alert"]')?.textContent).toContain('Could not load the Smarties.');
+      expect(main.querySelector('[role="alert"]')?.textContent).toBe('Could not load the Smarties.');
+      expect(button(nav, 'Try again')).toBeDefined();
+      expect(button(main, 'Try again')).toBeDefined();
+      expect(useFeedStore.getState().pageOpen).toBe(true);
+
+      phase = 'fresh';
+      await act(async () => { button(nav, 'Try again')!.click(); }); await settle();
+      expect(paths.filter(path => path === '/api/me/smarties')).toEqual(Array(4).fill('/api/me/smarties'));
+      expect(useFeedStore.getState().smarties).toEqual({ state: 'ready', me: 'paul', smarties: [
+        { id: 'paul', label: 'Paul’s fresh Smarty', own: true, writable: true }] });
+      expect(Array.from(host.querySelectorAll('[data-smarty-row]')).map(row => row.textContent)).toEqual(['Paul’s fresh Smarty']);
+      expect(main.querySelector('h1')?.textContent).toBe('Paul’s fresh Smarty');
+      expect(main.textContent).toContain('A fresh conversation.');
+      expect(host.querySelector('[data-smarty-row="kate"]')).toBeNull();
+      expect(host.textContent).not.toContain('Paul’s Smarty');
+      expect(host.textContent).not.toContain('Kate’s Smarty');
+      expect(host.textContent).not.toContain('Good evening, Paul.');
+      expect(Array.from(host.querySelectorAll('[data-feed-entry] p')).map(p => p.textContent)).toEqual(['A fresh conversation.']);
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally { await unmount(); }
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
 });
 
 test('a failed send keeps its client ID with the draft: closing and reopening the view still reuses it', async () => {
@@ -658,4 +772,25 @@ test('the own Smarty mounts exactly one inbox list: N cards for N items, at desk
     expect(document.querySelectorAll('[aria-label$="inbox items"]')).toHaveLength(1);
     await phone.unmount();
   } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
+
+test('#1595: a Smarty block with nothing to read (empty, or only ".", "…" and whitespace) is not shown; "?", "!", an emoji or "ok" is', async () => {
+  const dots: Partial<FeedServices> = { ...services, loadFeed: async (_id, query) => query?.after !== undefined ? { blocks: [], offset: 90 } : { offset: 90, blocks: [
+    { id: 'o1', author: 'org', at: '8:00 PM ET', text: 'Good morning, Paul.' },
+    { id: 't1', author: 'org', at: '8:01 PM ET', text: '.' },
+    { id: 't2', author: 'org', at: '8:02 PM ET', text: '…' },
+    { id: 't3', author: 'org', at: '8:03 PM ET', text: '' },
+    { id: 't4', author: 'org', at: '8:04 PM ET', text: ' . ' },
+    { id: 't5', author: 'org', at: '8:04 PM ET', text: ' ... \n' },
+    { id: 'q1', author: 'org', at: '8:04 PM ET', text: '?' },
+    { id: 'q2', author: 'org', at: '8:04 PM ET', text: '!' },
+    { id: 'q3', author: 'org', at: '8:04 PM ET', text: '👍' },
+    { id: 'q4', author: 'org', at: '8:04 PM ET', text: 'ok' },
+    { id: 'y1', author: 'you', at: '8:05 PM ET', text: '.' }, // The person's own "." is what they sent: it stays.
+    { id: 'o2', author: 'org', at: '8:06 PM ET', text: 'OK.' },
+  ] } };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={dots} />);
+  expect(Array.from(host.querySelectorAll('[data-feed-entry]')).map(e => [e.getAttribute('data-feed-entry'), e.querySelector('p')?.textContent]))
+    .toEqual([['smarty', 'Good morning, Paul.'], ['smarty', '?'], ['smarty', '!'], ['smarty', '👍'], ['smarty', 'ok'], ['owner', '.'], ['smarty', 'OK.']]);
+  await unmount();
 });

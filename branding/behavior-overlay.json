@@ -510,9 +510,12 @@
       "path": "packages/web/server/lib/opencode/core-routes.js",
       "brandingSha256": "8641a72aa031573a76a3ed97d23689acdb1987b8d367a4df277ca1900d27e9b5",
       "behaviorSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
-      "combinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "combinedSha256": "68dd19b673255793331cd9de91981ec79ac73b3ba311514649eb87b5d0c8178d",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
-      "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior."
+      "reason": "Core route authorization receives the configured human-auth controller while preserving existing OpenCode route behavior.",
+      "preShare799CombinedSha256": "1f2fffcf71db06c4a1b9dc02aa65a68cde7511dc9a0c71b3d98416d3c6efe988",
+      "share799Sha256": "68dd19b673255793331cd9de91981ec79ac73b3ba311514649eb87b5d0c8178d",
+      "share799Note": "smarty-dev#799 L2: exactly POST /api/me/share skips the UI session gate and carries no human identity. All earlier layers remain historical evidence."
     },
     {
       "path": "packages/web/server/lib/opencode/core-routes.test.js",
@@ -526,7 +529,7 @@
       "path": "packages/web/server/lib/opencode/proxy.js",
       "brandingSha256": "46dd6651cb93508e0b65c469020de326497f1a1dda55ada5407991368c953bab",
       "behaviorSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
-      "combinedSha256": "ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78",
+      "combinedSha256": "61ce0448cfa6af64e0b8ceaf1a4ca8eded8bcc48ce3993b64122c8161392dcc5",
       "behaviorSource": "578c060a38000455a3116417c30e7fe77b45007c",
       "reason": "Managed proxy strips client identity and forwards only the server-resolved actor under upstream authentication.",
       "preHerdrListCombinedSha256": "5e5b01655abd635d6bc48522c93a31a477db8acaeb9871e155525155c04c5b29",
@@ -546,7 +549,10 @@
       "proxyConnectionNote": "openchamber#491 / smarty-code#1147: the actual proxyReq hook removes the hop-by-hop Connection header before forwarding upstream, with a ponytail comment. No request replay or retry behavior is added; earlier branding and session-list evidence remains unchanged.",
       "preNativeListCombinedSha256": "6d957a7569b2bfc30b7d27d8fdf50cae442de80abf7e6ed7f0530d3a79653172",
       "nativeListSha256": "ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78",
-      "nativeListNote": "openchamber#542 Astra finding 1: the session-list allowlist also keeps nativeRuntime and ordinary. The proxy Connection output remains the exact predecessor; all earlier source hashes, branding evidence and guards remain historical evidence, not runtime or release acceptance."
+      "nativeListNote": "openchamber#542 Astra finding 1: the session-list allowlist also keeps nativeRuntime and ordinary. The proxy Connection output remains the exact predecessor; all earlier source hashes, branding evidence and guards remain historical evidence, not runtime or release acceptance.",
+      "preShare799CombinedSha256": "ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78",
+      "share799Sha256": "61ce0448cfa6af64e0b8ceaf1a4ca8eded8bcc48ce3993b64122c8161392dcc5",
+      "share799Note": "smarty-dev#799 L2: only POST /api/me/share forwards the client x-smarty-share-token unchanged; every other proxied request drops it. All earlier layers remain historical evidence."
     },
     {
       "path": "packages/ui/src/components/auth/SessionAuthGate.tsx",
@@ -757,17 +763,17 @@
       "path": "packages/ui/src/sync/global-session-status.ts",
       "behaviorSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
       "combinedSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646",
-      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
+      "reason": "PR486 #1115/#1116/#1129: share held-ID coverage for status, ordering and timing; include omitted directory siblings before sweeping their global lifecycle. smarty-code#867 refresh burst cap and smarty-code#1234 successor (replaces 44c906039245017bcce56ce8741676476028be39fcdf43ba97c87f32d40840df): keep each session's last native status order (nativeAtById) so a newer native idle clears a stale Herdr Working. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
       "sessionStatusReadSha256": "7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646"
     },
     {
       "path": "packages/ui/src/sync/sync-context.tsx",
-      "behaviorSha256": "575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d",
-      "combinedSha256": "575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d",
-      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#1501 successor (replaces 7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b, merged with #1234's): wires the loader's live-update nudge for journal-only history; earlier smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
+      "behaviorSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e",
+      "combinedSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e",
+      "reason": "PR486 #1115/#1116: child/bootstrap/directory/fleet ingress rejects stale runtime reads and preserves newer events, local changes and foreign ordinary ownership. smarty-code#867/#1501 cap composition (replaces 60293a3b579c7b7ca51c86bb3b53fa1bfb71d9601a6c9cca9e21b69c59b22e23): the loader is told which session is viewed, so journal-only re-reads of any other session are capped background reads. Merge of smarty-code#1501's successor (575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d) with smarty-code#867/#1575's (f43649b42797b7e42b6c30ed3567ff83ce03c2ae2fd6ca9290e6698847bc4bf0): background tail refreshes and the viewed-session 404 path keep the journal-only live-update nudge. smarty-code#1501 successor (replaces 7a1d0d8c3b74778a31d5508bff958464f84f9383d7ce8df68e2d95ce9f752b6b, merged with #1234's): wires the loader's live-update nudge for journal-only history; earlier smarty-code#1234 successor (replaces 54b00b81133c34e43583881dc185a6459dfa98e24e126ae2d2784185707b7fd6): the second-page sidebar fix. Outside the original donor ledger; no fabricated branding predecessor.",
       "sessionStatusReadAdded": true,
-      "sessionStatusReadSha256": "575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d"
+      "sessionStatusReadSha256": "1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e"
     },
     {
       "path": "packages/ui/src/sync/session-status-read.ts",
@@ -838,5 +844,6 @@
     "sourceEvidence": "Parent Git-bound source head; independent 141-test source audit passed. No installed acceptance claim."
   },
   "smarties1407Source": "689ca2f8d21367829cf9b937ae64f6aa30d04cda",
-  "nativeListSource": "6fdd792cea0c1b11214a2779ed33b748f6315c99"
+  "nativeListSource": "6fdd792cea0c1b11214a2779ed33b748f6315c99",
+  "share799Source": "7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e"
 }

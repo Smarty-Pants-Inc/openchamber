@@ -4,13 +4,20 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { getModelDisplayName } from './mobileControlsUtils';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { useI18n } from '@/lib/i18n';
+import { useSessionModelSlot } from './useSessionModelSlot';
 
 interface MobileModelButtonProps {
     onOpenModel: () => void;
     className?: string;
 }
 
-export const MobileModelButton: React.FC<MobileModelButtonProps> = ({ onOpenModel, className }) => {
+export const MobileModelButton: React.FC<MobileModelButtonProps> = (props) => {
+    // An open session's own model (or Loading) comes first; the browser's saved choice is only for the rest.
+    const slot = useSessionModelSlot(props.className);
+    return slot ?? <ConfiguredMobileModelButton {...props} />;
+};
+
+const ConfiguredMobileModelButton: React.FC<MobileModelButtonProps> = ({ onOpenModel, className }) => {
     const { t } = useI18n();
     const currentModelId = useConfigStore((state) => state.currentModelId);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);

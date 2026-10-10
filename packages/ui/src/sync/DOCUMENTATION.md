@@ -251,6 +251,8 @@ Disconnect, transport switch, native branch removal and failed ordinary page loa
 
 The Smarty gateway may answer a busy session's newest page from its committed journal (`x-smarty-journal-only: 1`): no cursor, no positions, no accepted view, no provisional turn, and record ids that differ from a normal answer's. The loader shows it at once (it replaces the shown records, never merges), keeps the session out of View only (`readOnly: false`), and marks the load state `provisional: true` with no cursor, so no "load earlier" is offered and no coverage is persisted. It then re-reads the newest page with a backoff (1, 2, 4, 8 s, then every 8 s), on the live stream's first update for the session (`noteLiveUpdate`), and on a navigation `ensure`. The first normal answer replaces the journal-only records with its own coverage and ends the wait. A journal-only answer arriving after a normal one was shown (or for a session served as ordinary) is stale: nothing is applied, and the newest page is read again. Without the header nothing changes.
 
+An unviewed session's timer and live-update re-reads use the background cap, with no immediate timeout retry or error view. The viewed session, navigation and send still read without waiting for background slots.
+
 ### Selected ordinary model state
 
 A session's `nativeRuntime: ordinary` marker establishes native ownership without

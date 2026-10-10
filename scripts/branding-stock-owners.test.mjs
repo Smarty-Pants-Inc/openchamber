@@ -12,6 +12,17 @@ const json = (file) => JSON.parse(read(file).toString());
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const overlay = json('branding/behavior-overlay.json');
 const overlays = new Map(overlay.files.map(entry => [entry.path, entry]));
+// smarty-dev#799 L2: a file's exact bytes before the share-route layer (its added lines removed), for the older byte oracles.
+const share799Lines = {
+  'packages/web/server/lib/opencode/core-routes.js': ["import { isShareRequest } from './share-route.js';\n",
+    '    // smarty-dev#799: the iPhone share is authenticated by the gateway (its share token), not by a UI session.\n    if (isShareRequest(req)) return next();\n'],
+  'packages/web/server/lib/opencode/proxy.js': ["import { isShareRequest, SHARE_TOKEN_HEADER } from './share-route.js';\n",
+    '        // smarty-dev#799: the share token reaches the gateway unchanged, and only on the iPhone share route.\n        if (!isShareRequest(req)) proxyReq.removeHeader(SHARE_TOKEN_HEADER);\n'],
+};
+const preShare799 = (file) => share799Lines[file].reduce((text, line) => {
+  assert.equal(text.split(line).length, 2, `${file}: the share799 lines appear exactly once`);
+  return text.replace(line, '');
+}, read(file).toString());
 const attributionPaths = [
   ...['de', 'en', 'es', 'fr', 'ja', 'ko', 'pl', 'pt-BR', 'uk', 'zh-CN', 'zh-TW']
     .map(locale => `packages/ui/src/lib/i18n/messages/${locale}.ts`),
@@ -28,7 +39,7 @@ test('PR486 status-read provenance binds exactly six source records and retains 
     ['packages/ui/src/hooks/useTraySync.ts', '0d58cb36fb99d305a2ca022f86c3bbe9596a717aaff962b39d4ca351d62e6d9d'],
     ['packages/ui/src/sync/bootstrap.ts', '90d299061fa5ecbbd66499bf666c6cfd4dc8fc5a30306c0981977156c6a32f49'],
     ['packages/ui/src/sync/global-session-status.ts', '7a557fd6a0d87ed09379315376a4cb8a27dcc1b9266dd193e42e1106064f2646'],
-    ['packages/ui/src/sync/sync-context.tsx', '575e67697e28bc368ef58a4882d475f80ef20557f16e833401c231532a2a046d'],
+    ['packages/ui/src/sync/sync-context.tsx', '1b9afd0cee07280ac266e03660ca64d352364067bb1ccce17749ec73dfae755e'],
     ['packages/ui/src/sync/session-status-read.ts', '638f4fc06a163642522e25881370437c8bf7e34b6bfa1d2d2582efd395c819a1'],
     ['packages/ui/src/sync/sync-context-status-provenance.test.ts', 'ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36'],
   ];
@@ -342,9 +353,21 @@ test('the native session-list layer binds its exact source and successor over pr
   assert.equal(entry.preNativeListCombinedSha256, entry.proxyConnectionSha256);
   assert.equal(entry.nativeListSha256, 'ca7fd4281261ff5a69b958025738736fa038a52eab43c2f8cb35b9e52ad9ed78');
   assert.notEqual(entry.nativeListSha256, entry.preNativeListCombinedSha256);
-  assert.equal(entry.nativeListSha256, entry.combinedSha256);
-  assert.equal(sha256(read(file)), entry.nativeListSha256);
+  assert.equal(entry.nativeListSha256, entry.preShare799CombinedSha256); // smarty-dev#799 L2 layers the share route over it.
+  assert.equal(sha256(preShare799(file)), entry.nativeListSha256);
   assert.ok(entry.nativeListNote);
+});
+
+test('the iPhone share-route layer binds its exact feature commit over core-routes.js and proxy.js only (smarty-dev#799 L2)', () => {
+  assert.equal(overlay.share799Source, '7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e');
+  assert.deepEqual(overlay.files.filter(entry => 'share799Sha256' in entry).map(entry => entry.path), Object.keys(share799Lines));
+  for (const entry of overlay.files.filter(file => 'share799Sha256' in file)) {
+    assert.equal(entry.share799Sha256, entry.combinedSha256, entry.path);
+    assert.equal(sha256(read(entry.path)), entry.share799Sha256, entry.path);
+    assert.notEqual(entry.share799Sha256, entry.preShare799CombinedSha256, entry.path);
+    assert.equal(sha256(preShare799(entry.path)), entry.preShare799CombinedSha256, entry.path);
+    assert.ok(entry.share799Note, entry.path);
+  }
 });
 
 test('the proxy Connection layer binds its exact source and successor over the Code-made list layer (openchamber#491)', () => {
@@ -352,7 +375,7 @@ test('the proxy Connection layer binds its exact source and successor over the C
   const entry = structuredClone(overlays.get(file));
   // Reverse only the two native-list fields so the original Connection byte oracle still runs.
   entry.combinedSha256 = entry.preNativeListCombinedSha256;
-  const connectionSource = read(file).toString().replace("  'nativeRuntime',\n  'ordinary',\n", '');
+  const connectionSource = preShare799(file).replace("  'nativeRuntime',\n  'ordinary',\n", '');
   assert.equal(overlay.proxyConnectionSource, 'e9f6fdc38ffbadf43113d1b8202489332f6fe95f');
   assert.deepEqual(overlay.files.filter(candidate => 'proxyConnectionSha256' in candidate).map(candidate => candidate.path), [file]);
   assert.equal(entry.preProxyConnectionCombinedSha256, 'a858ec4a5b4a81ef272d3b5d2a4e73882db8c45a9e7a29809341e0d12dd62b68');
@@ -527,7 +550,21 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
-  // openchamber#542 native ownership fields are the newest layer, above the Smarties layer (smarty-code#1407): unwind them first.
+  // smarty-dev#799 L2 (the iPhone share route) is the newest layer, above openchamber#542: unwind it first.
+  assert.equal(historical.share799Source, '7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e');
+  delete historical.share799Source;
+  const share799 = historical.files.filter(entry => 'share799Sha256' in entry);
+  assert.deepEqual(share799.map(entry => entry.path),
+    ['packages/web/server/lib/opencode/core-routes.js', 'packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of share799) {
+    assert.equal(entry.share799Sha256, entry.combinedSha256);
+    assert.ok(entry.share799Note);
+    entry.combinedSha256 = entry.preShare799CombinedSha256;
+    delete entry.preShare799CombinedSha256;
+    delete entry.share799Sha256;
+    delete entry.share799Note;
+  }
+  // openchamber#542 native ownership fields sit above the Smarties layer (smarty-code#1407): unwind them next.
   assert.equal(historical.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
   delete historical.nativeListSource;
   const nativeList = historical.files.filter(entry => 'nativeListSha256' in entry);

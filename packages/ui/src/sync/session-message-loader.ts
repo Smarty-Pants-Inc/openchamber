@@ -118,6 +118,13 @@ type LoaderEntry = {
   liveNudged: boolean
 }
 
+/**
+ * smarty-code#867: background tail refreshes (a reconnect or stale-stream resync of every cached session) in flight at
+ * once. Each makes the gateway re-read a large journal window; six at once all hit the client read limit together.
+ * Foreground reads (the viewed session, an open) never wait for this.
+ */
+export const BACKGROUND_REFRESH_CONCURRENCY = 2
+
 /** replaceHistory's retry delays after a stale read (then the last, repeated). */
 const REPLACE_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
 /** smarty-code#1501: re-reads of a busy session's newest page after a journal-only answer (then the last, repeated). */
@@ -153,6 +160,9 @@ type LoadPerformanceDetails = {
 type LoaderConfiguration = {
   sdk: OpencodeClient
   runtimeKey: string
+  /** Whether the person views the session now. A journal-only re-read of any other one is a background read. Without
+   * it, every session counts as viewed. Read once, at construction. */
+  isViewed?: (target: SessionMessageTarget) => boolean
 }
 
 const isConstrainedRuntime = () => isVSCodeRuntime() || isMobileSurfaceRuntime()
@@ -247,6 +257,10 @@ export class SessionMessageLoader {
   private ordinaryEpoch = 0
   private disposed = false
   private readonly entries = new Map<string, LoaderEntry>()
+  private backgroundActive = 0
+  private readonly backgroundQueue: Array<() => void> = []
+  private readonly backgroundPending = new Map<string, Promise<void>>()
+  private readonly isViewed: (target: SessionMessageTarget) => boolean
 
   constructor(
     private readonly childStores: ChildStoreManager,
@@ -254,6 +268,7 @@ export class SessionMessageLoader {
   ) {
     this.sdk = configuration.sdk
     this.runtimeKey = configuration.runtimeKey
+    this.isViewed = configuration.isViewed ?? (() => true)
   }
 
   configure(configuration: LoaderConfiguration): void {
@@ -425,9 +440,46 @@ export class SessionMessageLoader {
     return !entry.inflight && entry.openUnanswered
   }
 
-  refreshTail(target: SessionMessageTarget, limit: number): Promise<void> {
+  /**
+   * `background` (smarty-code#867): a refresh nobody is looking at. At most BACKGROUND_REFRESH_CONCURRENCY run at once,
+   * a timeout is not retried at once, and a failure never shows the error view: the loaded messages stay (stale) and the
+   * next resync tries again.
+   */
+  refreshTail(target: SessionMessageTarget, limit: number, options?: { background?: boolean }): Promise<void> {
     const normalized = this.normalizeTarget(target)
     if (!normalized || this.disposed) return Promise.resolve()
+    return options?.background ? this.refreshInBackground(normalized, limit) : this.refreshTailNow(normalized, limit, false)
+  }
+
+  private refreshInBackground(target: SessionMessageTarget, limit: number): Promise<void> {
+    const key = this.keyFor(target), entry = this.getEntry(target), commits = entry.commits, sdkEpoch = this.sdkEpoch
+    // Shared only within one connection and one history: a new SDK (configure) or a reset of this session (a window
+    // generation bump; a tail refresh's own bump keeps it) made the pending refresh stale, so a new one reads again.
+    const pendingKey = `${sdkEpoch}\n${entry.windowGeneration}\n${key}`
+    const pending = this.backgroundPending.get(pendingKey)
+    if (pending) return pending
+    const run = async () => {
+      if (this.backgroundActive < BACKGROUND_REFRESH_CONCURRENCY) this.backgroundActive++
+      else await new Promise<void>((resolve) => { this.backgroundQueue.push(resolve) }) // Its slot is handed over.
+      try {
+        // A load already out, or one that committed while this waited, is as fresh: nothing to read.
+        if (this.disposed || this.sdkEpoch !== sdkEpoch || this.entries.get(key) !== entry || entry.inflight
+          || entry.commits !== commits) return
+        await this.refreshTailNow(target, limit, true)
+      } finally {
+        const next = this.backgroundQueue.shift()
+        if (next) next()
+        else this.backgroundActive--
+      }
+    }
+    const promise = run().finally(() => {
+      if (this.backgroundPending.get(pendingKey) === promise) this.backgroundPending.delete(pendingKey)
+    })
+    this.backgroundPending.set(pendingKey, promise)
+    return promise
+  }
+
+  private refreshTailNow(normalized: SessionMessageTarget, limit: number, background: boolean): Promise<void> {
     const entry = this.getEntry(normalized)
     // Nothing loaded to refresh, and the open timed out (also a refresh queued behind that open): wait for Try again.
     if (this.openUnanswered(entry)) return Promise.resolve()
@@ -467,7 +519,8 @@ export class SessionMessageLoader {
       const previousCoverage = entry.snapshot.resolved
         ? { cursor: entry.snapshot.cursor, complete: entry.snapshot.complete }
         : null
-      const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance)
+      const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance, undefined,
+        undefined, undefined, background)
       if (!isCurrent()) return
       // smarty-code#1501: a journal-only answer after a normal one is stale: nothing is applied, and it is read again.
       if (page.journalOnly && journalOnlyIsStale(entry)) {
@@ -517,7 +570,7 @@ export class SessionMessageLoader {
         updatedAt: Date.now(),
       })
       this.persistCoverage(normalized, entry.snapshot)
-    })
+    }, background)
   }
 
   /**
@@ -706,6 +759,12 @@ export class SessionMessageLoader {
     return () => entry.listeners.delete(listener)
   }
 
+  /** The store holding a session's messages and parts, if this page has it (its updates are the store's own). */
+  messageStore(target: SessionMessageTarget): ReturnType<ChildStoreManager["getChild"]> {
+    const normalized = this.normalizeTarget(target)
+    return normalized ? this.childStores.getChild(normalized.directory) : undefined
+  }
+
   optimisticAdd(input: SessionMessageTarget & { message: Message; parts: Part[] }): void {
     const target = this.normalizeTarget(input)
     if (!target) return
@@ -877,6 +936,7 @@ export class SessionMessageLoader {
     store: { getState: () => DirectoryStore; setState: DirectoryStoreSetter },
     kind: SessionMessageLoadKind,
     run: (isCurrent: () => boolean, performance: LoadPerformanceDetails) => Promise<void>,
+    background = false,
   ): Promise<void> {
     entry.demand++
     const generation = entry.snapshot.generation
@@ -915,6 +975,15 @@ export class SessionMessageLoader {
           return
         }
         finishPerformanceEvent("error", performance)
+        if (background) {
+          // smarty-code#867: nobody is looking at it. Its loaded messages, coverage and view stay as they were (now
+          // stale: updatedAt is unchanged) and no error view replaces them; the next resync or an open reads it again.
+          const failure = error instanceof Error ? error : new Error(formatSdkError(error))
+          this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null, error: null })
+          reportClientError({ kind: `session-messages.refresh.background${unanswered(failure) ? ".timeout" : ""}`,
+            sessionID: target.sessionID, runtimeKey, operationId, ...failureReport(failure) })
+          return
+        }
         entry.openUnanswered = opening && error instanceof Error && unanswered(error)
         if (entry.ordinary) this.invalidateOrdinaryView(target, true)
         const failure = error instanceof Error ? error : new Error(formatSdkError(error))
@@ -1027,6 +1096,7 @@ export class SessionMessageLoader {
     cancelled?: () => boolean,
     at?: number,
     epoch?: string,
+    background = false,
   ): Promise<FetchedPage> {
     const viewEpoch = this.ordinaryEpoch
     const eventsAtRead = sessionMessageEventCount(target.sessionID)
@@ -1068,7 +1138,8 @@ export class SessionMessageLoader {
           throw error
         }
         return { data, response: response.response }
-      }, { retryIf: error => isTransientError(error) && !(opening && error instanceof Error && unanswered(error)) })
+      // A background refresh that timed out is not retried at once either (smarty-code#867): its retries were the ~40 s burst.
+      }, { retryIf: error => isTransientError(error) && !((opening || background) && error instanceof Error && unanswered(error)) })
       const records = result.data.filter((record: { info?: { id?: string } }) => Boolean(record?.info?.id))
       recordCount = records.length
       if (performance) performance.recordCount += recordCount
@@ -1311,7 +1382,8 @@ export class SessionMessageLoader {
     const entry = normalized ? this.entries.get(this.keyFor(normalized)) : undefined
     if (!normalized || !entry?.journalWait || entry.liveNudged || this.disposed) return
     entry.liveNudged = true
-    void this.refreshTail(normalized, getInitialPageSize()).catch(() => undefined)
+    void this.refreshTail(normalized, getInitialPageSize(), { background: !this.isViewed(normalized) })
+      .catch(() => undefined)
   }
 
   /** smarty-code#1501: the newest read answered journal-only: read it again after a backoff (one timer per session). */
@@ -1323,8 +1395,9 @@ export class SessionMessageLoader {
       entry.journalTimer = undefined
       const alive = () => !this.disposed && entry.journalWait && this.entries.get(this.keyFor(target)) === entry
       if (!alive()) return
-      // A failed or superseded re-read keeps waiting: the next one follows with the backoff.
-      void this.refreshTail(target, getInitialPageSize()).catch(() => undefined)
+      // A failed or superseded re-read keeps waiting: the next one follows with the backoff. A session nobody views is
+      // re-read in the background (smarty-code#867): capped, no immediate retry, no error view. Opening it reads at once.
+      void this.refreshTail(target, getInitialPageSize(), { background: !this.isViewed(target) }).catch(() => undefined)
         .then(() => { if (alive() && !entry.inflight) this.awaitNormalHistory(target, entry) })
     }, delay)
   }

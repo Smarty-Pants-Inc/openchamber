@@ -1,4 +1,5 @@
 import { buildExternalManualRestartResponse } from './config-mutation-response.js';
+import { isShareRequest } from './share-route.js';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 
 const parseLoopbackUrl = (rawUrl) => {
@@ -601,6 +602,8 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   };
 
   const requireApiAuth = async (req, res, next) => {
+    // smarty-dev#799: the iPhone share is authenticated by the gateway (its share token), not by a UI session.
+    if (isShareRequest(req)) return next();
     const requestScope = tunnelAuthController.classifyRequestScope(req);
     if (requestScope === 'tunnel' || requestScope === 'unknown-public') {
       return tunnelAuthController.requireTunnelSession(req, res, () => uiAuthController.humanMode
