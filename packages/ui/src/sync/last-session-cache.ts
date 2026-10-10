@@ -1,4 +1,5 @@
-import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
+import { z } from "zod"
+import { getDeferredSafeStorage, getSafeSessionStorage } from "@/stores/utils/safeStorage"
 
 // Persisted "last active session" per runtime (server instance), so a cold
 // app launch can reopen the session the user had open the last time this
@@ -56,40 +57,81 @@ const writeEnvelope = (storage: Storage, envelope: PersistedEnvelope): void => {
   }
 }
 
+// This tab's own latest choice per runtime, in sessionStorage: a session, or `null` for a deliberate
+// draft. It wins over the shared pointer above, which any tab's selection or Send moves; a missing or malformed tab
+// record falls back to the shared pointer (a fresh tab). Duplicated tabs inherit it, as they do composer draft slots.
+const TAB_KEY_PREFIX = "oc.lastSession.tab.v1:"
+const tabChoiceSchema = z.object({ sessionId: z.string().min(1), directory: z.string().min(1).nullable() }).nullable()
+
+/** Which stores to use: defaults are shared + this tab; an injected shared store alone (tests) has no tab layer. */
+const resolveStores = (storage?: Storage, tabStorage?: Storage): { shared: Storage; tab: Storage | undefined } =>
+  storage ? { shared: storage, tab: tabStorage } : { shared: getDeferredSafeStorage(), tab: tabStorage ?? getSafeSessionStorage() }
+
+/** This tab's choice: a session, `null` (a draft), or `undefined` when it has none (missing or malformed). */
+const readTabChoice = (tab: Storage, runtimeKey: string): PersistedLastSession | null | undefined => {
+  try {
+    const raw = tab.getItem(TAB_KEY_PREFIX + runtimeKey)
+    return raw === null ? undefined : tabChoiceSchema.safeParse(JSON.parse(raw)).data
+  } catch {
+    return undefined
+  }
+}
+
+const writeTabChoice = (tab: Storage, runtimeKey: string, choice: PersistedLastSession | null): void => {
+  const value = choice && { sessionId: choice.sessionId, directory: choice.directory || null }
+  try {
+    tab.setItem(TAB_KEY_PREFIX + runtimeKey, JSON.stringify(value))
+  } catch {
+    // Best effort, like the shared pointer: a blocked sessionStorage must never break session switching.
+  }
+}
+
 export function persistLastActiveSession(
   runtimeKey: string,
   entry: PersistedLastSession,
-  storage: Storage = getDeferredSafeStorage(),
+  storage?: Storage,
+  tabStorage?: Storage,
 ): void {
   if (!runtimeKey || !entry.sessionId) return
-  const envelope = readEnvelope(storage)
+  const { shared, tab } = resolveStores(storage, tabStorage)
+  if (tab) writeTabChoice(tab, runtimeKey, entry)
+  const envelope = readEnvelope(shared)
   // Monotonic vs the stored entries: same-millisecond writes must not tie,
   // or retention trimming would evict an arbitrary runtime.
   const maxExisting = Object.values(envelope.runtimes).reduce((max, existing) => Math.max(max, existing.updatedAt), 0)
   envelope.runtimes[runtimeKey] = { ...entry, updatedAt: Math.max(Date.now(), maxExisting + 1) }
-  writeEnvelope(storage, envelope)
+  writeEnvelope(shared, envelope)
 }
 
 export function readLastActiveSession(
   runtimeKey: string,
-  storage: Storage = getDeferredSafeStorage(),
+  storage?: Storage,
+  tabStorage?: Storage,
 ): PersistedLastSession | null {
   if (!runtimeKey) return null
-  const entry = readEnvelope(storage).runtimes[runtimeKey]
+  const { shared, tab } = resolveStores(storage, tabStorage)
+  const own = tab ? readTabChoice(tab, runtimeKey) : undefined
+  if (own !== undefined) return own
+  const entry = readEnvelope(shared).runtimes[runtimeKey]
   return entry ? { sessionId: entry.sessionId, directory: entry.directory } : null
 }
 
+/** A draft choice: this tab records `null` (even with no shared pointer), and the shared pointer is dropped. */
 export function clearLastActiveSession(
   runtimeKey: string,
-  storage: Storage = getDeferredSafeStorage(),
+  storage?: Storage,
+  tabStorage?: Storage,
 ): void {
   if (!runtimeKey) return
-  const envelope = readEnvelope(storage)
-  const cleared = envelope.runtimes[runtimeKey]
-  if (!cleared) return
-  delete envelope.runtimes[runtimeKey]
-  writeEnvelope(storage, envelope)
-  dropSessionRoute(cleared.sessionId)
+  const { shared, tab } = resolveStores(storage, tabStorage)
+  const previous = readLastActiveSession(runtimeKey, shared, tab)
+  if (tab) writeTabChoice(tab, runtimeKey, null)
+  const envelope = readEnvelope(shared)
+  if (envelope.runtimes[runtimeKey]) {
+    delete envelope.runtimes[runtimeKey]
+    writeEnvelope(shared, envelope)
+  }
+  if (previous) dropSessionRoute(previous.sessionId)
 }
 
 /** What the router knows now, when one registered (web only): whether it is still applying the page's route (a restore
@@ -119,6 +161,6 @@ function dropSessionRoute(sessionId: string): void {
 }
 
 /** The runtime's last active session is still `sessionId`: nothing (a draft action, another choice) replaced it. */
-export function isLastActiveSession(runtimeKey: string, sessionId: string, storage: Storage = getDeferredSafeStorage()): boolean {
-  return readLastActiveSession(runtimeKey, storage)?.sessionId === sessionId
+export function isLastActiveSession(runtimeKey: string, sessionId: string, storage?: Storage, tabStorage?: Storage): boolean {
+  return readLastActiveSession(runtimeKey, storage, tabStorage)?.sessionId === sessionId
 }
