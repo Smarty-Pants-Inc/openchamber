@@ -1,10 +1,13 @@
 import React from 'react';
 import { consumeChatDraft, createChatDraftIdentity, readChatDraft, type ChatDraftIdentity } from '@/lib/chatDraftPersistence';
+import { tabId } from '@/lib/chatDraftTabs';
 import { opencodeClient } from '@/lib/opencode/client';
 import type { NativeCreationState } from '@/lib/opencode/nativeCreation';
 import { z } from 'zod';
 
 const markerSchema = z.object({ clientRequestId: z.string().min(1), admitted: z.literal(true).optional(),
+  // New session drafts belong to a tab lineage. Missing on legacy marks; never evidence of shared text ownership.
+  tabId: z.string().min(1).optional(),
   // Its start's operation: read directly once the listing no longer shows it (a settled start leaves the listing after
   // 5 min), so a start that expired is found stopped, never left 'unknown' (#117, code-controls on 3.36).
   operationId: z.string().optional(),
@@ -19,9 +22,11 @@ const markerSchema = z.object({ clientRequestId: z.string().min(1), admitted: z.
  * reads the start and its session's history, never answers or continues it.
  * - While a tab is in its Send attempt for that request, it holds a Web Lock named after the request: other tabs show
  *   the text as pending (read-only, no way to edit it).
- * - An admitted (or found delivered) Send keeps the mark, flagged admitted with its text, for ADMITTED_MS: every tab
- *   that holds a live copy consumes that text through its own draft generation before it unlocks. Nothing but a
- *   stopped start removes a mark early.
+ * - An admitted (or found delivered) Send keeps the mark, flagged admitted with its text, for ADMITTED_MS. Only the
+ *   sender's tab lineage (including duplicates sharing its tab id) consumes through its own draft generation.
+ *   Independent tabs never consume, even with equal text. Nothing but a stopped start removes a mark early.
+ * - Legacy marks without a tab id still coordinate unresolved starts, but never consume text. An explicit Send that
+ *   continues its own saved request adds its lineage before dispatch; history recovery cannot infer one.
  * - Only a stopped start (expired, denied, cancelled) proves the text was not sent: it is restored as unsent, and the
  *   outcome names why. Anything
  *   else not proven (no user message yet, no live sender, not readable) is unknown: read-only until the person
@@ -97,7 +102,9 @@ export function releaseSentStart(clientRequestId: string | undefined): Promise<v
 /** The start for this Send was accepted: its text is sent, not an ordinary draft, until the start resolves. */
 export function markSentStart(runtimeKey: string, directory: string, clientRequestId: string, operationId?: string): boolean {
   holdSentStart(clientRequestId);
-  return writeMarker(runtimeKey, directory, operationId ? { clientRequestId, operationId } : { clientRequestId });
+  const marker: Marker = { clientRequestId, tabId: tabId() };
+  if (operationId) marker.operationId = operationId;
+  return writeMarker(runtimeKey, directory, marker);
 }
 
 /**
@@ -109,30 +116,34 @@ export function markSentStart(runtimeKey: string, directory: string, clientReque
 export function ensureSentStart(runtimeKey: string, directory: string, clientRequestId: string,
   submission?: { text: string; at: number }, operationId?: string): 'marked' | 'elsewhere' | 'storage' {
   const existing = readMarker(runtimeKey, directory);
-  const record = { ...(submission ? { submittedText: submission.text, submittedAt: submission.at } : {}),
-    ...(operationId ? { operationId } : {}) };
+  const record: Marker = { clientRequestId, tabId: existing?.clientRequestId === clientRequestId ? existing.tabId ?? tabId() : tabId() };
+  if (submission) { record.submittedText = submission.text; record.submittedAt = submission.at; }
+  if (operationId) record.operationId = operationId;
   if (existing?.clientRequestId === clientRequestId) {
     // The submission this POST carries (a retry may carry another), and its start's operation (a recovered start's
     // mark gains it): durable before it goes.
     const known = !submission || (existing.submittedText === submission.text && existing.submittedAt === submission.at);
-    if (existing.admitted || (known && (!operationId || existing.operationId === operationId))) return 'marked';
+    if (existing.admitted || (existing.tabId && known && (!operationId || existing.operationId === operationId))) return 'marked';
+    // Only explicit continuation of this exact request can give a legacy unresolved mark a sender lineage.
     return writeMarker(runtimeKey, directory, { ...existing, ...record }) ? 'marked' : 'storage';
   }
   if (existing && !existing.admitted) return 'elsewhere';
-  return writeMarker(runtimeKey, directory, { clientRequestId, ...record }) ? 'marked' : 'storage';
+  return writeMarker(runtimeKey, directory, record) ? 'marked' : 'storage';
 }
 
 /**
- * This request's Send was admitted with the composer text it submitted: other tabs consume their copies of that text.
+ * This request's Send was admitted with its submitted text: same-lineage duplicates consume their copies.
  */
 export function admitSentStart(runtimeKey: string, directory: string, clientRequestId: string | undefined, submitted?: string,
   submittedAt = Date.now()): void {
   releaseSentStart(clientRequestId);
-  if (clientRequestId && readMarker(runtimeKey, directory)?.clientRequestId === clientRequestId) {
+  const marker = readMarker(runtimeKey, directory);
+  if (clientRequestId && marker?.clientRequestId === clientRequestId) {
     handled.add(clientRequestId);
     // Admitted as of its submission: a copy set after that is a new message, even if its response came later.
-    writeMarker(runtimeKey, directory, submitted === undefined ? { clientRequestId, admitted: true, at: submittedAt }
-      : { clientRequestId, admitted: true, text: submitted, at: submittedAt });
+    const admitted: Marker = { ...marker, admitted: true, at: submittedAt };
+    if (submitted !== undefined) admitted.text = submitted;
+    writeMarker(runtimeKey, directory, admitted);
   }
 }
 
@@ -171,8 +182,9 @@ export async function keepSentTextAsDraft(runtimeKey: string, directory: string)
  * session, then the same words typed again, even across a reload) is a new message and stays (#220 review).
  */
 /** False when this draft generation no longer owns the slot (New session took it): nothing was settled. */
+const ownsSentText = (marker: Marker): boolean => marker.tabId === tabId();
 const consumeDelivered = (draft: ChatDraftIdentity | null, marker: Marker): boolean =>
-  !marker.text || consumeChatDraft(draft, marker.text, marker.at ?? 0);
+  ownsSentText(marker) && (!marker.text || consumeChatDraft(draft, marker.text, marker.at ?? 0));
 
 const userText = (parts: readonly { type: string; text?: string }[]) => parts.map(part => (part.type === 'text' ? part.text ?? '' : '')).join('');
 
@@ -200,9 +212,11 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   // An expired admitted mark is no mark: a later draft with the same text is a new message, never consumed.
   if (marker?.admitted && Date.now() - (marker.at ?? 0) > ADMITTED_MS) { writeMarker(runtimeKey, directory, null); marker = undefined; }
   if (marker?.admitted) {
+    // Project-wide admission is not draft ownership. Foreign and legacy marks unlock without consuming this text.
+    if (!ownsSentText(marker)) return settle(null);
     // Handled here before (or sent from here): unrelated to this draft now, so it never blocks a new start.
     if (handled.has(marker.clientRequestId)) return settle(null);
-    // Delivered: consume this tab's copy (live editor and saved draft, only if it is that text) once, then unlock. Only a
+    // Delivered: consume this lineage's copy (live editor and saved draft, only if it is that text) once. Only a
     // consumption this draft's owner accepted settles it; otherwise the current owner's read settles it.
     if (!consumeDelivered(draft, marker)) return outcomes.get(key) ?? null;
     handled.add(marker.clientRequestId);
@@ -243,12 +257,13 @@ export async function resolveSentStart(runtimeKey: string, directory: string, dr
   if (superseded()) return outcomes.get(key) ?? null;
   // Settle this draft's copy first: only a consumption its current owner accepted commits the recovery (New session
   // may have taken the slot meanwhile; its own read then settles it). A draft set after the submission is kept.
-  if (!consumeChatDraft(draft, delivered, cutoff)) return outcomes.get(key) ?? null;
-  // Found delivered: flag the mark admitted with that text, so every other tab consumes its copy too.
-  writeMarker(runtimeKey, directory, { clientRequestId: id, admitted: true, text: delivered, at: cutoff });
+  const sameLineage = ownsSentText(marker);
+  if (sameLineage && !consumeChatDraft(draft, delivered, cutoff)) return outcomes.get(key) ?? null;
+  // Found delivered: preserve its provenance. Only the sender lineage may consume; project-wide pending ends.
+  writeMarker(runtimeKey, directory, { ...marker, admitted: true, text: delivered, at: cutoff });
   marker = readMarker(runtimeKey, directory);
   handled.add(id);
-  return settle('delivered');
+  return settle(sameLineage ? 'delivered' : null);
 }
 
 /**
@@ -267,10 +282,10 @@ export function useSentStart(runtimeKey: string, directory: string | null | unde
       // Each admission event carries its own delivered text: a later one (the next Send in this project, before this
       // tab handled the first) must not hide it. Consume it once, then resolve the current mark.
       const admitted = parseMarker(event.newValue);
-      if (admitted?.admitted && admitted.text && !handled.has(admitted.clientRequestId)
-        && Date.now() - (admitted.at ?? 0) <= ADMITTED_MS) {
+      if (admitted?.admitted && admitted.text && ownsSentText(admitted) && !handled.has(admitted.clientRequestId)
+        && Date.now() - (admitted.at ?? 0) <= ADMITTED_MS
+        && consumeDelivered(createChatDraftIdentity(runtimeKey, directory, null, draftId), admitted)) {
         handled.add(admitted.clientRequestId);
-        consumeDelivered(createChatDraftIdentity(runtimeKey, directory, null, draftId), admitted);
       }
       resolve();
     };

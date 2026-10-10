@@ -88,7 +88,7 @@ export function assertNativeDraftReady(target: NativeDraftSend): void {
 }
 
 /** Admission is final even after navigation. Only the originating record changes. */
-/** The composer text each native Send submits: other tabs consume their copies of it on admission (#117). */
+/** The composer text each native Send submits: only the sender's tab lineage consumes copies on admission (#117). */
 /** With when it was submitted: copies set later (a new draft typed while the POST was held) are newer messages. */
 const submittedTexts = new WeakMap<NativeDraftSend, { text: string; at: number }>();
 export function noteNativeDraftSubmitted(target: NativeDraftSend, text: string, at = Date.now()): void { submittedTexts.set(target, { text, at }); }
@@ -127,7 +127,7 @@ export function beginNativeDraftSend(target: NativeDraftSend): () => void {
   assertNativeDraftReady(target);
   if (pending.has(target.session)) throw new NativeCreationError('sending');
   pending.add(target.session);
-  // While its prompt POST is in flight, other tabs show the sent text as pending (#117).
+  // While its prompt POST is in flight, the project-wide sent-start guard remains pending (#117).
   if (target.clientRequestId) holdSentStart(target.clientRequestId);
   return () => {
     pending.delete(target.session);

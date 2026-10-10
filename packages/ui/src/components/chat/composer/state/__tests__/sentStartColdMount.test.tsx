@@ -9,13 +9,13 @@ afterAll(async () => { await dom.restore(); });
 const { createRoot } = await import('react-dom/client');
 const { useComposerDraft } = await import('../useComposerDraft');
 const { resetSentStartsForPage, useSentStart } = await import('@/sync/native-draft-sent');
-const { newSessionSlotKey } = await import('@/lib/chatDraftTabs');
+const { newSessionSlotKey, tabId } = await import('@/lib/chatDraftTabs');
 
-test('a cold-mounted composer consumes text another tab already delivered, and stays editable for new text', async () => {
+test('a cold-mounted composer consumes text its tab lineage already delivered, and stays editable for new text', async () => {
   const runtimeKey = 'sent-cold-mount', directory = '/synthetic', draftId = 3, delivered = 'already delivered text';
   const identity = { runtimeKey, directory, sessionId: null, draftId };
   localStorage.setItem(`oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`,
-    JSON.stringify({ clientRequestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', admitted: true, text: delivered, at: Date.now() }));
+    JSON.stringify({ clientRequestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', tabId: tabId(), admitted: true, text: delivered, at: Date.now() }));
   const messageRef = { current: delivered }, confirmedMentionsRef = { current: new Set<string>() };
   let shown = '', outcome: string | null = 'unset';
   function Composer() {
@@ -60,8 +60,8 @@ test('queued admissions A then B: the open composer consumes A, never offers it 
     await act(async () => { await new Promise(done => setTimeout(done, 10)); });
     expect(shown).toBe(delivered); // No mark yet: an ordinary draft.
     // Fresh request ids: the page's handled set outlives the test above.
-    const a = JSON.stringify({ clientRequestId: '11111111-1111-4111-8111-111111111111', admitted: true, text: delivered, at: Date.now() });
-    const b = JSON.stringify({ clientRequestId: '22222222-2222-4222-8222-222222222222', admitted: true, text: 'message B', at: Date.now() });
+    const a = JSON.stringify({ clientRequestId: '11111111-1111-4111-8111-111111111111', tabId: tabId(), admitted: true, text: delivered, at: Date.now() });
+    const b = JSON.stringify({ clientRequestId: '22222222-2222-4222-8222-222222222222', tabId: tabId(), admitted: true, text: 'message B', at: Date.now() });
     localStorage.setItem(key, b); // By the time this tab runs, the slot already holds B.
     // The DOM window's own event constructor (no global StorageEvent here).
     const Storage = (window as unknown as { StorageEvent: typeof StorageEvent }).StorageEvent;
@@ -75,9 +75,9 @@ test('queued admissions A then B: the open composer consumes A, never offers it 
   } finally { act(() => root.unmount()); localStorage.clear(); }
 });
 
-// Review of #220 (fbcc3093): each editor judges its own copy by when its text began. Tab B's copy (saved before the
-// admission) is consumed even though tab A has since saved a newer draft in the shared slot, which survives; a draft
-// restored after a reload that began after the admission is a new message and survives too.
+// Review of #220 (fbcc3093): each editor judges its own copy by when its text began. Here A and B are duplicates
+// sharing one tab lineage and slot. B's old copy is consumed while A's newer saved draft survives. Independent tabs
+// have different slots and never consume each other's text, even when equal.
 const draftsKey = 'openchamber.chatDrafts.v2';
 // This tab's New session slot (per tab since smarty-code#461).
 void draftsKey;
@@ -114,7 +114,7 @@ test("tab B's old copy is consumed while tab A's newer saved draft in the shared
   saveSlot(runtimeKey, directory, 'hello', now - 60_000); // B restored and saved "hello" before the admission.
   const { seen, root } = await mountComposer(runtimeKey, directory, 5, 'hello');
   try {
-    const mark = JSON.stringify({ clientRequestId: '33333333-3333-4333-8333-333333333333', admitted: true, text: 'hello', at: now - 30_000 });
+    const mark = JSON.stringify({ clientRequestId: '33333333-3333-4333-8333-333333333333', tabId: tabId(), admitted: true, text: 'hello', at: now - 30_000 });
     const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
     localStorage.setItem(key, mark);
     saveSlot(runtimeKey, directory, 'A new draft', now - 1_000); // A consumed its copy, then saved a new draft.
@@ -134,7 +134,7 @@ test("tab B's old copy is consumed while tab A's newer saved draft in the shared
 test('after a reload, a restored draft that began after the admission is kept, in the editor and saved', async () => {
   const runtimeKey = 'sent-after-reload', directory = '/synthetic', now = Date.now();
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
-  localStorage.setItem(key, JSON.stringify({ clientRequestId: '44444444-4444-4444-8444-444444444444', admitted: true, text: 'hello', at: now - 60_000 }));
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: '44444444-4444-4444-8444-444444444444', tabId: tabId(), admitted: true, text: 'hello', at: now - 60_000 }));
   saveSlot(runtimeKey, directory, 'hello', now - 1_000); // New session, the same words typed after the admission.
   const { seen, root } = await mountComposer(runtimeKey, directory, 6, 'hello');
   try {
@@ -149,7 +149,7 @@ test("tab A's different unsent draft, saved before the admission, survives B con
   const { seen, root } = await mountComposer(runtimeKey, directory, 7, 'hello');
   try {
     saveSlot(runtimeKey, directory, 'A replacement unsent draft', now - 45_000); // A saved another text, then left.
-    const mark = JSON.stringify({ clientRequestId: '55555555-5555-4555-8555-555555555555', admitted: true, text: 'hello', at: now - 30_000 });
+    const mark = JSON.stringify({ clientRequestId: '55555555-5555-4555-8555-555555555555', tabId: tabId(), admitted: true, text: 'hello', at: now - 30_000 });
     const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
     localStorage.setItem(key, mark);
     await admittedEvent(key, mark);
@@ -167,7 +167,7 @@ test('after B consumes its copy, B types the same words anew: saved with B\'s ow
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   try {
     saveSlot(runtimeKey, directory, 'A replacement unsent draft', now - 45_000);
-    const mark = JSON.stringify({ clientRequestId: '66666666-6666-4666-8666-666666666666', admitted: true, text: 'hello', at: now - 30_000 });
+    const mark = JSON.stringify({ clientRequestId: '66666666-6666-4666-8666-666666666666', tabId: tabId(), admitted: true, text: 'hello', at: now - 30_000 });
     localStorage.setItem(key, mark);
     await admittedEvent(key, mark);
     expect(first.seen.shown).toBe('');
@@ -190,7 +190,7 @@ test("an empty peer editor handling another tab's admission never deletes that t
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   try {
     await act(async () => { await new Promise(done => setTimeout(done, 700)); }); // B's debounce settles (empty).
-    const mark = JSON.stringify({ clientRequestId: '77777777-7777-4777-8777-777777777777', admitted: true, text: 'hello', at: now - 30_000 });
+    const mark = JSON.stringify({ clientRequestId: '77777777-7777-4777-8777-777777777777', tabId: tabId(), admitted: true, text: 'hello', at: now - 30_000 });
     localStorage.setItem(key, mark);
     saveSlot(runtimeKey, directory, 'A new unsent draft', now - 1_000); // A sent "hello", saved a new draft, closed.
     await admittedEvent(key, mark); // B resumes.
@@ -208,7 +208,7 @@ test('history-confirmed delivery consumes this copy but keeps another tab\'s rep
   const runtimeKey = 'sent-history', directory = '/synthetic', id = '88888888-8888-4888-8888-888888888888';
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   saveSlot(runtimeKey, directory, 'hello', Date.now() - 60_000);
-  localStorage.setItem(key, JSON.stringify({ clientRequestId: id })); // Another tab's accepted start; its outcome unknown here.
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: id, tabId: tabId() })); // A same-lineage duplicate's accepted start.
   let answer = () => {};
   const held = new Promise<void>(done => { answer = done; });
   const listed = spyOn(opencodeClient, 'listNativeCreations').mockResolvedValue([{ operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -235,7 +235,7 @@ test('B keeps its different draft through an admission, then replaces it with th
   const first = await mountComposer(runtimeKey, directory, 12, 'bye');
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   try {
-    const mark = JSON.stringify({ clientRequestId: '99999999-9999-4999-8999-999999999999', admitted: true, text: 'hello', at: now - 30_000 });
+    const mark = JSON.stringify({ clientRequestId: '99999999-9999-4999-8999-999999999999', tabId: tabId(), admitted: true, text: 'hello', at: now - 30_000 });
     localStorage.setItem(key, mark);
     await admittedEvent(key, mark);
     expect(first.seen.shown).toBe('bye');
@@ -259,7 +259,7 @@ test('an editor that changes its saved words away and back before a delayed admi
     await act(async () => { first.seen.type('hello'); });
     await act(async () => { await new Promise(done => setTimeout(done, 700)); }); // This editor saved "hello".
     await new Promise(done => setTimeout(done, 5));
-    const mark = JSON.stringify({ clientRequestId: 'abababab-abab-4bab-8bab-abababababab', admitted: true, text: 'hello', at: Date.now() });
+    const mark = JSON.stringify({ clientRequestId: 'abababab-abab-4bab-8bab-abababababab', tabId: tabId(), admitted: true, text: 'hello', at: Date.now() });
     localStorage.setItem(key, mark); // Another tab admitted its "hello"; this tab has not handled the event yet.
     await new Promise(done => setTimeout(done, 5));
     await act(async () => { first.seen.type('hello!'); }); // Within one save debounce: away...
@@ -328,7 +328,7 @@ test('P1: both recovery reads held across New session: the delivered copy is con
   const runtimeKey = 'sent-recovery-new-session', directory = '/synthetic', id = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   saveSlot(runtimeKey, directory, 'hello', Date.now() - 60_000);
-  localStorage.setItem(key, JSON.stringify({ clientRequestId: id })); // A reload: the reply was lost, the outcome unknown.
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: id, tabId: tabId() })); // Same-tab reload: reply lost, outcome unknown.
   let releaseOld = () => {}, releaseNew = () => {};
   const oldRead = new Promise<void>(done => { releaseOld = done; }), newRead = new Promise<void>(done => { releaseNew = done; });
   const restore = await historySpies(id, directory, [async () => { await oldRead; return deliveredHello; }, async () => { await newRead; return deliveredHello; }]);
@@ -360,7 +360,7 @@ test('P2: submitted "hello", reply lost, edited away and back, saved, reloaded: 
   const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
   const submittedAt = Date.now() - 30_000;
   // Recorded before the prompt POST (ensureSentStart): the text the Send submitted, and when.
-  localStorage.setItem(key, JSON.stringify({ clientRequestId: id, submittedText: 'hello', submittedAt }));
+  localStorage.setItem(key, JSON.stringify({ clientRequestId: id, tabId: tabId(), submittedText: 'hello', submittedAt }));
   saveSlot(runtimeKey, directory, 'hello', Date.now() - 5_000); // Edited away and back after the submission, then saved.
   const restore = await historySpies(id, directory, [async () => deliveredHello]);
   const { seen, root } = await mountComposer(runtimeKey, directory, 22, 'hello'); // The reload.
@@ -371,4 +371,47 @@ test('P2: submitted "hello", reply lost, edited away and back, saved, reloaded: 
     expect(savedText(runtimeKey, directory)).toBe('hello'); // ...and saved.
     expect(JSON.parse(localStorage.getItem(key)!)).toMatchObject({ admitted: true, at: submittedAt }); // The Send is settled.
   } finally { restore(); try { act(() => root.unmount()); } catch { /* unmounted */ } localStorage.clear(); }
+});
+
+test('cold mount preserves equal text under foreign and legacy admitted marks', async () => {
+  for (const lineage of ['independent-tab', undefined]) {
+    const runtimeKey = `sent-foreign-cold-${lineage ?? 'legacy'}`, directory = '/synthetic', now = Date.now();
+    const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
+    saveSlot(runtimeKey, directory, 'hello', now - 60_000);
+    const marker = JSON.stringify({ clientRequestId: '12121212-1212-4212-8212-121212121212', tabId: lineage,
+      admitted: true, text: 'hello', at: now });
+    localStorage.setItem(key, marker);
+    const { seen, root } = await mountComposer(runtimeKey, directory, 30, 'hello');
+    try {
+      expect(seen.shown).toBe('hello');
+      expect(savedText(runtimeKey, directory)).toBe('hello');
+      expect(localStorage.getItem(key)).toBe(marker);
+      await act(async () => { seen.type('hello edited'); });
+      await act(async () => { await new Promise(done => setTimeout(done, 700)); });
+      expect(savedText(runtimeKey, directory)).toBe('hello edited');
+    } finally { act(() => root.unmount()); localStorage.clear(); resetSentStartsForPage(); }
+  }
+});
+
+test('live storage admission never consumes foreign or legacy text, nor marks a matching-lineage event handled', async () => {
+  for (const lineage of ['independent-tab', undefined]) {
+    const runtimeKey = `sent-foreign-live-${lineage ?? 'legacy'}`, directory = '/synthetic', now = Date.now();
+    const key = `oc.nativeCreation.sent:${JSON.stringify([runtimeKey, directory])}`;
+    saveSlot(runtimeKey, directory, 'hello', now - 60_000);
+    const { seen, root } = await mountComposer(runtimeKey, directory, 31, 'hello');
+    try {
+      const admission = { clientRequestId: '34343434-3434-4434-8434-343434343434', admitted: true, text: 'hello', at: now };
+      const foreign = JSON.stringify({ ...admission, tabId: lineage });
+      localStorage.setItem(key, foreign);
+      await admittedEvent(key, foreign);
+      expect(seen.shown).toBe('hello');
+      expect(savedText(runtimeKey, directory)).toBe('hello');
+      // The same request from the sender lineage is still eligible; the foreign event did not mark it handled.
+      const own = JSON.stringify({ ...admission, tabId: tabId() });
+      localStorage.setItem(key, own);
+      await admittedEvent(key, own);
+      expect(seen.shown).toBe('');
+      expect(savedText(runtimeKey, directory)).toBe('');
+    } finally { act(() => root.unmount()); localStorage.clear(); resetSentStartsForPage(); }
+  }
 });
