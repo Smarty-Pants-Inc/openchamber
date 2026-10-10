@@ -1,27 +1,41 @@
 import { expect, test } from 'bun:test';
 import { loadSmarties, loadSmartyFeed, sendSmartyMessage, SmartiesRequestError } from './smarties';
 
-// smarty-code#1407: the client parses the gateway's /api/me/smarties answers once; a missing route or a person without a
-// Smarty is "unavailable", any other failure throws (never an empty list).
+// smarty-code#1407, #1484: the client parses the gateway's /api/me/smarties answers once; only a missing route is
+// "unavailable". A complete 200 may be empty; authorization refusals, partial answers and malformed bodies throw.
 // Bodies are literal wire JSON (some deliberately malformed), so they go in as text.
 const json = (body: string, status = 200) => new Response(body, { status, headers: { 'content-type': 'application/json' } });
 const calls: { url: string; init: RequestInit }[] = [];
 const fake = (response: () => Response) => async (url: string, init: RequestInit) => { calls.push({ url, init }); return response(); };
 
 test('the list puts the own Smarty first', async () => {
-  const result = await loadSmarties(fake(() => json(JSON.stringify({ me: 'kate', smarties: [
-    { id: 'paul', label: 'Paul’s Smarty', own: false, writable: false }, { id: 'kate', label: 'Kate’s Smarty', own: true, writable: true }] }))));
+  const result = await loadSmarties(fake(() => json('{"me":"kate","smarties":[{"id":"paul","label":"Paul’s Smarty","own":false,"writable":false},{"id":"kate","label":"Kate’s Smarty","own":true,"writable":true}]}')));
   expect(result.state === 'ready' && result.smarties.map(s => s.id)).toEqual(['kate', 'paul']);
   expect(calls.at(-1)?.url).toBe('/api/me/smarties');
 });
 
-test('404 and 403 are unavailable; an empty list is empty, also with no person (smarty-code#1456); a 500 or a malformed body throws', async () => {
+test('404 is unavailable; a complete 200 empty list is empty, also with no person (smarty-code#1456); a 500 or a malformed body throws', async () => {
   expect(await loadSmarties(fake(() => new Response('Not Found', { status: 404 })))).toEqual({ state: 'unavailable' });
-  expect(await loadSmarties(fake(() => json(JSON.stringify({}), 403)))).toEqual({ state: 'unavailable' });
-  expect(await loadSmarties(fake(() => json(JSON.stringify({ me: 'x', smarties: [] }))))).toEqual({ state: 'empty' });
-  expect(await loadSmarties(fake(() => json(JSON.stringify({ me: null, smarties: [] }))))).toEqual({ state: 'empty' });
-  expect(loadSmarties(fake(() => json(JSON.stringify({}), 500)))).rejects.toBeInstanceOf(SmartiesRequestError);
-  expect(loadSmarties(fake(() => json(JSON.stringify({ me: 'paul', smarties: [{ id: 'paul' }] }))))).rejects.toThrow();
+  expect(await loadSmarties(fake(() => json('{"me":"x","smarties":[]}')))).toEqual({ state: 'empty' });
+  expect(await loadSmarties(fake(() => json('{"me":null,"smarties":[]}')))).toEqual({ state: 'empty' });
+  await expect(loadSmarties(fake(() => json('{}', 500)))).rejects.toBeInstanceOf(SmartiesRequestError);
+  await expect(loadSmarties(fake(() => json('{"me":"paul","smarties":[{"id":"paul"}]}')))).rejects.toThrow();
+});
+
+test('smarty-code#1484: a 403 authorization refusal throws instead of hiding Smarties as unavailable', async () => {
+  const request = loadSmarties(fake(() => json('{"name":"APIError","data":{"message":"Not authorized to view Smarties."}}', 403)));
+  await expect(request).rejects.toBeInstanceOf(SmartiesRequestError);
+  expect(await request.catch(error => error)).toMatchObject({ status: 403 });
+});
+
+test('smarty-code#1484: only 200 is accepted, even when a 206 has a complete-shaped list', async () => {
+  const request = loadSmarties(fake(() => json('{"me":"paul","smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true}]}', 206)));
+  await expect(request).rejects.toBeInstanceOf(SmartiesRequestError);
+  expect(await request.catch(error => error)).toMatchObject({ status: 206 });
+});
+
+test('smarty-code#1484: no person with a nonempty valid Smarty list is a malformed body, not empty', async () => {
+  await expect(loadSmarties(fake(() => json('{"me":null,"smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true}]}')))).rejects.toThrow();
 });
 
 test('the feed reads the last blocks, or those after an offset; a send posts text and clientId', async () => {

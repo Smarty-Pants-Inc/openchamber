@@ -11,8 +11,9 @@ const STATES = ['working', 'waiting', 'idle', 'blocked', 'offline', 'unknown'] a
 const activitySchema = z.object({ state: z.enum(STATES).catch('unknown'), workingForMs: z.number().nonnegative().nullable().catch(null),
   lastActiveAgoMs: z.number().nonnegative().nullable().catch(null) });
 const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1), own: z.boolean(), writable: z.boolean(), activity: activitySchema.optional() });
-// `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): no Smarties, not a failure.
-const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) });
+// `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): valid only with no Smarties.
+const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) })
+  .refine(body => body.me !== null || body.smarties.length === 0);
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
 // `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
 // of appended blocks (`after`) omits it.
@@ -81,9 +82,9 @@ const smartyPath = (id: string) => `${SMARTIES_API}/${encodeURIComponent(id)}`;
 
 export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<SmartiesResult> {
   const response = await fetcher(SMARTIES_API, read);
-  // ponytail: a 404 is a server without the Smarties route (VS Code, a plain OpenChamber); 403 is a person with no Smarty.
-  if (response.status === 404 || response.status === 403) return { state: 'unavailable' };
-  if (!response.ok) throw new SmartiesRequestError(response.status);
+  // ponytail: only a 404 means no Smarties route (VS Code, a plain OpenChamber); a refusal or partial answer is a failure.
+  if (response.status === 404) return { state: 'unavailable' };
+  if (response.status !== 200) throw new SmartiesRequestError(response.status);
   const body = listSchema.parse(await response.json());
   if (body.smarties.length === 0 || body.me === null) return { state: 'empty' };
   // Own first, whatever order the server sent.

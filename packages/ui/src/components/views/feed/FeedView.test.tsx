@@ -420,6 +420,43 @@ test('a failed list read is a failure with Try again, never "no Smarties"', asyn
   await unmount();
 });
 
+test('smarty-code#1484: a real 403 keeps the Smarties nav and main error visible; Try again reloads the real list', async () => {
+  const realFetch = globalThis.fetch;
+  const paths: string[] = [];
+  let retry = false;
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, value: async (input: string | URL | Request) => {
+    const path = new URL(input instanceof Request ? input.url : String(input), win.location.href).pathname;
+    paths.push(path);
+    if (path !== '/api/me/smarties') return values.fetch();
+    return new Response(retry
+      ? '{"me":"paul","smarties":[{"id":"paul","label":"Paul’s Smarty","own":true,"writable":true}]}'
+      : '{"name":"APIError","data":{"message":"Not authorized to view Smarties."}}',
+    { status: retry ? 200 : 403, headers: { 'content-type': 'application/json' } });
+  } });
+  try {
+    await ensureSmartiesLoaded(undefined, true);
+    expect(paths).toEqual(['/api/me/smarties']);
+    const { host, unmount } = await mount(<><SmartiesNavSection /><main>{view()}</main></>);
+    try {
+      const nav = host.querySelector('nav[aria-label="Smarties"]');
+      expect(nav?.querySelector('h2')?.textContent).toBe('Smarties');
+      expect(nav?.querySelector('[role="alert"]')?.textContent).toContain('Could not load the Smarties.');
+      expect(button(nav!, 'Try again')).toBeDefined();
+      expect(host.querySelector('main [role="alert"]')?.textContent).toBe('Could not load the Smarties.');
+      expect(useFeedStore.getState().pageOpen).toBe(true);
+      retry = true;
+      await act(async () => { button(nav!, 'Try again')!.click(); }); await settle();
+      expect(paths.filter(path => path === '/api/me/smarties')).toEqual(['/api/me/smarties', '/api/me/smarties']);
+      expect(useFeedStore.getState().smarties).toEqual({ state: 'ready', me: 'paul', smarties: [
+        { id: 'paul', label: 'Paul’s Smarty', own: true, writable: true }] });
+      expect(host.querySelector('nav [data-smarty-row="paul"]')?.textContent).toBe('Paul’s Smarty');
+      expect(host.querySelector('main h1')?.textContent).toBe('Paul’s Smarty');
+      expect(host.textContent).toContain('Good evening, Paul.');
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally { await unmount(); }
+  } finally { Object.defineProperty(globalThis, 'fetch', { configurable: true, value: realFetch }); }
+});
+
 test('a failed send keeps its client ID with the draft: closing and reopening the view still reuses it', async () => {
   sendResult = async () => { throw new Error('lost'); };
   const first = await mount(view());
