@@ -7,7 +7,7 @@ import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { SmartyBlock } from '@/lib/smarties';
-import { isOwnerLine } from './feedStore';
+import { isOwnerLine, isTrivialSmartyBlock } from './feedStore';
 
 export function FeedNotice({ children, alert, action }: { children: React.ReactNode; alert?: boolean; action?: React.ReactNode }): React.ReactNode {
   return (
@@ -33,11 +33,12 @@ const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
 export type BlockText = React.ComponentType<{ content: string }>;
 
 /** `earlier`: the "Show earlier" control, when older blocks exist. */
-export function FeedTranscript({ blocks, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
+export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
   blocks: readonly SmartyBlock[]; pending?: readonly { clientId: string; text: string }[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
   earlier?: { state: 'idle' | 'loading' | 'failed'; show: () => void } | null;
 }): React.ReactNode {
   const { t } = useI18n();
+  const blocks = React.useMemo(() => held.filter(block => !isTrivialSmartyBlock(block)), [held]);
   const scroller = React.useRef<HTMLDivElement | null>(null);
   const pinned = React.useRef(true);
   const newest = blocks.at(-1), oldest = blocks[0];
