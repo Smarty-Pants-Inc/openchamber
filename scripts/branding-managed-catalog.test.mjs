@@ -37,7 +37,21 @@ test('managed catalog binds eighteen exact overlaps and retains the full histori
     assert.equal(digest(readFileSync(new URL(`../${entry.path}`, import.meta.url))), entry.catalogFixtureSha256);
   }
   const historical = structuredClone(overlay);
-  // openchamber#542 native ownership fields are the newest layer, above the Smarties layer (smarty-code#1407): unwind them first.
+  // smarty-dev#799 L2 (the iPhone share route) is the newest layer, above openchamber#542: unwind it first.
+  assert.equal(historical.share799Source, '7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e');
+  delete historical.share799Source;
+  const share799 = historical.files.filter(entry => 'share799Sha256' in entry);
+  assert.deepEqual(share799.map(entry => entry.path),
+    ['packages/web/server/lib/opencode/core-routes.js', 'packages/web/server/lib/opencode/proxy.js']);
+  for (const entry of share799) {
+    assert.equal(entry.share799Sha256, entry.combinedSha256);
+    assert.ok(entry.share799Note);
+    entry.combinedSha256 = entry.preShare799CombinedSha256;
+    delete entry.preShare799CombinedSha256;
+    delete entry.share799Sha256;
+    delete entry.share799Note;
+  }
+  // openchamber#542 native ownership fields sit above the Smarties layer (smarty-code#1407): unwind them next.
   assert.equal(historical.nativeListSource, '6fdd792cea0c1b11214a2779ed33b748f6315c99');
   delete historical.nativeListSource;
   const nativeList = historical.files.filter(entry => 'nativeListSha256' in entry);
