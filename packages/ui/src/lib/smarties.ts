@@ -17,7 +17,8 @@ const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.arra
   // Shared-only lists are valid; ownership and write permission must still agree with the signed-in person.
   .refine(body => body.smarties.every(smarty => smarty.own === (smarty.id === body.me) && smarty.writable === smarty.own))
   .refine(body => body.smarties.filter(smarty => smarty.own).length <= 1);
-const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
+// smarty-code#1525: `kind: 'thinking'` marks the producer's thinking, written just before its reply; no kind is a message.
+const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string(), kind: z.literal('thinking').optional() });
 // `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
 // of appended blocks (`after`) omits it.
 const feedSchema = z.object({ blocks: z.array(blockSchema), offset: z.number().int().nonnegative(), earlier: z.number().int().nonnegative().nullable().optional() });

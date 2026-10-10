@@ -1,6 +1,7 @@
 // smarty-code#1407: the Smarties (each person's conversation with their Smarty, their inbox, a message box) and the
 // nav's button to the old Smarty Code view. smarty-code#1477: the own Smarty's nav label.
 import { feedStatusI18n } from './feed-status.i18n';
+import { feedThinkingI18n } from './feed-thinking.i18n';
 type Copy = [nav: string, retry: string, historyFailed: string, empty: string, you: string, inboxToggle: string, send: string, sending: string, hint: string, transcript: string, smartiesFailed: string, viewOnly: string, classicShow: string, classicHide: string, messageLabel: string, messageFailed: string, earlierShow: string, earlierFailed: string, messageRetry: string, messageMayBeSent: string, messageCopy: string, messageTooLong: string, smartiesEmpty: string, navOwn: string, navOwnRow: string];
 const feed = ([nav, retry, historyFailed, empty, you, inboxToggle, send, sending, hint, transcript, smartiesFailed, viewOnly, classicShow, classicHide, messageLabel, messageFailed, earlierShow, earlierFailed, messageRetry, messageMayBeSent, messageCopy, messageTooLong, smartiesEmpty, navOwn, navOwnRow]: Copy) => ({
   'feed.nav.label': nav,
@@ -43,6 +44,9 @@ const feedBase = {
   'zh-CN': feed(['Smarties', '重试', '无法加载对话。', '还没有消息。', '你', '收件箱 ({count})', '发送', '正在发送…', '按 Enter 发送，Shift+Enter 换行', '与 {name} 的对话', '无法加载 Smarties。', '仅查看', 'Smarty Code', '返回 Smarties', '给 {name} 的消息', '你的消息未发送。', '显示更早的消息', '无法加载更早的消息。', '重新发送', '这条消息可能已经发送。', '复制文本', '这条消息太长，无法发送（超过 120 KB）。请尝试拆分成几部分。', '还没有可显示的 Smarties。', '你的 Smarty', '你的 Smarty：{name}']),
   'zh-TW': feed(['Smarties', '重試', '無法載入對話。', '還沒有訊息。', '你', '收件匣 ({count})', '傳送', '正在傳送…', '按 Enter 傳送，Shift+Enter 換行', '與 {name} 的對話', '無法載入 Smarties。', '僅檢視', 'Smarty Code', '返回 Smarties', '給 {name} 的訊息', '你的訊息未傳送。', '顯示較早的訊息', '無法載入較早的訊息。', '重新傳送', '這則訊息可能已經傳送。', '複製文字', '這則訊息太長，無法傳送（超過 120 KB）。請試著拆成幾個部分。', '還沒有可顯示的 Smarties。', '你的 Smarty', '你的 Smarty：{name}']),
 };
-/** smarty-code#1490: each Smarty's status words, merged per locale. */
-export const feedI18n = Object.fromEntries(Object.entries(feedBase).map(([locale, copy]) =>
-  [locale, { ...copy, ...feedStatusI18n[locale as keyof typeof feedStatusI18n] }])) as { [L in keyof typeof feedBase]: (typeof feedBase)[L] & (typeof feedStatusI18n)['en'] };
+// smarty-code#1490: each Smarty's status words, and #1525's thinking words, merged per locale.
+export const feedI18n = /* SAFETY: the three tables share one locale list (typed literals), so each locale finds its words. */ Object.fromEntries(Object.entries(feedBase).map(([locale, copy]) => [locale,
+  // SAFETY: as above, `locale` is a key of each table.
+  { ...copy, ...feedStatusI18n[locale as keyof typeof feedStatusI18n], ...feedThinkingI18n[locale as keyof typeof feedThinkingI18n] }])) as
+  // SAFETY: as above, the merged entries cover every feedBase locale.
+  { [L in keyof typeof feedBase]: (typeof feedBase)[L] & (typeof feedStatusI18n)['en'] & (typeof feedThinkingI18n)['en'] };

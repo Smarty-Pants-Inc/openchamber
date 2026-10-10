@@ -8,6 +8,7 @@ import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { SmartyBlock } from '@/lib/smarties';
 import { isOwnerLine, isTrivialSmartyBlock } from './feedStore';
+import { isThinkingBlock, ThinkingDisclosure, thinkingByReply } from './FeedThinking';
 
 export function FeedNotice({ children, alert, action }: { children: React.ReactNode; alert?: boolean; action?: React.ReactNode }): React.ReactNode {
   return (
@@ -32,13 +33,17 @@ const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
  */
 export type BlockText = React.ComponentType<{ content: string }>;
 
-/** `earlier`: the "Show earlier" control, when older blocks exist. */
-export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
-  blocks: readonly SmartyBlock[]; pending?: readonly { clientId: string; text: string }[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
+/**
+ * `earlier`: the "Show earlier" control, when older blocks exist. `showWork`: the replies' Thinking disclosures show
+ * (the default; smarty-code#1525).
+ */
+export function FeedTranscript({ blocks: held, showWork = true, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
+  blocks: readonly SmartyBlock[]; showWork?: boolean; pending?: readonly { clientId: string; text: string }[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
   earlier?: { state: 'idle' | 'loading' | 'failed'; show: () => void } | null;
 }): React.ReactNode {
   const { t } = useI18n();
-  const blocks = React.useMemo(() => held.filter(block => !isTrivialSmartyBlock(block)), [held]);
+  const blocks = React.useMemo(() => held.filter(block => !isThinkingBlock(block) && !isTrivialSmartyBlock(block)), [held]);
+  const thinking = React.useMemo(() => thinkingByReply(held), [held]);
   const scroller = React.useRef<HTMLDivElement | null>(null);
   const pinned = React.useRef(true);
   const newest = blocks.at(-1), oldest = blocks[0];
@@ -84,6 +89,7 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
             {byOwner(block.author)
               ? <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2"><Text content={block.text} /></div>
               : <Text content={block.text} />}
+            {showWork && thinking.has(block.id) ? <ThinkingDisclosure block={thinking.get(block.id)!} Text={Text} /> : null}
           </li>
         ))}
         {pending.map(item => (
