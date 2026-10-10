@@ -90,6 +90,36 @@ test('switching accounts during creation discards the previous account code and 
   expect(store().created).toBeNull();
 });
 
+test('a creation that resolves after sign-out cannot publish a code before login finishes', async () => {
+  const pending = deferredResponse();
+  await store().load(gateway({ 'GET /api/me/share-tokens': () => json([]) }).fetcher);
+  const creation = store().create(() => pending.promise);
+  useAuthSessionStore.getState().markReauthenticating();
+  pending.resolve(json({ id: 'c', token: 'previous-code', createdAt: a.createdAt }, 201));
+  await creation;
+  const duringLogin = store();
+  useAuthSessionStore.getState().markAuthenticated();
+  expect(duringLogin).toMatchObject({ created: null, creating: false, createFailed: false, list: { state: 'ready', tokens: [] } });
+  expect(store().created).toBeNull();
+  const created = { id: 'd', token: 'current-code', createdAt: a.createdAt };
+  await store().create(gateway({ 'POST /api/me/share-tokens': () => json(created, 201) }).fetcher);
+  expect(store().created).toEqual(created);
+});
+
+test('a creation failure during reauthentication is discarded and creation waits for login', async () => {
+  const pending = deferredResponse();
+  const creation = store().create(() => pending.promise);
+  useAuthSessionStore.getState().markReauthenticating();
+  pending.reject(new Error('request failed'));
+  await creation;
+  const duringLogin = store();
+  const gatewayAfterSignOut = gateway({ 'POST /api/me/share-tokens': () => json({ id: 'c', token: 'previous-code', createdAt: a.createdAt }, 201) });
+  await store().create(gatewayAfterSignOut.fetcher);
+  useAuthSessionStore.getState().markAuthenticated();
+  expect(duringLogin).toMatchObject({ created: null, creating: false, createFailed: false });
+  expect(gatewayAfterSignOut.calls).toEqual([]);
+});
+
 test('an obsolete completion cannot clear or replace a new visit creation', async () => {
   const previous = deferredResponse();
   const current = deferredResponse();

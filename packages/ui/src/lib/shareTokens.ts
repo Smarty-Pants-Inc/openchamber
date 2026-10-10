@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { create } from 'zustand';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
+import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
 
 const tokenSchema = z.object({ id: z.string().min(1), createdAt: z.string(), lastUsedAt: z.string().nullable().optional() });
 const createdSchema = z.object({ id: z.string().min(1), token: z.string().min(1), createdAt: z.string() });
@@ -85,14 +86,14 @@ export const useShareTokensStore = create<ShareTokensStore>((set, get) => ({
     }
   },
   create: async (fetcher) => {
-    if (get().creating) return;
+    if (get().creating || useAuthSessionStore.getState().state !== 'ok') return;
     const generation = pageGeneration;
     const scope = captureRuntimeRequestScope();
     set({ creating: true, createFailed: false });
     try {
       const created = await createShareToken(fetcher);
       if (generation !== pageGeneration) return;
-      if (!isRuntimeRequestScopeCurrent(scope)) {
+      if (!isRuntimeRequestScopeCurrent(scope) || useAuthSessionStore.getState().state !== 'ok') {
         set({ creating: false });
         return;
       }
@@ -103,7 +104,7 @@ export const useShareTokensStore = create<ShareTokensStore>((set, get) => ({
       if (list.state !== 'ready') void get().load(fetcher);
     } catch {
       if (generation !== pageGeneration) return;
-      set({ creating: false, createFailed: isRuntimeRequestScopeCurrent(scope) });
+      set({ creating: false, createFailed: isRuntimeRequestScopeCurrent(scope) && useAuthSessionStore.getState().state === 'ok' });
     }
   },
   remove: async (id, fetcher) => {
