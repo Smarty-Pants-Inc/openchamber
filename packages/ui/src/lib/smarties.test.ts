@@ -116,3 +116,11 @@ test('a refusal body that stalls gives up after the timeout, and one oversized c
   const huge = new Response(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('y'.repeat(1_000_000))); c.close(); } }), { status: 413, headers: { 'content-type': 'text/plain' } });
   expect(await sendSmartyMessage('paul', 'x', 'msg_6', fake(() => huge)).catch(e => e)).toMatchObject({ status: 413, serverMessage: undefined });
 }, 15_000);
+
+test('smarty-code#1525: a thinking block keeps kind "thinking"; an ordinary block has no kind; an unknown kind is malformed', async () => {
+  const feed = { blocks: [{ id: 't1', author: 'org', at: '9:00 AM ET', text: 'Weighing it.', kind: 'thinking' }, { id: 'r1', author: 'org', at: '9:00 AM ET', text: 'Done.' }], offset: 20 };
+  const parsed = await loadSmartyFeed('alex', {}, fake(() => json(JSON.stringify(feed))));
+  expect(parsed).toEqual(feed);
+  expect('kind' in parsed.blocks[1]!).toBe(false);
+  await expect(loadSmartyFeed('alex', {}, fake(() => json('{"blocks":[{"id":"x","author":"org","at":"","text":"","kind":"tool"}],"offset":1}')))).rejects.toThrow();
+});

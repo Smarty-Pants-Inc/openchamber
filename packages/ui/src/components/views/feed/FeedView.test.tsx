@@ -1004,3 +1004,71 @@ test('#1595: a Smarty block with nothing to read (empty, or only ".", "…" and 
     .toEqual([['smarty', 'Good morning, Paul.'], ['smarty', '?'], ['smarty', '!'], ['smarty', '👍'], ['smarty', 'ok'], ['owner', '.'], ['smarty', 'OK.']]);
   await unmount();
 });
+
+// smarty-code#1525: a thinking block the producer writes just before a reply (same author, same time) is that reply's
+// collapsed "Thinking" disclosure, never a message of its own; any other thinking block shows nowhere.
+const thought = (id: string, at: string, text: string, author = 'org') => ({ id, author, at, text, kind: 'thinking' as const });
+const feedWith = (blocks: SmartyFeed['blocks'], earlier: number | null = null): Partial<FeedServices> => ({ ...services,
+  loadFeed: async (_id, query) => query?.after !== undefined ? { blocks: [], offset: 900 } : { blocks, offset: 900, earlier } });
+const entryView = (host: Element) => Array.from(host.querySelectorAll('[data-feed-entry]')).map(entry => {
+  const details = entry.querySelector('details');
+  return [Array.from(entry.querySelectorAll('p')).find(p => !p.closest('details'))?.textContent, details ? [details.querySelector('summary')?.textContent, details.open, details.querySelector('p')?.textContent] : null];
+});
+
+test('#1525: a thinking block right before its reply (same author and time) is a closed native Thinking disclosure under that reply', async () => {
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={feedWith([
+    { id: 'u1', author: 'you', at: '9:00 AM ET', text: 'Plan the week.' },
+    thought('t1', '9:01 AM ET', 'Listing the open items first.'),
+    { id: 'r1', author: 'org', at: '9:01 AM ET', text: 'Here is the plan.' },
+  ])} />);
+  expect(entryView(host)).toEqual([['Plan the week.', null], ['Here is the plan.', ['Thinking', false, 'Listing the open items first.']]]);
+  expect(host.querySelectorAll('details')).toHaveLength(1);
+  await unmount();
+});
+
+test('#1525: orphan or nonmatching thinking never renders and never attaches to another reply', async () => {
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={feedWith([
+    thought('t1', '9:00 AM ET', 'Different time.'), { id: 'r1', author: 'org', at: '9:01 AM ET', text: 'Reply one.' },
+    thought('t2', '9:02 AM ET', 'Other author.', 'sam'), { id: 'r2', author: 'org', at: '9:02 AM ET', text: 'Reply two.' },
+    thought('t3', '9:03 AM ET', 'Before a person.'), { id: 'p1', author: 'sam', at: '9:03 AM ET', text: 'A person line.' },
+    thought('t4', '9:04 AM ET', 'Not adjacent.'), thought('t5', '9:04 AM ET', 'Adjacent.'), { id: 'r3', author: 'org', at: '9:04 AM ET', text: 'Reply three.' },
+    { id: 'r4', author: 'org', at: '9:05 AM ET', text: 'Reply four.' }, thought('t6', '9:05 AM ET', 'After its reply.'),
+    thought('t7', '9:06 AM ET', 'Trailing, no reply yet.'),
+  ])} />);
+  expect(entryView(host)).toEqual([['Reply one.', null], ['Reply two.', null], ['A person line.', null], ['Reply three.', ['Thinking', false, 'Adjacent.']], ['Reply four.', null]]);
+  for (const text of ['Different time.', 'Other author.', 'Before a person.', 'Not adjacent.', 'After its reply.', 'Trailing, no reply yet.']) expect(host.textContent).not.toContain(text);
+  await unmount();
+});
+
+test('#1525: Show the work is selected by default; Responses only hides the disclosures, and Show the work brings them back', async () => {
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={feedWith([
+    thought('t1', '9:01 AM ET', 'Checking.'), { id: 'r1', author: 'org', at: '9:01 AM ET', text: 'Checked.' }])} />);
+  const responses = button(host, 'Responses only')!, work = button(host, 'Show the work')!;
+  expect([responses.getAttribute('aria-pressed'), work.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+  expect(host.querySelectorAll('details')).toHaveLength(1);
+  await act(async () => { responses.click(); });
+  expect([responses.getAttribute('aria-pressed'), work.getAttribute('aria-pressed')]).toEqual(['true', 'false']);
+  expect(host.querySelectorAll('details')).toHaveLength(0);
+  expect(entryView(host)).toEqual([['Checked.', null]]);
+  await act(async () => { work.click(); });
+  expect(host.querySelectorAll('details')).toHaveLength(1);
+  await unmount();
+});
+
+test('#1525: when the shown page starts on a reply, its held thinking block just above still renders with it; a nonmatching one does not', async () => {
+  // 52 held blocks; the newest 50 start at the reply r1, whose thinking block t1 is held just above the page.
+  const page = (first: SmartyFeed['blocks'][number]) => [block(0), first, { id: 'r1', author: 'org', at: '7:00 AM ET', text: 'Paged reply.' }, ...range(1, 50)];
+  const matching = await mount(<FeedView onClose={() => undefined} services={feedWith(page(thought('t1', '7:00 AM ET', 'Held context.')), 10)} />);
+  expect(entryView(matching.host)).toHaveLength(50);
+  expect(entryView(matching.host)[0]).toEqual(['Paged reply.', ['Thinking', false, 'Held context.']]);
+  await matching.unmount();
+  const other = await mount(<FeedView onClose={() => undefined} services={feedWith(page(thought('t1', '6:59 AM ET', 'Wrong context.')), 10)} />);
+  expect(entryView(other.host)[0]).toEqual(['Paged reply.', null]);
+  expect(other.host.textContent).not.toContain('Wrong context.');
+  await other.unmount();
+  // A reader's page of limit+1 that leads with the reply's thinking: nothing older is held, so no "Show earlier".
+  const leading = await mount(<FeedView onClose={() => undefined} services={feedWith(page(thought('t1', '7:00 AM ET', 'Leading context.')).slice(1))} />);
+  expect(entryView(leading.host)[0]).toEqual(['Paged reply.', ['Thinking', false, 'Leading context.']]);
+  expect(button(leading.host, 'Show earlier')).toBeUndefined();
+  await leading.unmount();
+});

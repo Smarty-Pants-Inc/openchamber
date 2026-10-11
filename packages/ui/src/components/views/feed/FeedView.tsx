@@ -21,6 +21,7 @@ import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
 import { draftKey, ensureSmartiesLoaded, isOwnerLine, isTrivialSmartyBlock, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
 import { SmartyStatusBadge, SmartyTypingLine, SmartyWorkingLine } from './SmartyStatus';
+import { FeedWorkToggle, firstShownIndex, isThinkingBlock } from './FeedThinking';
 import { dismissInitialLoading } from './initialLoading';
 import { openConnectIphone } from '@/components/sections/connect-iphone/openConnectIphone';
 
@@ -145,7 +146,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
 
   const showEarlier = () => {
     if (feed.state !== 'ready' || earlier === 'loading') return;
-    if (feed.blocks.length > feed.shown) {
+    if (firstShownIndex(feed.blocks, feed.shown) > 0) {
       setFeed(state => state.state === 'ready' ? { ...state, shown: Math.min(state.blocks.length, state.shown + EARLIER_PAGE) } : state);
       return;
     }
@@ -161,7 +162,7 @@ function useSmartyFeed(id: string, services: FeedServices) {
       setEarlier('idle');
     }, () => { if (live.current) setEarlier('failed'); });
   };
-  const hasEarlier = feed.state === 'ready' && (feed.blocks.length > feed.shown || Boolean(feed.start));
+  const hasEarlier = feed.state === 'ready' && (firstShownIndex(feed.blocks, feed.shown) > 0 || Boolean(feed.start));
   return { feed, retry: () => { setFeed({ state: 'loading' }); setAttempt(n => n + 1); }, earlier: hasEarlier ? { state: earlier, show: showEarlier } : null };
 }
 
@@ -190,7 +191,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
   // alone (no reads, no timers). The turn's start notes the newest reply; a newer reply or the end of the turn hides it.
   const working = smarty.own && feed.state === 'ready' && smarty.activity?.state === 'working';
   const newestReply = React.useMemo(() => {
-    for (let i = blocks.length - 1; i >= 0; i -= 1) if (blocks[i]!.author === 'org' && !isTrivialSmartyBlock(blocks[i]!)) return blocks[i]!.id;
+    for (let i = blocks.length - 1; i >= 0; i -= 1) if (blocks[i]!.author === 'org' && !isThinkingBlock(blocks[i]!) && !isTrivialSmartyBlock(blocks[i]!)) return blocks[i]!.id;
     return null;
   }, [blocks]);
   const [turn, setTurn] = React.useState<{ reply: string | null } | null>(null);
@@ -207,6 +208,8 @@ function SmartyPage({ smarty, all, me, compact, services }: {
     else if (now !== 'working' && was === 'working') setTurn(null);
   }), [smarty.id]);
   const typing = working && turn !== null && turn.reply === newestReply;
+  const [showWork, setShowWork] = React.useState(true); // #1525: the replies' Thinking disclosures, shown by default.
+  const hasThinking = React.useMemo(() => blocks.some(isThinkingBlock), [blocks]);
   // The page is painted from real data: lift the app's loading splash now, not when the old view's bootstrap ends.
   React.useEffect(() => { if (feed.state !== 'loading') dismissInitialLoading(); }, [feed.state]);
   // The first paint waits for the first feed answer (a short wait on an empty page), so nothing jumps when it comes.
@@ -234,6 +237,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         </>}
         {smarty.writable ? null : <span className="shrink-0 typography-micro text-muted-foreground">{t('feed.viewOnly')}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {hasThinking ? <FeedWorkToggle showWork={showWork} onChange={setShowWork} /> : null}
           {ownInbox ? (
             <Button ref={inboxButton} variant={inboxShown ? 'secondary' : 'outline'} size="sm" aria-expanded={inboxShown}
               aria-haspopup={compact ? 'dialog' : undefined} aria-pressed={compact ? undefined : inboxShown} onClick={() => setInboxShown(shown => !shown)}>
@@ -253,7 +257,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
         <section className="flex min-h-0 min-w-0 flex-1 flex-col">
           {feed.state === 'failed'
             ? <FeedNotice alert action={<Button size="sm" variant="outline" onClick={retry}>{t('feed.retry')}</Button>}>{t('feed.historyFailed')}</FeedNotice>
-            : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} pending={pending.filter(item => !echoed.includes(item.clientId))}
+            : <FeedTranscript blocks={feed.blocks.slice(firstShownIndex(feed.blocks, feed.shown))} showWork={showWork} pending={pending.filter(item => !echoed.includes(item.clientId))}
                 smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
           {smarty.own && feed.state === 'ready' ? <SmartyTypingLine name={ownerName} shown={typing} /> : null}
           {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} me={me} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
