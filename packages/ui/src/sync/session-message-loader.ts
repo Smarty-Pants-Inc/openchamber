@@ -182,6 +182,9 @@ const getInitialExpansionLimits = () => isConstrainedRuntime()
 const clientRoleSchema = z.object({ clientRole: z.string() })
 const gatewayRecoverySchema = z.object({ name: z.literal("APIError"), data: z.object({ message: z.string().min(1) }) })
 const errorMessageSchema = z.object({ message: z.string().min(1) })
+const errorStatusSchema = z.object({ status: z.number() })
+/** issue #1176: the smallest window a 413 (window too large) is retried at, halving from the requested size. */
+const MIN_WINDOW_LIMIT = 25
 
 const isUserMessage = (message: Message): boolean => {
   // OpenCode sends `clientRole` on the wire, outside the SDK type; a string there wins over `role`.
@@ -1368,20 +1371,38 @@ export class SessionMessageLoader {
     const store = this.childStores.ensureChild(normalized.directory, { bootstrap: false })
     // Fenced by the window generation: an epoch change, a reset or a reopen cancels the read; an ordinary same-epoch tail
     // refresh (session.idle) does not (openchamber#363 r13: the reader was left on the placeholder).
-    const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch
+    const generation = entry.windowGeneration, sdkEpoch = this.sdkEpoch, epoch = entry.snapshot.positions?.epoch
     const isCurrent = () => !this.disposed && this.sdkEpoch === sdkEpoch && entry.windowGeneration === generation
       && this.childStores.getChild(normalized.directory) === store
     // Windows read beside the loader's own loads: they only add records at known positions, and a stale one (a new
-    // open, another view) commits nothing.
-    const load = this.fetchPage(normalized, limit, undefined, "older", undefined, () => !isCurrent(), at, entry.snapshot.positions?.epoch)
+    // open, another view) commits nothing. A window the gateway finds too large (413) is read again from the same
+    // position and epoch at half the size, down to MIN_WINDOW_LIMIT (issue #1176).
+    const read = async (size: number): Promise<FetchedPage> => {
+      try {
+        return await this.fetchPage(normalized, size, undefined, "older", undefined, () => !isCurrent(), at, epoch)
+      } catch (error) {
+        if (errorStatusSchema.safeParse(error).data?.status !== 413 || size <= MIN_WINDOW_LIMIT || !isCurrent()) throw error
+        return read(Math.max(MIN_WINDOW_LIMIT, Math.floor(size / 2)))
+      }
+    }
+    const load = read(limit)
       .then((page) => {
         if (!isCurrent()) return
         this.commitPage(normalized, entry, store, page, "prepend", isCurrent)
-      }, (error: unknown) => {
+        // A window that loads after a failed one clears that failure; it never resolves a history no open loaded.
+        if (isCurrent() && entry.snapshot.status === "error" && entry.snapshot.resolved) {
+          this.patchEntry(entry, { status: "ready", error: null })
+        }
+      }, (error: Error) => {
         // 409: the positions this window was asked by belong to an older index epoch: start over (contract section 3).
-        if ((error as { status?: number })?.status === 409 && isCurrent()) {
+        if (errorStatusSchema.safeParse(error).data?.status === 409 && isCurrent()) {
           this.epochChanged(normalized, entry, entry.snapshot.positions?.total ?? 0, undefined)
           return
+        }
+        // Any other failure (a 413 at the floor too) is shown; the loaded messages and positions stay as they were.
+        if (isCurrent() && !entry.inflight) {
+          this.patchEntry(entry, { status: "error", loadingKind: null,
+            error: error instanceof Error ? error : new Error(formatSdkError(error)) })
         }
         throw error
       })

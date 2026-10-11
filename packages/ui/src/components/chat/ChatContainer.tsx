@@ -1,6 +1,7 @@
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import React from 'react';
 import { z } from 'zod';
+import { toast } from 'sonner';
 import type { Message, Part } from '@opencode-ai/sdk/v2';
 import type { PermissionRequest } from '@/types/permission';
 import type { QuestionRequest } from '@/types/question';
@@ -87,7 +88,7 @@ import { hasContextParts } from '@/lib/messages/contextParts';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
 import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
@@ -871,14 +872,28 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         : () => undefined), [messageLoader, windowTarget]);
     const goToBeginning = React.useCallback(() => {
         if (!windowTarget) return;
-        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).catch(() => undefined)
-            .then(() => requestAnimationFrame(() => {
-                if (currentWindowTarget.current !== windowTarget) return;
+        // A read that answers after a session or runtime switch moves nothing and reports nothing.
+        const runtimeScope = captureRuntimeRequestScope();
+        const isCurrent = () => currentWindowTarget.current === windowTarget && isRuntimeRequestScopeCurrent(runtimeScope);
+        // A failed read moves nothing and says so (issue #1176); a read that ended without position 0 (an epoch reset) is no jump.
+        void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).then(() => {
+            if (!isCurrent()) return;
+            const first = messageLoader.getSnapshot(windowTarget).positions?.ranges[0];
+            if (first?.start !== 0) return;
+            requestAnimationFrame(() => {
+                if (!isCurrent()) return;
                 messageListRef.current?.scrollToStart();
-                // The reader goes down from here: the next window is read ahead, as a placeholder's request would.
-                loadWindow([{ start: WINDOW_RECORDS, limit: WINDOW_RECORDS }]);
-            }));
-    }, [loadWindow, messageLoader, windowTarget]);
+                // The reader goes down from here: the next window is read ahead from where the first one ended (a
+                // halved read ends early), as a placeholder's request would.
+                loadWindow([{ start: first.end, limit: WINDOW_RECORDS }]);
+            });
+        }, (error: Error) => {
+            if (!isCurrent()) return;
+            toast.error(t('chat.container.sessionLoadError.title'), {
+                description: serverMessageSchema.safeParse(error).data?.serverMessage ?? t('chat.container.sessionLoadError.description'),
+            });
+        });
+    }, [loadWindow, messageLoader, t, windowTarget]);
 
     React.useEffect(() => {
         if (!active || !currentSessionKey || !hasRenderableSessionSnapshot || sessionMessages.length === 0) return;
