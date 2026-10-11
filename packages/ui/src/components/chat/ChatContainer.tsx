@@ -88,7 +88,7 @@ import { hasContextParts } from '@/lib/messages/contextParts';
 import { normalizeUserDisplayParts } from './message/normalizeUserDisplayParts';
 import { findShellCommandForMessage, isUserShellMarkerMessage } from './lib/shellBridge';
 import { resolveChatPromptReadOnly } from './chatPromptReadOnly';
-import { getRuntimeKey } from '@/lib/runtime-switch';
+import { captureRuntimeRequestScope, getRuntimeKey, isRuntimeRequestScopeCurrent } from '@/lib/runtime-switch';
 import { readOrdinaryModel } from '@/lib/opencode/ordinaryModel';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isChatDirectoryPath } from '@/lib/chatDirectories';
@@ -872,19 +872,23 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({
         : () => undefined), [messageLoader, windowTarget]);
     const goToBeginning = React.useCallback(() => {
         if (!windowTarget) return;
+        // A read that answers after a session or runtime switch moves nothing and reports nothing.
+        const runtimeScope = captureRuntimeRequestScope();
+        const isCurrent = () => currentWindowTarget.current === windowTarget && isRuntimeRequestScopeCurrent(runtimeScope);
         // A failed read moves nothing and says so (issue #1176); a read that ended without position 0 (an epoch reset) is no jump.
         void messageLoader.loadAt(windowTarget, 0, WINDOW_RECORDS).then(() => {
+            if (!isCurrent()) return;
             const first = messageLoader.getSnapshot(windowTarget).positions?.ranges[0];
             if (first?.start !== 0) return;
             requestAnimationFrame(() => {
-                if (currentWindowTarget.current !== windowTarget) return;
+                if (!isCurrent()) return;
                 messageListRef.current?.scrollToStart();
                 // The reader goes down from here: the next window is read ahead from where the first one ended (a
                 // halved read ends early), as a placeholder's request would.
                 loadWindow([{ start: first.end, limit: WINDOW_RECORDS }]);
             });
         }, (error: Error) => {
-            if (currentWindowTarget.current !== windowTarget) return;
+            if (!isCurrent()) return;
             toast.error(t('chat.container.sessionLoadError.title'), {
                 description: serverMessageSchema.safeParse(error).data?.serverMessage ?? t('chat.container.sessionLoadError.description'),
             });
