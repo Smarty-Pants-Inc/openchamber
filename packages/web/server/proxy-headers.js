@@ -6,6 +6,9 @@ const filteredRequestHeaders = new Set([
   // so a forwarded client bearer turns every upstream response into a 401.
   'authorization',
   'x-smarty-human-identity',
+  // smarty-code#2367: the gateway's actor headers are the server's to set, never a client's (inbound copies dropped).
+  'x-smarty-actor',
+  'x-smarty-assertion',
   // smarty-dev#799: only the generic proxy's POST /api/me/share forwards it (lib/opencode/share-route.js).
   'x-smarty-share-token',
   'host',

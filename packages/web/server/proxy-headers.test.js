@@ -83,6 +83,20 @@ describe('OpenCode proxy header handling', () => {
       'x-smarty-ordinary-view': 'accepted-view' });
   });
 
+  it('smarty-code#2367: the v2 actor encodes exactly as the contract fixture; inbound actor and assertion headers are dropped', () => {
+    const actor = { version: 2, issuer: 'smarty-oc-fixture', subject: 'baUser0001fixture', name: 'Fixture Principal',
+      email: 'principal@example.test', sessionRef: 'baSessRowId0123456789ABCDEFabcdef' };
+    const headers = collectForwardProxyHeaders({
+      'x-smarty-human-identity': 'forged', 'x-smarty-actor': 'forged', 'x-smarty-assertion': 'forged',
+      cookie: 'better-auth.session_token=private',
+    }, { Authorization: 'Bearer managed' }, actor);
+    expect(headers).toEqual({ Authorization: 'Bearer managed', 'x-smarty-human-identity':
+      'eyJ2ZXJzaW9uIjoyLCJpc3N1ZXIiOiJzbWFydHktb2MtZml4dHVyZSIsInN1YmplY3QiOiJiYVVzZXIwMDAxZml4dHVyZSIsIm5hbWUiOiJGaXh0dXJlIFByaW5jaXBhbCIsImVtYWlsIjoicHJpbmNpcGFsQGV4YW1wbGUudGVzdCIsInNlc3Npb25SZWYiOiJiYVNlc3NSb3dJZDAxMjM0NTY3ODlBQkNERUZhYmNkZWYifQ' });
+    // Without an actor (and without a bearer) none of the three crosses either.
+    expect(collectForwardProxyHeaders({ 'x-smarty-actor': 'forged', 'x-smarty-assertion': 'forged', 'x-smarty-human-identity': 'forged' })).toEqual({});
+    expect(() => collectForwardProxyHeaders({}, {}, actor)).toThrow('Human identity forwarding requires upstream authentication');
+  });
+
   it('refuses actor forwarding without upstream authentication', () => {
     expect(() => collectForwardProxyHeaders({}, {}, { subject: 'opaque_user' }))
       .toThrow('Human identity forwarding requires upstream authentication');

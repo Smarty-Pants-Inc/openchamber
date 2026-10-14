@@ -196,3 +196,41 @@ test('audience is checked again on requests, and profile mutations cannot change
     assert.equal(f.human.auth.options.session.cookieCache.enabled, false);
   } finally { f.close(); }
 });
+
+// smarty-code#2367 (the session-reference contract, section 5): the forwarded actor is v2 and names THIS request's own Better
+// Auth session; the browser-visible actor stays v1.
+test('#2367: the forwarded actor is v2 with this request\'s session id (never its token); two sessions of one user forward their own', async () => {
+  const f = await fixture();
+  try {
+    const refs = [];
+    for (const headers of [await f.helpers.getAuthHeaders({ userId: f.user.id }), await f.helpers.getAuthHeaders({ userId: f.user.id })]) {
+      const req = request(headers), res = Object.assign(new EventEmitter(), { destroy() { this.emit('close'); } });
+      let admitted = false;
+      await f.human.protect(req, res, () => { admitted = true; });
+      const session = await f.human.resolve(request(headers));
+      assert.equal(admitted, true);
+      assert.deepEqual(Object.keys(req.humanIdentity), ['version', 'issuer', 'subject', 'name', 'email', 'sessionRef']);
+      assert.equal(req.humanIdentity.version, 2);
+      assert.equal(req.humanIdentity.subject, f.user.id);
+      assert.equal(req.humanIdentity.sessionRef, session.session.id);
+      assert.notEqual(req.humanIdentity.sessionRef, session.session.token); // The id, never the token.
+      assert.match(req.humanIdentity.sessionRef, /^[A-Za-z0-9_-]{1,128}$/);
+      refs.push(req.humanIdentity.sessionRef);
+    }
+    assert.notEqual(refs[0], refs[1]); // Each session forwards its own.
+  } finally { f.close(); }
+});
+
+test('#2367: the browser-visible actor stays v1 with no ref; a session not the user\'s, or a bad id, is no forwarded identity', async () => {
+  const f = await fixture();
+  try {
+    const session = await f.human.resolve(request(await f.helpers.getAuthHeaders({ userId: f.user.id })));
+    const shown = f.human.actor(session);
+    assert.equal(shown.version, 1);
+    assert.equal(Object.hasOwn(shown, 'sessionRef'), false);
+    assert.equal(f.human.actor({ ...session, session: { ...session.session, userId: 'someone-else' } }, { forwarded: true }), null);
+    for (const id of ['a.b', 'x'.repeat(129), 42, '', undefined])
+      assert.equal(f.human.actor({ ...session, session: { ...session.session, id } }, { forwarded: true }), null, String(id));
+    assert.equal(f.human.actor({ ...session, session: { ...session.session, id: 'x'.repeat(128) } }, { forwarded: true }).sessionRef, 'x'.repeat(128));
+  } finally { f.close(); }
+});
