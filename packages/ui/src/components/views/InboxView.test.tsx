@@ -1,4 +1,4 @@
-import { afterAll, expect, mock, test } from 'bun:test';
+import { afterAll, expect, jest, mock, test } from 'bun:test';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
@@ -370,4 +370,49 @@ test('#2360: a 4xx is an answer: its message shows, the list stays, and nothing 
     await waitRetry();
     expect(calls).toBe(1); // No retry.
   } finally { await view.done(); }
+}, 20_000);
+
+// openchamber#637 review: a hidden tab never polls. The clock is faked, so the whole backoff (5 s, 15 s, then 60 s) passes.
+let visibility: DocumentVisibilityState = 'visible';
+Object.defineProperty(win.document, 'visibilityState', { configurable: true, get: () => visibility });
+const setVisibility = (state: DocumentVisibilityState) => act(async () => {
+  visibility = state; win.document.dispatchEvent(new win.Event('visibilitychange'));
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+});
+const advance = (ms: number) => act(async () => { jest.advanceTimersByTime(ms); for (let i = 0; i < 20; i++) await Promise.resolve(); });
+
+test('#637 review: a hidden tab gets no request after a failure, through the whole backoff; shown again, exactly one reload', async () => {
+  const view = await mount();
+  let calls = 0, ok = false;
+  try {
+    await setVisibility('hidden');
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return ok ? json({ person: 'paul', items: [...items, later] }) : outage(); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0); // A watch event: one read.
+    expect([calls, view.note()]).toEqual([1, 'Couldn’t refresh. Retrying…']);
+    for (const step of [5_000, 15_000, 60_000, 60_000, 60_000]) await advance(step + 100);
+    expect(calls).toBe(1); // Hidden: no retry at all.
+    await setVisibility('visible');
+    expect(calls).toBe(2); // Shown again: one reload at once...
+    await advance(1_000);
+    expect(calls).toBe(2); // ...and only one.
+    ok = true; // It failed: the normal backoff resumes, and its retry loads.
+    await advance(INBOX_RETRY_MS[0]! + 100);
+    expect([calls, view.ids().includes('later1'), view.note()]).toEqual([3, true, null]);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
+}, 20_000);
+
+test('#637 review: hiding the tab stops a scheduled retry; while visible it keeps retrying at the 60 s step', async () => {
+  const view = await mount();
+  let calls = 0;
+  try {
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return outage(); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0);
+    for (const step of [5_000, 15_000, 60_000, 60_000]) await advance(step + 100);
+    expect(calls).toBe(5); // Visible: 1 + the 5 s, 15 s and two 60 s retries.
+    await setVisibility('hidden'); // A 60 s retry is scheduled: hiding cancels it.
+    await advance(180_000);
+    expect(calls).toBe(5);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
 }, 20_000);
