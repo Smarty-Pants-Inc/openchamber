@@ -402,6 +402,23 @@ test('#637 review: a hidden tab gets no request after a failure, through the who
   } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
 }, 20_000);
 
+test('#637 review round 2: a retry already in flight is not started again by a visibility change', async () => {
+  const view = await mount();
+  let calls = 0, release: (r: Response) => void = () => undefined;
+  try {
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return calls === 1 ? outage() : new Promise<Response>(resolve => { release = resolve; }); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0);
+    await advance(INBOX_RETRY_MS[0]! + 100); // The retry starts; its request is held in flight.
+    expect(calls).toBe(2);
+    await setVisibility('hidden');
+    await setVisibility('visible');
+    expect(calls).toBe(2); // No second request while the first is in flight.
+    await act(async () => { release(json({ person: 'paul', items: [...items, later] })); }); await advance(0);
+    expect([calls, view.ids().includes('later1'), view.note()]).toEqual([2, true, null]);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
+}, 20_000);
+
 test('#637 review: hiding the tab stops a scheduled retry; while visible it keeps retrying at the 60 s step', async () => {
   const view = await mount();
   let calls = 0;

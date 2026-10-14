@@ -52,6 +52,7 @@ function InboxPage({ onClose, compact, ownerName }: { onClose: () => void; compa
   const retry = React.useRef<{ timer?: ReturnType<typeof setTimeout>; attempts: number; pending: boolean }>({ attempts: 0, pending: false });
   const reload = React.useCallback((): Promise<void> => {
     clearTimeout(retry.current.timer);
+    retry.current.pending = false; // #637 review: a load in flight is not a pending retry (no second request on a visibility event).
     const mine = ++request.current, scope = captureRuntimeRequestScope();
     const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
     return loadInbox(listedTab).then(r => {
