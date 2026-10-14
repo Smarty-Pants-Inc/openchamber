@@ -102,8 +102,15 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   };
   connections = createHumanConnectionLifetime({ resolve, members, adapter });
   const actor = (session, { forwarded = false } = {}) => {
+    // smarty-code#2367: the FORWARDED actor (server to gateway, behind the bridge bearer) is v2: it also names this
+    // request's own Better Auth session (`session.id`: never the token, the cookie, a hash or a time), from the same
+    // admitted session as `subject`. A session that is not the user's, or an id outside the gateway's rule, is no
+    // identity at all. The browser-visible actor (status) stays v1 and never carries the ref.
+    const sessionRef = forwarded ? session.session?.id : undefined;
+    if (forwarded && (session.session?.userId !== session.user.id || typeof sessionRef !== 'string'
+      || !/^[A-Za-z0-9_-]{1,128}$/.test(sessionRef))) return null;
     const identity = {
-      version: 1, issuer: baseURL, subject: session.user.id,
+      version: forwarded ? 2 : 1, issuer: baseURL, subject: session.user.id,
       name: validName(session.user.name) ? session.user.name : 'User',
     };
     if (validImage(session.user.image)) identity.image = session.user.image;
@@ -112,6 +119,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     identity.email = session.user.email;
     const member = forwarded ? members.forwardedMember(session) : null;
     if (member) identity.member = member;
+    if (forwarded) identity.sessionRef = sessionRef; // Last: the contract's exact v2 key order.
     return identity;
   };
   const authorizeUiSession = async (groupKey) => {
@@ -137,7 +145,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     const current = await connections.admit(req, res, session);
     if (!current) return;
     checked();
-    req.humanIdentity = actor(current, { forwarded: true });
+    const forwarded = actor(current, { forwarded: true });
+    if (!forwarded) return reject(res); // #2367: no identity for a session that is not the user's.
+    req.humanIdentity = forwarded;
     return next();
   };
   return {

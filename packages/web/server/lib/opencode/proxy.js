@@ -904,8 +904,9 @@ export const registerOpenCodeProxy = (app, deps) => {
     on: {
       proxyReq: (proxyReq, req) => {
         const headers = collectForwardProxyHeaders(req.headers, getOpenCodeAuthHeaders(), req.humanIdentity);
-        // http-proxy copies the original request: remove credentials before replacing them.
-        for (const key of ['authorization', 'cookie', 'x-smarty-human-identity']) {
+        // http-proxy copies the original request: remove credentials before replacing them. smarty-code#2367: and the
+        // gateway's actor headers, which only the server sets (a client's copy never crosses).
+        for (const key of ['authorization', 'cookie', 'x-smarty-human-identity', 'x-smarty-actor', 'x-smarty-assertion']) {
           proxyReq.removeHeader(key);
         }
         for (const key of ['Authorization', 'cookie', 'x-smarty-human-identity']) {

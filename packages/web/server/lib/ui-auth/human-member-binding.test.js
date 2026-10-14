@@ -66,8 +66,10 @@ test('active member binds private forwarding without changing public actors or p
     const forwarded = collectForwardProxyHeaders({ 'x-smarty-human-identity': 'forged', cookie: 'private' },
       { Authorization: 'Bearer fixture-private-edge' }, req.humanIdentity);
     assert.equal(Object.hasOwn(forwarded, 'cookie'), false);
+    // smarty-code#2367: the forwarded identity is v2 and names this request's own session (the public actor stays v1).
+    assert.equal(req.humanIdentity.sessionRef, (await f.human.resolve(request(f.headers))).session.id);
     assert.deepEqual(JSON.parse(Buffer.from(forwarded['x-smarty-human-identity'], 'base64url').toString()),
-      { ...display, member });
+      { ...display, version: 2, member, sessionRef: req.humanIdentity.sessionRef });
     const sidebar = await f.human.sidebarView({ ...req, method: 'GET' });
     assert.deepEqual(sidebar, { owner: { issuer: display.issuer, subject: display.subject }, projects: {}, groups: {} });
     assert.equal(JSON.stringify(sidebar).includes(googleSubject), false);
