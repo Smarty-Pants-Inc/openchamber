@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { z } from 'zod';
 import { configureRuntimeUrlResolver } from '../../lib/runtime-url';
-import { signInWithGoogle, useHumanAuth } from '../../lib/human-auth';
+import { appReturn, signInWithGoogle, useHumanAuth } from '../../lib/human-auth';
 
 const signInBody = z.object({ provider: z.literal('google'), disableRedirect: z.boolean(), callbackURL: z.string() });
 
@@ -54,6 +54,44 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
     configureRuntimeUrlResolver({});
     await window.happyDOM.close();
   }
+});
+
+// smarty-code#2290: the web server sends a signed-out visit of the home-screen app to the sign-in as ?return=/api/app/...;
+// Google then returns to that app page (same origin), not to the sign-in page. Any other return is ignored.
+test('#2290: sign-in returns to a safe ?return=/api/app/ path, and ignores any other return', async () => {
+  const originalWindow = globalThis.window;
+  const fetchSpy = spyOn(globalThis, 'fetch');
+  const window = new Window({ url: 'https://ui.example.test/' });
+  Object.assign(globalThis, { window });
+  const callbacks: string[] = [];
+  try {
+    configureRuntimeUrlResolver({});
+    fetchSpy.mockImplementation(async (input, init) => {
+      callbacks.push(signInBody.parse(await new Request(input, init).json()).callbackURL);
+      return Response.json({ url: 'https://accounts.google.com/o/oauth2/v2/auth?state=fixture', redirect: false });
+    });
+    for (const [search, callback] of [
+      ['?return=%2Fapi%2Fapp%2Fsessions%2Fabc', 'https://ui.example.test/api/app/sessions/abc'],
+      ['?return=%2Fapi%2Fapp%2F', 'https://ui.example.test/api/app/'],
+      ['?return=%2F%2Fevil.example%2Fapi%2Fapp%2F', 'https://ui.example.test/?return=%2F%2Fevil.example%2Fapi%2Fapp%2F'],
+      ['?return=https%3A%2F%2Fevil.example%2Fapi%2Fapp%2F', 'https://ui.example.test/?return=https%3A%2F%2Fevil.example%2Fapi%2Fapp%2F'],
+      ['?return=%2Fapi%2Fapp%2F..%2Fadmin', 'https://ui.example.test/?return=%2Fapi%2Fapp%2F..%2Fadmin'],
+      ['?return=%2Fsettings', 'https://ui.example.test/?return=%2Fsettings'],
+      ['', 'https://ui.example.test/'],
+    ] as const) {
+      window.location.href = `https://ui.example.test/${search}`;
+      await signInWithGoogle();
+      expect([search, callbacks.at(-1)]).toEqual([search, callback]);
+    }
+  } finally {
+    fetchSpy.mockRestore();
+    Object.assign(globalThis, { window: originalWindow });
+    configureRuntimeUrlResolver({});
+    await window.happyDOM.close();
+  }
+  for (const value of ['//evil.example/api/app/', '/api/app/%2e%2e/x', '/api/app//x', '/api/app/a\\b', '/api/apps/', '/api/app/a?b'])
+    expect([value, appReturn(`?return=${encodeURIComponent(value)}`)]).toEqual([value, null]);
+  expect(appReturn('?return=%2Fapi%2Fapp%2Fsessions%2Fabc')).toBe('/api/app/sessions/abc');
 });
 
 // smarty-code#538: the account moved from above the composer to a top-bar avatar menu.

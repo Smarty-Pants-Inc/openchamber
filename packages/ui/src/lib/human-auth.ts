@@ -22,10 +22,22 @@ export function humanAuthClient() {
   });
 }
 
+/** smarty-code#2290: the web server sends a signed-out visit of the home-screen app here as `?return=/api/app/...`. The
+ * same rule as its safeAppReturn (packages/web/server/lib/ui-auth/human-auth.js): a same-origin path under /api/app/, no
+ * `//`, backslash, scheme, control character, `..`/`.` segment, query or percent-escape. Anything else: no return. */
+export function appReturn(search: string = window.location.search): string | null {
+  const value = new URLSearchParams(search).get('return');
+  if (value === null || value.length > 1024 || !value.startsWith('/api/app/')) return null;
+  if ([...value].some(c => c.charCodeAt(0) < 0x20 || (c.charCodeAt(0) >= 0x7f && c.charCodeAt(0) <= 0x9f)) || /[\\%?#]/.test(value)
+    || value.includes('//') || /\/\.{1,2}(?:\/|$)/.test(value)) return null;
+  try { return new URL(value, 'https://origin.invalid').pathname === value ? value : null; } catch { return null; }
+}
+
 export async function signInWithGoogle() {
   const scope = captureRuntimeRequestScope();
+  const back = appReturn(); // #2290: back to the app the person opened, else this page as before.
   const result = await humanAuthClient().signIn.social({
-    provider: 'google', callbackURL: window.location.href, disableRedirect: true,
+    provider: 'google', callbackURL: back ? new URL(back, window.location.origin).href : window.location.href, disableRedirect: true,
   });
   if (!isRuntimeRequestScopeCurrent(scope)) return;
   if (result.error) throw new Error(result.error.message);

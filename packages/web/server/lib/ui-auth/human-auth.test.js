@@ -6,7 +6,7 @@ import { Socket } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { betterAuth } from 'better-auth';
 import { testUtils } from 'better-auth/plugins';
-import { createHumanAuth } from './human-auth.js';
+import { createHumanAuth, safeAppReturn } from './human-auth.js';
 
 const config = { baseURL: 'http://localhost:43210', secret: 'fixture-only-secret-at-least-thirty-two-characters',
   googleClientId: 'fixture-google-client', googleClientSecret: 'fixture-google-secret', allowedDomains: ['example.test'] };
@@ -195,4 +195,67 @@ test('audience is checked again on requests, and profile mutations cannot change
     assert.deepEqual(Object.keys(f.human.auth.options.socialProviders), ['google']);
     assert.equal(f.human.auth.options.session.cookieCache.enabled, false);
   } finally { f.close(); }
+});
+
+// smarty-code#2290: the home-screen app opened with an expired sign-in. The guard is mounted at /api (req.url relative,
+// req.originalUrl whole), as the web server mounts it.
+const recorder = () => Object.assign(new EventEmitter(), { statusCode: 200, headers: {}, body: undefined, ended: false,
+  setHeader(name, value) { this.headers[name.toLowerCase()] = value; },
+  status(code) { this.statusCode = code; return this; },
+  json(body) { this.body = body; this.ended = true; return this; },
+  end() { this.ended = true; },
+  destroy() { this.destroyed = true; this.emit('close'); } }); // An admitted response is a live connection (dispose closes it).
+// dest null: no Sec-Fetch-Dest header at all.
+const visit = (path, { method = 'GET', dest = 'document', headers = [] } = {}) => ({ method, originalUrl: path, url: path.replace(/^\/api/, ''),
+  headers: { ...(dest === null ? {} : { 'sec-fetch-dest': dest }), ...Object.fromEntries(headers) } });
+const guard = async (f, req, reject) => {
+  const res = recorder(); let admitted = false;
+  await f.human.protect(req, res, () => { admitted = true; }, ...(reject ? [reject] : []));
+  return { res, admitted };
+};
+const JSON_401 = { authenticated: false, locked: true, humanAuthRequired: true };
+
+test('#2290: a signed-out document visit of /api/app/ goes to the sign-in with a safe return; the session still admits', async () => {
+  const f = await fixture();
+  try {
+    for (const [path, location] of [['/api/app/', '/?return=%2Fapi%2Fapp%2F'], ['/api/app/sessions/abc?x=1#y', '/?return=%2Fapi%2Fapp%2Fsessions%2Fabc']]) {
+      const { res, admitted } = await guard(f, visit(path));
+      assert.deepEqual([path, res.statusCode, res.headers.location, res.headers['cache-control'], res.ended, admitted],
+        [path, 302, location, 'no-store', true, false]);
+    }
+    const headers = await f.helpers.getAuthHeaders({ userId: f.user.id });
+    const signedIn = await guard(f, visit('/api/app/', { headers }));
+    assert.equal(signedIn.admitted, true); // Signed in: the app, as before.
+  } finally { f.close(); }
+});
+
+test('#2290: an API call, a non-GET, another path or no Sec-Fetch-Dest keeps the JSON 401; an upgrade keeps its own refusal', async () => {
+  const f = await fixture();
+  try {
+    for (const req of [visit('/api/app/', { dest: 'empty' }), visit('/api/app/', { method: 'POST' }), visit('/api/app/', { dest: null }),
+      visit('/api/sessions'), visit('/api/application'), visit('/api/app', {})]) {
+      const { res, admitted } = await guard(f, req);
+      assert.deepEqual([req.originalUrl, req.method, res.statusCode, res.body, res.headers.location, admitted],
+        [req.originalUrl, req.method, 401, JSON_401, undefined, false]);
+    }
+    let refused = false;
+    const { res } = await guard(f, visit('/api/app/'), () => { refused = true; });
+    assert.deepEqual([refused, res.statusCode, res.headers.location], [true, 200, undefined]); // A custom refusal (upgrade): its own.
+  } finally { f.close(); }
+});
+
+test('#2290: a return that is not a plain same-origin /api/app/ path is refused: the sign-in, with no return', async () => {
+  const f = await fixture();
+  try {
+    for (const path of ['/api/app//evil.example/x', '/api/app/../admin', '/api/app/./x', '/api/app/%2e%2e/x', '/api/app/%2F%2Fevil', '/api/app/\\evil',
+      '/api/app/a\u0007b', `/api/app/${'a'.repeat(1100)}`]) {
+      const { res } = await guard(f, visit(path));
+      assert.deepEqual([path.slice(0, 40), res.statusCode, res.headers.location], [path.slice(0, 40), 302, '/']);
+    }
+  } finally { f.close(); }
+  for (const value of ['//evil.example/api/app/', 'https://evil.example/api/app/', '/api/app/../x', '/api/app/a?b', '/api/app/a#b',
+    '/api/apps/x', '/api/app', '/API/APP/', 'javascript:/api/app/', '/api/app/\u2028', null, 42])
+    assert.equal(safeAppReturn(value), null, String(value));
+  for (const value of ['/api/app/', '/api/app/sessions/abc-1_2.3'])
+    assert.equal(safeAppReturn(value), value);
 });

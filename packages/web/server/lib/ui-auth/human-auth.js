@@ -130,10 +130,23 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     } catch { return false; }
   };
   const unauthorized = (res) => res.status(401).json({ authenticated: false, locked: true, humanAuthRequired: true });
+  // smarty-code#2290: the home-screen Smarty app opened with no session (an expired sign-in) is a browser page, not an API
+  // call: send it to OpenChamber's sign-in, which returns to the app. Only a GET document navigation under /api/app/;
+  // every API call, non-GET, other path or request without Sec-Fetch-Dest keeps the JSON 401.
+  const appSignIn = (req, res) => {
+    const path = String(req.originalUrl ?? req.url ?? '').split(/[?#]/)[0];
+    if (req.method !== 'GET' || req.headers['sec-fetch-dest'] !== 'document' || !path.startsWith(APP_RETURN_PREFIX)) return false;
+    const back = safeAppReturn(path);
+    res.statusCode = 302; // Plain Node response calls: an Express response and a raw one alike.
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Location', back ? `/?return=${encodeURIComponent(back)}` : '/');
+    res.end();
+    return true;
+  };
   const protect = async (req, res, next, reject = unauthorized) => {
     const checked = startWebTiming(req); // smarty-code#827: the web server's share of a request, forwarded to Code.
     const session = await resolve(req);
-    if (!session) return reject(res);
+    if (!session) return reject === unauthorized && appSignIn(req, res) ? undefined : reject(res);
     const current = await connections.admit(req, res, session);
     if (!current) return;
     checked();
@@ -155,6 +168,17 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     },
     dispose: () => connections.dispose(),
   };
+}
+
+/** smarty-code#2290: the one return the sign-in accepts: a same-origin PATH under /api/app/ (no query), never `//`, a
+ * backslash, a scheme, a control character, `..`/`.` segments or any percent-escape (which could hide one of those).
+ * The UI checks the same rule again before it uses the return (packages/ui/src/lib/human-auth.ts appReturn). */
+export const APP_RETURN_PREFIX = '/api/app/';
+export function safeAppReturn(value) {
+  if (typeof value !== 'string' || value.length > 1024 || !value.startsWith(APP_RETURN_PREFIX)) return null;
+  if ([...value].some(c => c.charCodeAt(0) < 0x20 || (c.charCodeAt(0) >= 0x7f && c.charCodeAt(0) <= 0x9f)) || /[\\%?#]/.test(value)
+    || value.includes('//') || /\/\.{1,2}(?:\/|$)/.test(value)) return null;
+  try { return new URL(value, 'https://origin.invalid').pathname === value ? value : null; } catch { return null; }
 }
 
 function validName(value) {
