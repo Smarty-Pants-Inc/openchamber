@@ -57,7 +57,7 @@ test('openchamber#611: a person may have only a shared Smarty, with no own row',
 });
 
 test('the feed reads the last blocks, or those after an offset; a send posts text and clientId', async () => {
-  const feed = { blocks: [{ id: 'b1', author: 'org', at: '11:55 PM ET', text: 'Hi' }], offset: 10 };
+  const feed = { blocks: [{ id: 'b1', author: 'org', at: '11:55 PM ET', text: 'Hi', kind: 'thinking' }], offset: 10 };
   expect(await loadSmartyFeed('paul', {}, fake(() => json(JSON.stringify(feed))))).toEqual(feed);
   expect(calls.at(-1)?.url).toBe('/api/me/smarties/paul/feed');
   await loadSmartyFeed('paul', { after: 10 }, fake(() => json(JSON.stringify(feed))));

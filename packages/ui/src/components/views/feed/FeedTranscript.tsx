@@ -81,7 +81,12 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
               <span className="font-semibold text-foreground">{authorName(block.author)}</span>
               <span className="tabular-nums text-muted-foreground">{block.at}</span>
             </div>
-            {byOwner(block.author)
+            {block.kind === 'thinking' ? (
+              <details className="text-muted-foreground">
+                <summary className="cursor-pointer typography-ui-label">{t('chat.reasoningTrace.thinking')}</summary>
+                <div className="pt-1"><Text content={block.text} /></div>
+              </details>
+            ) : byOwner(block.author)
               ? <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2"><Text content={block.text} /></div>
               : <Text content={block.text} />}
           </li>
