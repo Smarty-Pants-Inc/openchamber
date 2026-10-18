@@ -168,6 +168,33 @@ test('3: the own Smarty shows the conversation, the inbox inside it, and a "Mess
   await unmount();
 });
 
+test('smarty-code#1525: thinking blocks are collapsed and muted before the Smarty reply', async () => {
+  let streamHandlers: Parameters<FeedServices['openStream']>[1] | null = null;
+  const thinking: Partial<FeedServices> = { ...services, openStream: (_id, handlers) => { streamHandlers = handlers; return { close: () => undefined }; }, loadFeed: async () => ({ offset: 120, blocks: [
+    { id: 'thought', author: 'org', at: '11:55 PM ET', text: 'Let me think this through.', kind: 'thinking' },
+    { id: 'reply', author: 'org', at: '11:56 PM ET', text: 'Here is the answer.' },
+  ] }) };
+  const { host, unmount } = await mount(<FeedView onClose={() => undefined} services={thinking} />);
+  const entries = Array.from(host.querySelectorAll('[data-feed-entry="smarty"]'));
+  const disclosure = entries[0]?.querySelector('details');
+  expect(disclosure).toBeDefined();
+  expect(disclosure?.hasAttribute('open')).toBe(false);
+  expect(disclosure?.querySelector('summary')?.textContent).toBe('Thinking');
+  expect(disclosure?.className).toContain('text-muted-foreground');
+  expect(disclosure?.textContent).toContain('Let me think this through.');
+  expect(entries[1]?.textContent).toContain('Here is the answer.');
+  await act(async () => { disclosure?.querySelector('summary')?.click(); });
+  expect(disclosure?.hasAttribute('open')).toBe(true);
+  await act(async () => { streamHandlers!.onBlocks({ offset: 140, blocks: [
+    { id: 'shared-thought', author: 'kate', at: '11:57 PM ET', text: 'A shared thought.', kind: 'thinking' },
+  ] }); });
+  const shared = host.querySelector('[data-feed-entry="person"] details');
+  expect(shared?.querySelector('summary')?.textContent).toBe('Thinking');
+  expect(shared?.hasAttribute('open')).toBe(false);
+  expect(shared?.textContent).toContain('A shared thought.');
+  await unmount();
+});
+
 test('3: a failed send stays apart from the draft; Send again retries exactly it, with its client ID', async () => {
   sendResult = async () => { throw new Error('502'); };
   const { host, unmount } = await mount(view());
