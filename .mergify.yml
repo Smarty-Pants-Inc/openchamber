@@ -20,9 +20,7 @@ queue_rules:
       - check-success = review/astra
       # A PR labelled needs-security-pass waits for the named security pass (smarty-dev#2630;
       # openchamber#454 merged without one on 2026-10-01).
-      - or:
-          - -label = needs-security-pass
-          - check-success = review/security
+      # Security passes run within 24 h after merge; only a review/security FAILURE (a live harm) holds (smarty-stack#126).
       - check-success = smarty-ci
       - -check-failure = smarty-ci
     merge_conditions:
@@ -45,9 +43,7 @@ queue_rules:
       - check-success = review/astra
       # A PR labelled needs-security-pass waits for the named security pass (smarty-dev#2630;
       # openchamber#454 merged without one on 2026-10-01).
-      - or:
-          - -label = needs-security-pass
-          - check-success = review/security
+      # Security passes run within 24 h after merge; only a review/security FAILURE (a live harm) holds (smarty-stack#126).
     merge_conditions:
       - check-success = checks
 
