@@ -8,6 +8,7 @@ import { createHumanSidebarView } from './human-sidebar-view.js';
 import { createHumanMemberBinding } from './human-member.js';
 import { createHumanConnectionLifetime } from './human-connection.js';
 import { normalizeBasePath } from '../base-path.js';
+import { createHumanAuthBasePathOptions } from './human-auth-base-path.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
@@ -19,6 +20,7 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
   const origin = new URL(baseURL);
   const publicPath = origin.pathname === '/' ? '' : normalizeBasePath(origin.pathname);
+  const basePathOptions = createHumanAuthBasePathOptions(origin, publicPath);
   if (!baseURL || origin.username || origin.password || origin.search || origin.hash
     || baseURL !== `${origin.origin}${publicPath}` || !['https:', 'http:'].includes(origin.protocol)
     || (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) {
@@ -32,7 +34,9 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   const options = {
     database, baseURL: `${baseURL}/api/auth`, basePath: '/api/auth', secret,
     trustedOrigins: [origin.origin],
-    advanced: { disableOriginCheck: false, disableCSRFCheck: false },
+    advanced: { disableOriginCheck: false, disableCSRFCheck: false,
+      defaultCookieAttributes: basePathOptions.defaultCookieAttributes },
+    ...(basePathOptions.plugins ? { plugins: basePathOptions.plugins } : {}),
     emailAndPassword: { enabled: false },
     socialProviders: { google: {
       clientId: googleClientId, clientSecret: googleClientSecret, prompt: 'select_account', hd: hostedDomain,
