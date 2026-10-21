@@ -1,4 +1,4 @@
-import { afterAll, expect, mock, test } from 'bun:test';
+import { afterAll, expect, jest, mock, test } from 'bun:test';
 import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { createRoot } from 'react-dom/client';
@@ -300,3 +300,136 @@ test('smarty-code#1615: the gateway summary shows at most 3 plain lines above th
   expect((await render({ person: 'paul', items, summary: { ...summary, current: false } })).lines.at(-1)).toBe('updating…');
   listResponder = () => json({ person: 'paul', items });
 });
+
+// smarty-code#2360: a gateway outage (Kate's 502/504s) must never empty the inbox or leave it blank: the list shown stays,
+// a plain note says it is retrying, and the retry (INBOX_RETRY_MS: 5 s first) fills it. A 4xx is an answer and stays an error.
+const { useInboxStore, INBOX_RETRY_MS } = await import('@/lib/smartyInbox');
+const outage = () => json({ data: { message: 'The inbox did not answer within 5 s; try again.', code: 'smarty.inbox-timeout' } }, 504);
+const later = { ...base, id: 'later1', title: 'Arrived during the outage', actions: ['respond'], priority: 'normal' };
+const mount = async () => {
+  const host = win.document.createElement('div'); win.document.body.appendChild(host);
+  const root = createRoot(host as unknown as Element);
+  await act(async () => root.render(<View />)); await settle();
+  const ids = () => [...host.querySelectorAll('[data-inbox-item]')].map(e => e.getAttribute('data-inbox-item'));
+  const note = () => host.querySelector('[data-inbox-retrying]')?.textContent ?? null;
+  return { host, ids, note, done: async () => { await act(async () => root.unmount()); host.remove(); listResponder = () => json({ person: 'paul', items }); } };
+};
+const waitRetry = () => act(async () => { await new Promise(r => setTimeout(r, INBOX_RETRY_MS[0]! + 400)); });
+
+test('#2360: a refresh that gets a 504 keeps the list, says "Couldn’t refresh. Retrying…", and the retry updates the list', async () => {
+  const view = await mount();
+  try {
+    expect(view.ids()).toEqual(['p0x', 'ask:1']);
+    let failures = 1;
+    listResponder = () => failures-- > 0 ? outage() : json({ person: 'paul', items: [...items, later] });
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await settle(); // A watch event: reload.
+    expect(view.ids()).toEqual(['p0x', 'ask:1']); // Kept: never emptied by the outage.
+    expect(view.note()).toBe('Couldn’t refresh. Retrying…');
+    expect(view.host.querySelector('[role="alert"]')).toBeNull(); // Not the raw gateway message.
+    await waitRetry();
+    expect(view.ids()).toContain('later1');
+    expect(view.note()).toBeNull();
+  } finally { await view.done(); }
+}, 20_000);
+
+test('#2360 (c): a first load that gets a 504 says "Couldn’t load the inbox. Retrying…" (never a blank), and the retry loads', async () => {
+  let failures = 1;
+  listResponder = () => failures-- > 0 ? outage() : json({ person: 'paul', items });
+  const view = await mount();
+  try {
+    expect(view.ids()).toEqual([]);
+    expect(view.note()).toBe('Couldn’t load the inbox. Retrying…');
+    await waitRetry();
+    expect(view.ids()).toEqual(['p0x', 'ask:1']);
+    expect(view.note()).toBeNull();
+  } finally { await view.done(); }
+}, 20_000);
+
+test('#2360 review: a reload still in flight when the inbox closes, then failing with a 504, schedules no retry', async () => {
+  const view = await mount();
+  let calls = 0, fail: (r: Response) => void = () => undefined;
+  listResponder = () => { calls++; return new Promise<Response>(resolve => { fail = resolve; }); };
+  await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await settle(); // The reload is pending.
+  expect(calls).toBe(1);
+  await view.done(); // Closed while it is in flight.
+  try {
+    listResponder = () => { calls++; return outage(); };
+    await act(async () => { fail(outage()); }); await settle();
+    await waitRetry();
+    expect(calls).toBe(1); // No request after the close.
+  } finally { listResponder = () => json({ person: 'paul', items }); } // Never leak the outage into the next test.
+}, 20_000);
+
+test('#2360: a 4xx is an answer: its message shows, the list stays, and nothing retries', async () => {
+  const view = await mount();
+  try {
+    let calls = 0;
+    listResponder = () => { calls++; return json({ data: { message: 'Invalid inbox state' } }, 400); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await settle();
+    expect([view.ids(), view.note(), view.host.querySelector('[role="alert"]')?.textContent]).toEqual([['p0x', 'ask:1'], null, 'Invalid inbox state']);
+    await waitRetry();
+    expect(calls).toBe(1); // No retry.
+  } finally { await view.done(); }
+}, 20_000);
+
+// openchamber#637 review: a hidden tab never polls. The clock is faked, so the whole backoff (5 s, 15 s, then 60 s) passes.
+let visibility: DocumentVisibilityState = 'visible';
+Object.defineProperty(win.document, 'visibilityState', { configurable: true, get: () => visibility });
+const setVisibility = (state: DocumentVisibilityState) => act(async () => {
+  visibility = state; win.document.dispatchEvent(new win.Event('visibilitychange'));
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+});
+const advance = (ms: number) => act(async () => { jest.advanceTimersByTime(ms); for (let i = 0; i < 20; i++) await Promise.resolve(); });
+
+test('#637 review: a hidden tab gets no request after a failure, through the whole backoff; shown again, exactly one reload', async () => {
+  const view = await mount();
+  let calls = 0, ok = false;
+  try {
+    await setVisibility('hidden');
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return ok ? json({ person: 'paul', items: [...items, later] }) : outage(); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0); // A watch event: one read.
+    expect([calls, view.note()]).toEqual([1, 'Couldn’t refresh. Retrying…']);
+    for (const step of [5_000, 15_000, 60_000, 60_000, 60_000]) await advance(step + 100);
+    expect(calls).toBe(1); // Hidden: no retry at all.
+    await setVisibility('visible');
+    expect(calls).toBe(2); // Shown again: one reload at once...
+    await advance(1_000);
+    expect(calls).toBe(2); // ...and only one.
+    ok = true; // It failed: the normal backoff resumes, and its retry loads.
+    await advance(INBOX_RETRY_MS[0]! + 100);
+    expect([calls, view.ids().includes('later1'), view.note()]).toEqual([3, true, null]);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
+}, 20_000);
+
+test('#637 review round 2: a retry already in flight is not started again by a visibility change', async () => {
+  const view = await mount();
+  let calls = 0, release: (r: Response) => void = () => undefined;
+  try {
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return calls === 1 ? outage() : new Promise<Response>(resolve => { release = resolve; }); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0);
+    await advance(INBOX_RETRY_MS[0]! + 100); // The retry starts; its request is held in flight.
+    expect(calls).toBe(2);
+    await setVisibility('hidden');
+    await setVisibility('visible');
+    expect(calls).toBe(2); // No second request while the first is in flight.
+    await act(async () => { release(json({ person: 'paul', items: [...items, later] })); }); await advance(0);
+    expect([calls, view.ids().includes('later1'), view.note()]).toEqual([2, true, null]);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
+}, 20_000);
+
+test('#637 review: hiding the tab stops a scheduled retry; while visible it keeps retrying at the 60 s step', async () => {
+  const view = await mount();
+  let calls = 0;
+  try {
+    jest.useFakeTimers();
+    listResponder = () => { calls++; return outage(); };
+    await act(async () => { useInboxStore.getState().setOpenItems(true, items); }); await advance(0);
+    for (const step of [5_000, 15_000, 60_000, 60_000]) await advance(step + 100);
+    expect(calls).toBe(5); // Visible: 1 + the 5 s, 15 s and two 60 s retries.
+    await setVisibility('hidden'); // A 60 s retry is scheduled: hiding cancels it.
+    await advance(180_000);
+    expect(calls).toBe(5);
+  } finally { jest.useRealTimers(); visibility = 'visible'; await view.done(); }
+}, 20_000);

@@ -14,7 +14,12 @@ import { useI18n } from '@/lib/i18n';
 import { useStepActions, type StepActions } from '@/components/chat/steps/useStepActions';
 import { captureRuntimeRequestScope, isRuntimeRequestScopeCurrent, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useAuthSessionStore } from '@/lib/runtime-auth-expiry';
-import { actOnInboxItem, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState, type InboxSummary } from '@/lib/smartyInbox';
+import { actOnInboxItem, INBOX_RETRY_MS, InboxRequestError, inboxItemState, loadInbox, refreshInboxBadge, safeLink, useInboxStore, type InboxAction, type InboxItem, type InboxState, type InboxSummary } from '@/lib/smartyInbox';
+
+/** smarty-code#2360: a gateway outage (5xx, 408) or no answer at all is worth a retry; a 4xx is an answer and stays. */
+const retryable = (e: unknown) => e instanceof InboxRequestError ? e.uncertain : e instanceof TypeError;
+/** openchamber#637 review: a hidden tab never polls; becoming visible again does one reload. */
+const pageHidden = () => globalThis.document?.visibilityState === 'hidden';
 
 const TABS: { state: InboxState; label: string }[] = [{ state: 'open', label: 'Open' }, { state: 'snoozed', label: 'Snoozed' }, { state: 'resolved', label: 'Resolved' }];
 const SNOOZES = [['1h', '1 hour'], ['4h', '4 hours'], ['1d', '1 day'], ['1w', '1 week']] as const;
@@ -40,17 +45,44 @@ function InboxPage({ onClose, compact, ownerName }: { onClose: () => void; compa
   // Only the latest request for the tab shown applies (#365 review: a late Open answer must not fill Resolved). reload
   // reads the tab at call time: an action or Undo that finishes after a tab change refreshes the tab shown (round 2).
   const request = React.useRef(0), openRequest = React.useRef(0), shownTab = React.useRef(tab);
-  const reload = React.useCallback(() => {
+  // smarty-code#2360: a retryable failure keeps the list shown (or the empty first load) and retries on the inbox's own
+  // backoff (INBOX_RETRY_MS); any newer reload replaces a pending retry, and a success ends the backoff.
+  const [retrying, setRetrying] = React.useState(false);
+  // pending: a retryable failure is waiting for its retry (the timer, or the tab becoming visible again).
+  const retry = React.useRef<{ timer?: ReturnType<typeof setTimeout>; attempts: number; pending: boolean }>({ attempts: 0, pending: false });
+  const reload = React.useCallback((): Promise<void> => {
+    clearTimeout(retry.current.timer);
+    retry.current.pending = false; // #637 review: a load in flight is not a pending retry (no second request on a visibility event).
     const mine = ++request.current, scope = captureRuntimeRequestScope();
     const listedTab = shownTab.current, openMine = listedTab === 'open' ? ++openRequest.current : 0;
     return loadInbox(listedTab).then(r => {
       if (!isRuntimeRequestScopeCurrent(scope)) return;
       if (openMine && openMine === openRequest.current) setOpenListed(r.items.length);
-      if (mine === request.current) { setItems(r.items); setSummary(r.summary ?? null); setError(null); }
+      if (mine === request.current) { setItems(r.items); setSummary(r.summary ?? null); setError(null); setRetrying(false); retry.current.attempts = 0; retry.current.pending = false; }
     },
-      e => { if (mine === request.current && isRuntimeRequestScopeCurrent(scope)) setError(e instanceof Error ? e.message : String(e)); });
+      e => {
+        if (mine !== request.current || !isRuntimeRequestScopeCurrent(scope)) return;
+        if (!retryable(e)) { retry.current.pending = false; setRetrying(false); setError(e instanceof Error ? e.message : String(e)); return; }
+        setError(null); setRetrying(true); retry.current.pending = true;
+        if (pageHidden()) return; // No timer while hidden: the visibility listener below reloads once when shown.
+        const wait = INBOX_RETRY_MS[Math.min(retry.current.attempts++, INBOX_RETRY_MS.length - 1)];
+        retry.current.timer = setTimeout(() => {
+          if (mine === request.current && isRuntimeRequestScopeCurrent(scope) && !pageHidden()) void reload();
+        }, wait);
+      });
   }, []);
+  React.useEffect(() => {
+    const onVisibility = () => {
+      if (pageHidden()) { clearTimeout(retry.current.timer); return; } // Hidden: stop the backoff where it is.
+      if (retry.current.pending) void reload(); // Shown again: ONE reload now; a failure resumes the backoff.
+    };
+    globalThis.document?.addEventListener('visibilitychange', onVisibility);
+    return () => globalThis.document?.removeEventListener('visibilitychange', onVisibility);
+  }, [reload]);
   React.useEffect(() => { void reload(); }, [reload, tab, revision]);
+  // Unmount (also the remount on a runtime or auth change) fences an in-flight load: its late answer or failure applies
+  // nothing and schedules no retry.
+  React.useEffect(() => () => { request.current++; clearTimeout(retry.current.timer); }, []);
   // New arrivals never replace the selected item or its draft.
   React.useEffect(() => { if (!compact && selectedId === null && items?.[0]) setSelectedId(items[0].id); }, [compact, items, selectedId]);
   const listed = items?.find(i => i.id === selectedId) ?? (compact || selectedId !== null ? null : items?.[0] ?? null);
@@ -67,7 +99,7 @@ function InboxPage({ onClose, compact, ownerName }: { onClose: () => void; compa
       </div>
       <div role="tablist" className="flex gap-4 border-b border-border px-4">
         {TABS.map(entry => (
-          <button key={entry.state} type="button" role="tab" aria-selected={tab === entry.state} onClick={() => { if (entry.state === tab) return; shownTab.current = entry.state; setTab(entry.state); setSelectedId(null); setItems(null); }}
+          <button key={entry.state} type="button" role="tab" aria-selected={tab === entry.state} onClick={() => { if (entry.state === tab) return; shownTab.current = entry.state; setTab(entry.state); setSelectedId(null); setItems(null); setRetrying(false); retry.current.pending = false; }}
             className={cn('rounded-md px-2 py-1 typography-ui-label', tab === entry.state ? 'bg-interactive-hover text-foreground' : 'text-muted-foreground')}>
             {entry.label}{entry.state === 'open' ? ` ${openCount}` : ''}
           </button>
@@ -80,6 +112,8 @@ function InboxPage({ onClose, compact, ownerName }: { onClose: () => void; compa
           {summary.current === false ? <p className="typography-micro text-muted-foreground">{t('inbox.summary.updating')}</p> : null}
         </div>) : null}
       {error ? <p role="alert" className="px-4 py-3 typography-ui-label text-destructive">{error}</p> : null}
+      {retrying ? <p role="status" data-inbox-retrying className="px-4 py-3 typography-ui-label text-muted-foreground">
+        {t(items === null ? 'inbox.load.retrying' : 'inbox.refresh.retrying')}</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-label={`${tab} inbox items`}>
         {items?.length === 0 ? <li className="px-4 py-6 typography-ui-label text-muted-foreground">Nothing here.</li> : null}
         {items?.map(item => (
