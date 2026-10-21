@@ -99,19 +99,20 @@ export const createBootstrapRuntime = (dependencies) => {
       res.setHeader('Cache-Control', 'private, no-store'); next();
     });
     if (humanAuth) {
+      const authMount = `${options.basePath || ''}/api/auth`;
       // Protect application mutations too, including status routes registered below.
       app.use((req, res, next) => {
         const origin = req.headers.origin;
         // smarty-dev#799: the iPhone Shortcut is no browser and sends no Origin; a browser's share still needs ours.
-        if ((origin && origin !== humanAuth.auth.options.baseURL)
+        if ((origin && origin !== new URL(humanAuth.auth.options.baseURL).origin)
           || (!origin && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isShareRequest(req))) {
           return res.status(403).json({ error: 'Human authentication requires the configured application origin' });
         }
         return next();
       });
       // Better Auth must receive the original stream before express.json consumes it.
-      app.all('/api/auth/*splat', (req, res, next) => {
-        if (req.path === '/api/auth/reset') return next('route'); // Retained legacy refusal route.
+      app.all(`${authMount}/*splat`, (req, res, next) => {
+        if (req.path === `${authMount}/reset`) return next('route'); // Retained legacy refusal route.
         const scope = tunnelAuthController.classifyRequestScope(req);
         return scope === 'tunnel' || scope === 'unknown-public'
           ? tunnelAuthController.requireTunnelSession(req, res, next) : next();

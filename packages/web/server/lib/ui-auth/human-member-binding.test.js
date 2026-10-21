@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { fixture, record, member, googleSubject, request, response } from './human-member-fixture.js';
+import { config, fixture, record, member, googleSubject, request, response } from './human-member-fixture.js';
 import { collectForwardProxyHeaders } from '../../proxy-headers.js';
 import { createUiAuth } from './ui-auth.js';
 
@@ -40,13 +40,13 @@ test('active member binds private forwarding without changing public actors or p
   try {
     const session = await f.human.resolve(request(f.headers));
     assert.ok(session);
-    const display = { version: 1, issuer: f.human.auth.options.baseURL, subject: f.user.id,
+    const display = { version: 1, issuer: config.baseURL, subject: f.user.id,
       name: 'Person', email: 'person@example.test' };
     assert.deepEqual(f.human.actor(session), display);
     assert.equal(Object.hasOwn(session, 'member'), false);
     assert.equal(Object.hasOwn(session.user, 'member'), false);
     const identity = f.human.actor(session, { forwarded: true });
-    assert.equal(identity.issuer, f.human.auth.options.baseURL);
+    assert.equal(identity.issuer, config.baseURL);
     assert.equal(identity.subject, f.user.id);
     assert.notEqual(identity.subject, googleSubject);
     assert.deepEqual(identity.member, member);

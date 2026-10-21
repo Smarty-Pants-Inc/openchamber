@@ -30,7 +30,7 @@ describe('POST /api/me/share (smarty-dev#799 trust boundary)', () => {
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'share-route-'));
     human = await createConfiguredHumanAuth(config(root));
-    origin = human.auth.options.baseURL;
+    origin = new URL(human.auth.options.baseURL).origin;
     gateway = http.createServer((req, res) => {
       let body = '';
       req.setEncoding('utf8');

@@ -92,6 +92,7 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
     ...overlay.files.filter(entry => entry.systemNoteAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.worktreeRootAdded).map(entry => entry.path),
     ...overlay.files.filter(entry => entry.sessionStatusReadAdded).map(entry => entry.path),
+    ...overlay.files.filter(entry => entry.basePathAdded).map(entry => entry.path),
   ].sort());
   const original = new Map(json('branding/coverage.json').files.map(entry => [entry.path, entry]));
   for (const entry of overlay.files) {
@@ -102,12 +103,34 @@ test('behavior overlay is explicit and preserves the original branding ledger', 
   }
 });
 
+test('PR 644 base-path successor retains each covered branding predecessor', () => {
+  assert.equal(overlay.basePathSource, '079042a6'); // Supplied merge identity is abbreviated; no fabricated full commit ID.
+  const expected = [
+    ['packages/web/server/index.js', '4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe', '7d4b3664abee6e6a2c6c0e628576949945540a01e052648bc274b92ea5b8ceff'],
+    ['packages/ui/src/components/sections/mcp/startMcpAuthorization.ts', '99395d8066cc5daa80c011188afeeb2e2e634edf02a1f321c8e9599ba5fc33fa', '448913a3e4a83d09a65c86e3c62ae56a07b399811a54f5d0151c82bc917ada89'],
+    ['packages/web/index.html', '57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348', 'c0fac8af88d3473f7979a9b6618bf88ae4f1286613957732ec98b2a19a48f8b6'],
+    ['packages/web/vite.config.ts', 'ebfc3515e1481f4aafc5a5eba16e02753a3bca58558157fc0696423eb56b15f3', '652fd8b534fc948b43c02c6fe632fd559149731fb8e09e9b1b4204b3b4f48d33'],
+  ];
+  assert.deepEqual(overlay.files.filter(entry => entry.basePathSha256).map(entry => entry.path), expected.map(([file]) => file));
+  for (const [file, predecessor, successor] of expected) {
+    const entry = overlays.get(file);
+    assert.equal(entry.preBasePathCombinedSha256, predecessor, file);
+    assert.equal(entry.basePathSha256, successor, file);
+    assert.equal(entry.combinedSha256, successor, file);
+    assert.equal(sha256(read(file)), successor, file);
+    if (entry.basePathAdded) {
+      assert.equal(entry.brandingSha256, json('branding/coverage.json').files.find(item => item.path === file).outputSha256, file);
+      assert.equal(entry.behaviorSource, overlay.basePathSource, file);
+    }
+  }
+});
+
 test('attribution overlay binds only its exact reviewed source without replacing donor evidence', () => {
   assert.equal(overlay.attributionSource, '3c71ed6017b1f30ba9bbb6be1ab259a98075279b');
   for (const file of attributionPaths) {
     const entry = overlays.get(file);
     assert.equal(entry.behaviorSource, overlay.attributionSource, file);
-    assert.equal(entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, entry.combinedSha256, file);
+    assert.equal(entry.basePathSha256 ?? entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, entry.combinedSha256, file);
   }
   const original = attributionPaths.map(file => {
     const entry = overlays.get(file);
@@ -122,7 +145,7 @@ test('native creation overlay binds its exact source and only the twelve attribu
   for (const file of attributionPaths) {
     const entry = overlays.get(file);
     assert.match(entry.nativeCreationSha256, /^[a-f0-9]{64}$/, file);
-    assert.equal(entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, sha256(read(file)), file);
+    assert.equal(entry.basePathSha256 ?? entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.personalSidebarRevealSha256 ?? entry.personalSidebarReviewSha256 ?? entry.personalSidebarSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.persistedTargetSha256 ?? entry.restorationSha256 ?? entry.coldDraftSha256 ?? entry.managedDraftSha256 ?? entry.managedCatalogSha256 ?? entry.ordinarySelectionSha256 ?? entry.foundationCopySha256 ?? entry.nativeLifetimeSha256 ?? entry.nativeCompletionSha256 ?? entry.nativeLifecycleSha256 ?? entry.nativeCreationSha256, sha256(read(file)), file);
   }
   const original = attributionPaths.map(file => [file, overlays.get(file).nativeCreationSha256]);
   assert.equal(sha256(JSON.stringify(original)), '3134c3a04a369259adc2504b65f7c8a4300a5a9f9fcc60a04392765a60c5da41');
@@ -134,7 +157,7 @@ test('foundation copy binds only the eleven locale outputs and preserves earlier
   assert.deepEqual(overlay.files.filter(entry => entry.foundationCopySha256).map(entry => entry.path), locales);
   for (const file of locales) {
     const entry = overlays.get(file);
-    assert.equal(entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
+    assert.equal(entry.basePathSha256 ?? entry.smarties1407Sha256 ?? entry.inboxStepsSha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.foundationCopySha256, sha256(read(file)), file);
     assert.notEqual(entry.foundationCopySha256, entry.nativeCreationSha256, file);
   }
 });
@@ -211,8 +234,8 @@ test('human auth successor retains both earlier overlapping behavior hashes', ()
   assert.equal(index.behaviorSha256, 'c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327');
   assert.equal(index.preHumanAuthCombinedSha256, '28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c');
   for (const entry of overlay.files.filter(entry => entry.humanAuthSha256)) {
-    assert.equal(entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256, entry.combinedSha256);
-    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.humanHostBoundarySha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256));
+    assert.equal(entry.basePathSha256 ?? entry.humanHostBoundarySha256 ?? entry.sendClientIdSha256 ?? entry.statusUnavailableSha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256, entry.combinedSha256);
+    assert.equal(sha256(read(entry.path)), currentOutput(entry.path, entry.basePathSha256 ?? entry.humanHostBoundarySha256 ?? entry.managedHoldSha256 ?? entry.notificationAuthSha256 ?? entry.creationFieldsSha256 ?? entry.firstSendHandoffSha256 ?? entry.sidebarHerdrSha256 ?? entry.managedAddSha256 ?? entry.catalogReloadSha256 ?? entry.sessionVoiceSha256 ?? entry.managedCatalogSha256 ?? entry.humanAuthSha256));
   }
 });
 
@@ -550,6 +573,18 @@ test('human Host boundary binds exactly two successors and preserves every histo
   assert.deepEqual(overlay.files.filter(entry => entry.humanHostBoundarySha256).map(entry => entry.path),
     expected.map(([file]) => file));
   const historical = structuredClone(overlay);
+  assert.equal(historical.basePathSource, '079042a6');
+  delete historical.basePathSource;
+  historical.files = historical.files.filter(entry => !entry.basePathAdded);
+  for (const entry of historical.files.filter(candidate => candidate.basePathSha256)) {
+    assert.equal(entry.basePathSha256, entry.combinedSha256);
+    assert.equal(entry.preBasePathCombinedSha256, entry.humanHostBoundarySha256 ?? entry.brandingSha256);
+    entry.combinedSha256 = entry.preBasePathCombinedSha256;
+    delete entry.preBasePathCombinedSha256;
+    delete entry.basePathSha256;
+    delete entry.basePathNote;
+    if (entry.behaviorSource === undefined) delete entry.behaviorSource;
+  }
   // smarty-dev#799 L2 (the iPhone share route) is the newest layer, above openchamber#542: unwind it first.
   assert.equal(historical.share799Source, '7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e');
   delete historical.share799Source;
@@ -718,7 +753,7 @@ test('human Host boundary binds exactly two successors and preserves every histo
     const entry = overlays.get(file);
     assert.equal(entry.preHumanHostBoundaryCombinedSha256, predecessor, file);
     assert.equal(entry.humanHostBoundarySha256, successor, file);
-    assert.equal(entry.combinedSha256, entry.humanSessionLifetimeSha256 ?? successor, file);
+    assert.equal(entry.combinedSha256, entry.basePathSha256 ?? entry.humanSessionLifetimeSha256 ?? successor, file);
     assert.equal(sha256(read(file)), currentOutput(file, entry.humanSessionLifetimeSha256 ?? successor), file);
     assert.ok(entry.humanHostBoundaryNote, file);
     const original = historical.files.find(candidate => candidate.path === file);

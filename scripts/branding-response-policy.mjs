@@ -14,10 +14,22 @@ assert.deepEqual(notification.files.map(entry => [entry.path, entry.predecessorS
     '4ff0ddccb7eac46e3dec481ca462be3bdb1fe670d276a60109ce0d4ca1cbff49',
     '69d78c11a89c7ac2893d35aa0847fd3058fe63307297aeb53a421bd43ef81b23'],
 ]);
+const behaviorOverlay = JSON.parse(readFileSync(new URL('../branding/behavior-overlay.json', import.meta.url), 'utf8'));
+const basePathOutputs = new Map(behaviorOverlay.files.filter(entry => entry.basePathSha256)
+  .map(entry => [entry.path, entry]));
 const files = [...provenance.files, ...notification.files];
 const outputs = new Map(files.map(entry => [entry.path, entry]));
 assert.equal(outputs.size, files.length);
+const basePathSha256 = entry => entry.basePathSha256;
 export function responsePolicyOutputSha256(file, historicalSha256) {
+  const basePath = basePathOutputs.get(file);
+  if (basePath) {
+    assert.match(basePathSha256(basePath), /^[a-f0-9]{64}$/);
+    const historicalHashes = Object.entries(basePath).filter(([key, value]) => key.endsWith('Sha256') && typeof value === 'string').map(([, value]) => value);
+    assert.ok(historicalHashes.includes(historicalSha256), `${file}: unrecognized predecessor in the base-path ledger`);
+    assert.ok(basePath.basePathNote, `${file}: missing base-path successor disposition`);
+    return basePath.basePathSha256;
+  }
   const entry = outputs.get(file);
   if (!entry) return historicalSha256;
   assert.equal(entry.predecessorSha256, historicalSha256, `${file}: response-policy predecessor changed`);

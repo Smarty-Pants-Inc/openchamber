@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { Window } from 'happy-dom';
 import { z } from 'zod';
 import { configureRuntimeUrlResolver } from '../../lib/runtime-url';
-import { signInWithGoogle, useHumanAuth } from '../../lib/human-auth';
+import { humanAuthClient, signInWithGoogle, useHumanAuth } from '../../lib/human-auth';
 
 const signInBody = z.object({ provider: z.literal('google'), disableRedirect: z.boolean(), callbackURL: z.string() });
 
@@ -48,6 +48,32 @@ test('delayed Google sign-in cannot navigate after runtime switch; current runti
       expect(request.body.callbackURL).toBe('https://ui.example.test/');
     }
     expect(popup).not.toHaveBeenCalled();
+  } finally {
+    fetchSpy.mockRestore();
+    Object.assign(globalThis, { window: originalWindow });
+    configureRuntimeUrlResolver({});
+    await window.happyDOM.close();
+  }
+});
+
+test('hosted Google auth client uses the configured CODE_PREFIX for sign-in and callback', async () => {
+  const originalWindow = globalThis.window;
+  const fetchSpy = spyOn(globalThis, 'fetch');
+  const window = new Window({ url: 'https://ui.example.test/code/' });
+  Object.assign(globalThis, { window });
+  let requestUrl = '';
+  let body: z.infer<typeof signInBody> | undefined;
+  fetchSpy.mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    requestUrl = request.url;
+    body = signInBody.parse(await request.json());
+    return Response.json({ url: 'https://accounts.google.com/o/oauth2/v2/auth?state=fixture', redirect: false });
+  });
+  try {
+    configureRuntimeUrlResolver({ basePath: '/code' });
+    await humanAuthClient().signIn.social({ provider: 'google', callbackURL: window.location.href, disableRedirect: true });
+    expect(requestUrl).toBe('https://ui.example.test/code/api/auth/sign-in/social');
+    expect(body?.callbackURL).toBe('https://ui.example.test/code/');
   } finally {
     fetchSpy.mockRestore();
     Object.assign(globalThis, { window: originalWindow });
