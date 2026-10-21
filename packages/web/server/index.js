@@ -14,6 +14,7 @@ import { PRODUCT_NAME } from '../brand.generated.js';
 import { exposedProxyResponseHeaders } from './proxy-headers.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
 import { createConfiguredHumanAuth } from './lib/ui-auth/human-auth-config.js';
+import { createBasePathMiddleware, stripBasePathFromUrl } from './lib/base-path.js';
 import { createResponsePolicyMiddleware } from './lib/http-response-policy.js';
 import { createTunnelAuth } from './lib/opencode/tunnel-auth.js';
 import { createManagedTunnelConfigRuntime } from './lib/tunnels/managed-config.js';
@@ -1677,6 +1678,7 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
   const sayTTSCapability = detectSayTtsCapability(process);
 
   const app = express();
+  app.use(createBasePathMiddleware(process.env.SMARTY_CODE_BASE_PATH, ['/api/auth']));
   const serverStartedAt = new Date().toISOString();
   const packagedClientOrigins = new Set([
     'openchamber-ui://app',
@@ -1730,6 +1732,11 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
   }));
   expressApp = app;
   server = http.createServer(app);
+  server.on('upgrade', (req, socket) => {
+    const url = stripBasePathFromUrl(req.url || '/', process.env.SMARTY_CODE_BASE_PATH);
+    if (url === null) return socket.destroy();
+    req.url = url;
+  });
   let realtimeProxyRuntime = { stop: () => {} };
   let sessionVoiceRuntime = { stop: () => {} };
 
@@ -1744,6 +1751,7 @@ async function startConfiguredWebUiServer(options, humanAuth, responsePolicyMidd
 
   const bootstrapResult = bootstrapRuntime.setupBaseRoutes(app, {
     process,
+    basePath: process.env.SMARTY_CODE_BASE_PATH || '',
     openchamberVersion: OPENCHAMBER_VERSION,
     runtimeName: process.env.OPENCHAMBER_RUNTIME || 'web',
     serverStartedAt,
