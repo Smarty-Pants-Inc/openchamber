@@ -6,6 +6,7 @@ import { focusDesktopWindow, isDesktopShell, isVSCodeRuntime } from '@/lib/deskt
 import { useMcpConfigStore } from '@/stores/useMcpConfigStore';
 import { useMcpStore } from '@/stores/useMcpStore';
 import { MCP_OAUTH_CALLBACK_PATH, parseMcpOAuthCallbackStateKey } from './mcpOAuth';
+import { appPath } from '@/lib/app-base-path';
 
 /**
  * Starting MCP authorization, for every surface that offers it.
@@ -82,7 +83,11 @@ export const buildMcpAuthorizationRedirectUri = (name: string): string => {
   if (typeof window === 'undefined') {
     throw new McpAuthorizationError('No browser context to build a callback URL from');
   }
-  const url = new URL(MCP_OAUTH_CALLBACK_PATH, getRuntimeApiBaseUrl() || window.location.origin);
+  const runtimeBase = getRuntimeApiBaseUrl();
+  const runtimeUrl = runtimeBase ? new URL(runtimeBase, window.location.origin) : new URL(window.location.origin);
+  const url = runtimeUrl.origin !== window.location.origin
+    ? new URL(MCP_OAUTH_CALLBACK_PATH, runtimeUrl)
+    : new URL(appPath(MCP_OAUTH_CALLBACK_PATH), window.location.origin);
   url.searchParams.set('server', name);
   return url.toString();
 };

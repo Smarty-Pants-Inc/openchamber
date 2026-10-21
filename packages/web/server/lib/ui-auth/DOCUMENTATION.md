@@ -31,7 +31,7 @@ a request `hd` hint or email suffix alone never grants access. The current autho
 exact hosted domain `smartypants.ai`.
 
 `createHumanAuth({database, baseURL, secret, googleClientId, googleClientSecret,
-allowedDomains, env})` uses official Better Auth 1.7.5. `env` defaults to the existing
+allowedDomains, env})` uses official Better Auth 1.7.5. `baseURL` is the exact public app HTTPS URL and may include the canonical app mount prefix (for example `https://code.example.test/code`). The factory passes `<baseURL>/api/auth` to Better Auth as its public API URL and keeps the internal `basePath` at `/api/auth` because the server strips the app prefix before routing. The callback is therefore public at `<baseURL>/api/auth/callback/google` while trusted-origin checks use only the HTTPS origin. `env` defaults to the existing
 process environment; the configured factory passes its injected environment. The caller supplies a private
 SQLite connection and complete configuration. It runs the library's supported
 `better-auth/db/migration` migration API; no parallel account schema is maintained.
@@ -101,8 +101,7 @@ mode retains session deletion and expiry tracking without a membership sweep.
 
 Google is the only configured provider. Its default scopes are `openid email
 profile`; no Gmail, Workspace administration or offline scope is requested.
-Production callback: `https://code.smartypants.ai/api/auth/callback/google`.
-Staging requires its own Integration-approved exact callback origin, never a
+Production callback: `https://code.smartypants.ai/api/auth/callback/google` when served at root, or `https://<org-host>/code/api/auth/callback/google` for Smarty Code's mounted deployment. Staging requires its own Integration-approved exact public callback URL, never a
 wildcard. Proposed secret consumer variables are `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `BETTER_AUTH_SECRET`; nonsecret configuration is the exact
 `BETTER_AUTH_URL`, an explicit enable flag/private database path, and

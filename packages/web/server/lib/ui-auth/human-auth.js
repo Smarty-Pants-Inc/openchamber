@@ -7,6 +7,7 @@ import { createHumanAudience } from './human-audience.js';
 import { createHumanSidebarView } from './human-sidebar-view.js';
 import { createHumanMemberBinding } from './human-member.js';
 import { createHumanConnectionLifetime } from './human-connection.js';
+import { normalizeBasePath } from '../base-path.js';
 
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
@@ -17,9 +18,11 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
     ? allowedDomains[0].toLowerCase() : null;
   if (!hostedDomain) throw new Error('Human authentication requires one exact Google Workspace domain');
   const origin = new URL(baseURL);
-  if (origin.origin !== baseURL || !['https:', 'http:'].includes(origin.protocol)
+  const publicPath = origin.pathname === '/' ? '' : normalizeBasePath(origin.pathname);
+  if (!baseURL || origin.username || origin.password || origin.search || origin.hash
+    || baseURL !== `${origin.origin}${publicPath}` || !['https:', 'http:'].includes(origin.protocol)
     || (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) {
-    throw new Error('Human authentication requires an exact HTTPS origin or loopback test origin');
+    throw new Error('Human authentication requires an exact HTTPS base URL or loopback test URL');
   }
   if (!database || typeof secret !== 'string' || secret.length < 32 || !googleClientId || !googleClientSecret) {
     throw new Error('Human authentication configuration is incomplete');
@@ -27,8 +30,8 @@ export async function createHumanAuth({ database, baseURL, secret, googleClientI
   let connections;
   const deny = () => { throw new APIError('FORBIDDEN', { message: 'This account is not allowed to use this instance' }); };
   const options = {
-    database, baseURL, secret,
-    trustedOrigins: [baseURL],
+    database, baseURL: `${baseURL}/api/auth`, basePath: '/api/auth', secret,
+    trustedOrigins: [origin.origin],
     advanced: { disableOriginCheck: false, disableCSRFCheck: false },
     emailAndPassword: { enabled: false },
     socialProviders: { google: {

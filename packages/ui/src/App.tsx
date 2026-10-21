@@ -56,6 +56,7 @@ import type { RuntimeAPIs } from '@/lib/api/types';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { McpOAuthCallbackPage } from '@/components/sections/mcp/McpOAuthCallbackPage';
 import { MCP_OAUTH_CALLBACK_PATH } from '@/components/sections/mcp/mcpOAuth';
+import { appPath } from '@/lib/app-base-path';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
 import { useI18n } from '@/lib/i18n';
 import { applyMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -159,7 +160,7 @@ const isMcpOAuthCallbackPath = (): boolean => {
     return false;
   }
 
-  return window.location.pathname === MCP_OAUTH_CALLBACK_PATH;
+  return window.location.pathname === appPath(MCP_OAUTH_CALLBACK_PATH);
 };
 
 const EmbeddedSessionChatContent: React.FC<{

@@ -127,7 +127,7 @@ test('offline policy expiry preserves rows and rejects old cookies without owner
 test('synchronous bootstrap mounts real auth before JSON and checks application mutation origin', async () => {
   const root = await mkdtemp(join(tmpdir(), 'human-bootstrap-'));
   const human = await createConfiguredHumanAuth(config(root));
-  const origin = human.auth.options.baseURL;
+  const origin = new URL(human.auth.options.baseURL).origin;
   let shutdown = false;
   const tunnel = { classifyRequestScope: () => 'local', requireTunnelSession: (_req, res) => res.status(403).end() };
   const app = express();

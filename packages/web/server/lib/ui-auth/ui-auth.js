@@ -431,7 +431,7 @@ export const createUiAuth = ({
       requireSessionAuth: humanAuth.protect,
       requireUpgradeAuth: async (req, socket, next, reject) => {
         if (!await applicationAuthority(req)) return reject(socket, 403, 'Requests require an application host');
-        if (req.headers?.origin !== humanAuth.auth.options.baseURL) return reject(socket, 403, 'Invalid origin');
+        if (req.headers?.origin !== new URL(humanAuth.auth.options.baseURL).origin) return reject(socket, 403, 'Invalid origin');
         return humanAuth.protect(req, socket, next, connection => reject(connection, 401, 'Human authentication required'));
       },
       resolveAuthContext: async (req) => {
