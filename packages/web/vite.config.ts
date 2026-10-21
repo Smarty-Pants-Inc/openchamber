@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { VitePWA } from 'vite-plugin-pwa';
 import { themeStoragePlugin } from '../../vite-theme-plugin';
 import { PRODUCT_MARK, PRODUCT_NAME } from './brand.generated.js';
+import { normalizeBasePath } from './server/lib/base-path.js';
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
   '&': '&amp;',
@@ -31,6 +32,7 @@ const pwaDevEnabled = process.env.OPENCHAMBER_DISABLE_PWA_DEV !== '1';
 const reactScanToggle = (process.env.VITE_ENABLE_REACT_SCAN ?? '').toLowerCase();
 const enableReactScan = reactScanToggle === '1' || reactScanToggle === 'true' || reactScanToggle === 'on' || reactScanToggle === 'yes';
 const themeDirectory = path.resolve(__dirname, '../ui/src/lib/theme/themes');
+const publicBasePath = normalizeBasePath(process.env.SMARTY_CODE_BASE_PATH);
 
 const themeJsonHmrPlugin = () => ({
   name: 'openchamber-theme-json-hmr',
@@ -58,6 +60,7 @@ const themeJsonHmrPlugin = () => ({
 
 export default defineConfig({
   root: path.resolve(__dirname, '.'),
+  base: publicBasePath ? `${publicBasePath}/` : '/',
   plugins: [
     {
       name: 'apply-product-brand',

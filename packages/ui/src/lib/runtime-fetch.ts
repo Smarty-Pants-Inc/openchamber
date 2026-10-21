@@ -1,4 +1,5 @@
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
+import { APP_BASE_PATH } from './app-base-path';
 import { answersUnsuccessful } from './responseCopy';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
 import { observeRuntimeAuthResponse } from './runtime-auth-expiry';
@@ -11,7 +12,8 @@ export interface RuntimeFetchOptions extends RequestInit {
 }
 
 const shouldResolveApiPath = (input: string): boolean => {
-  return input.startsWith('/api/') || input === '/api' || input.startsWith('/auth/') || input === '/auth' || input === '/health';
+  const path = APP_BASE_PATH && input.startsWith(`${APP_BASE_PATH}/`) ? input.slice(APP_BASE_PATH.length) : input;
+  return path.startsWith('/api/') || path === '/api' || path.startsWith('/auth/') || path === '/auth' || path === '/health';
 };
 
 const getCurrentOrigin = (): string => {

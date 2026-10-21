@@ -1,4 +1,5 @@
 import React from 'react';
+import { appPath } from '@/lib/app-base-path';
 import { useUIStore } from '@/stores/useUIStore';
 import { isDesktopShell, isVSCodeRuntime } from '@/lib/desktop';
 import { toast } from '@/components/ui';
@@ -235,18 +236,18 @@ export const NotificationSettings: React.FC = () => {
 
     const attempts: Array<{ label: string; opts: RegistrationOptions | null }> = [
       { label: 'no-options', opts: null },
-      { label: 'scope-root', opts: { scope: '/' } },
+      { label: 'scope-root', opts: { scope: appPath('/') } },
       { label: 'type-classic', opts: { type: 'classic' } },
-      { label: 'type-classic-scope', opts: { type: 'classic', scope: '/' } },
-      { label: 'updateViaCache-none', opts: { type: 'classic', updateViaCache: 'none', scope: '/' } },
+      { label: 'type-classic-scope', opts: { type: 'classic', scope: appPath('/') } },
+      { label: 'updateViaCache-none', opts: { type: 'classic', updateViaCache: 'none', scope: appPath('/') } },
     ];
 
     let lastError: unknown = null;
     for (const attempt of attempts) {
       try {
         const promise = attempt.opts
-          ? navigator.serviceWorker.register('/sw.js', attempt.opts)
-          : navigator.serviceWorker.register('/sw.js');
+          ? navigator.serviceWorker.register(appPath('/sw.js'), { ...attempt.opts, scope: appPath('/') })
+          : navigator.serviceWorker.register(appPath('/sw.js'));
 
         return await withTimeout(promise, 10000, `Service worker registration timed out (${attempt.label})`);
       } catch (error) {
