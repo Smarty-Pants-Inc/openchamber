@@ -50,7 +50,7 @@
       "behaviorSha256": "c08c6d6c59e65d971f0f5e2d237049526ee97413073b864f0ef3b88f80180327",
       "preHumanAuthCombinedSha256": "28f20d399e345e949f2a33ff2317faf73028f259676abcd3c873bbce207cc43c",
       "humanAuthSha256": "fa94018275b89995f7c2c4f54e8438ae345653955e7b93758da1bdeac659db96",
-      "combinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
+      "combinedSha256": "7d4b3664abee6e6a2c6c0e628576949945540a01e052648bc274b92ea5b8ceff",
       "preHumanHostBoundaryCombinedSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
       "humanHostBoundarySha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
       "humanHostBoundaryNote": "openchamber#380: the human-mode composition root requires configured application Host authority before early HTTP responses and runtime startup. Source 12463c2f is the initial Host patch, not security-finding closure or release acceptance.",
@@ -64,7 +64,10 @@
       "creationFieldsNote": "Packaged clients' CORS preflight allows X-Smarty-Creation-Fields (the page asks the gateway for stoppedBy, smarty-code#523/#548); branded strings unchanged.",
       "preNotificationAuthCombinedSha256": "3c6abbada66fec3ec219271354e220c42a55af97e7bef1602211e6832f5476c2",
       "notificationAuthSha256": "606af7c4959281422177b123e4025e953ba7a3ddc2ec37c60de76584f9da66cd",
-      "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged."
+      "notificationAuthNote": "The watcher passes the event's session directory to the push trigger, so the notification's session-title lookup names that directory (smarty-code#536/#712); branded strings unchanged.",
+      "preBasePathCombinedSha256": "4782c23cdb7cb41af9fce49ea8eb8576edf64a77a574489509b70eee851532fe",
+      "basePathSha256": "7d4b3664abee6e6a2c6c0e628576949945540a01e052648bc274b92ea5b8ceff",
+      "basePathNote": "OpenChamber PR 644 base-path behavior (merge 079042a6): preserve prior behavior and branding ledger hashes; this layer binds the configured application base-path successor."
     },
     {
       "path": "packages/web/server/lib/opencode/routes.js",
@@ -790,6 +793,42 @@
       "reason": "PR486 #1115/#1116/#1129: exact existing ownership, in-flight event/deletion and omitted-sibling lifecycle regression record. Source provenance only; test cases and production behavior remain untouched.",
       "sessionStatusReadAdded": true,
       "sessionStatusReadSha256": "ad42269dc7e1f9c1f03bb34f0ae874d04c01d86545fead4a31cc8a7fb063fa36"
+    },
+    {
+      "path": "packages/ui/src/components/sections/mcp/startMcpAuthorization.ts",
+      "behaviorSha256": "448913a3e4a83d09a65c86e3c62ae56a07b399811a54f5d0151c82bc917ada89",
+      "combinedSha256": "448913a3e4a83d09a65c86e3c62ae56a07b399811a54f5d0151c82bc917ada89",
+      "reason": "PR 644 configured-base-path behavior successor; historical donor and branding hashes remain unchanged.",
+      "basePathAdded": true,
+      "basePathSha256": "448913a3e4a83d09a65c86e3c62ae56a07b399811a54f5d0151c82bc917ada89",
+      "basePathNote": "OpenChamber PR 644 base-path behavior (merge 079042a6): preserve prior behavior and branding ledger hashes; this layer binds the configured application base-path successor.",
+      "behaviorSource": "079042a6",
+      "preBasePathCombinedSha256": "99395d8066cc5daa80c011188afeeb2e2e634edf02a1f321c8e9599ba5fc33fa",
+      "brandingSha256": "99395d8066cc5daa80c011188afeeb2e2e634edf02a1f321c8e9599ba5fc33fa"
+    },
+    {
+      "path": "packages/web/index.html",
+      "behaviorSha256": "c0fac8af88d3473f7979a9b6618bf88ae4f1286613957732ec98b2a19a48f8b6",
+      "combinedSha256": "c0fac8af88d3473f7979a9b6618bf88ae4f1286613957732ec98b2a19a48f8b6",
+      "reason": "PR 644 configured-base-path behavior successor; historical donor and branding hashes remain unchanged.",
+      "basePathAdded": true,
+      "basePathSha256": "c0fac8af88d3473f7979a9b6618bf88ae4f1286613957732ec98b2a19a48f8b6",
+      "basePathNote": "OpenChamber PR 644 base-path behavior (merge 079042a6): preserve prior behavior and branding ledger hashes; this layer binds the configured application base-path successor.",
+      "behaviorSource": "079042a6",
+      "preBasePathCombinedSha256": "57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348",
+      "brandingSha256": "57c321b4a6d715111f2b2411d6f079683ff97e29d77c1cfe627fc5687d36a348"
+    },
+    {
+      "path": "packages/web/vite.config.ts",
+      "behaviorSha256": "652fd8b534fc948b43c02c6fe632fd559149731fb8e09e9b1b4204b3b4f48d33",
+      "combinedSha256": "652fd8b534fc948b43c02c6fe632fd559149731fb8e09e9b1b4204b3b4f48d33",
+      "reason": "PR 644 configured-base-path behavior successor; historical donor and branding hashes remain unchanged.",
+      "basePathAdded": true,
+      "basePathSha256": "652fd8b534fc948b43c02c6fe632fd559149731fb8e09e9b1b4204b3b4f48d33",
+      "basePathNote": "OpenChamber PR 644 base-path behavior (merge 079042a6): preserve prior behavior and branding ledger hashes; this layer binds the configured application base-path successor.",
+      "behaviorSource": "079042a6",
+      "preBasePathCombinedSha256": "ebfc3515e1481f4aafc5a5eba16e02753a3bca58558157fc0696423eb56b15f3",
+      "brandingSha256": "ebfc3515e1481f4aafc5a5eba16e02753a3bca58558157fc0696423eb56b15f3"
     }
   ],
   "foundationCopySource": "c3aed8611654fb61616d83573ee6c6a7fcd34514",
@@ -845,5 +884,6 @@
   },
   "smarties1407Source": "689ca2f8d21367829cf9b937ae64f6aa30d04cda",
   "nativeListSource": "6fdd792cea0c1b11214a2779ed33b748f6315c99",
-  "share799Source": "7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e"
+  "share799Source": "7677918a47ba7afc0ffdb3c8aa4d104085b9ea8e",
+  "basePathSource": "079042a6"
 }
