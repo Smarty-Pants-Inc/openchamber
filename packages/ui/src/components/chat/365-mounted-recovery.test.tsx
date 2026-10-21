@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 import { act } from 'react';
+import { NATIVE_CREATION_DEADLINE_MS } from '@/lib/opencode/nativeCreationDeadline';
 import { mountedChat, ended, target } from './365-mounted-chat.fixture';
 import { operation, pageReply, stateReply } from './365-mounted-http.fixture';
 
@@ -8,6 +9,10 @@ const unavailable = { ...ended, herdrState: 'unknown', ordinary: null, ordinaryC
 
 test('mounted parent retains Check again after old read-only page, ready operation and failed fresh page', async () => {
   const f = await mountedChat();
+  const timing = { ...f.resume.resumeTiming };
+  let now = Date.now();
+  f.resume.resumeTiming.now = () => now;
+  f.resume.resumeTiming.poll = async () => { now += NATIVE_CREATION_DEADLINE_MS + 1; };
   try {
     const old = await f.page.take(); // The actual ChatContainer started its real initial history load.
     await f.settle(() => f.buttons().includes(CONTINUE));
@@ -39,5 +44,5 @@ test('mounted parent retains Check again after old read-only page, ready operati
     expect(f.banner()).toBeNull();
     expect(f.dom.container.querySelector('[data-testid="fixture-composer"]')).not.toBeNull();
     expect(f.requests.filter(request => request.url.pathname.endsWith('/resume'))).toHaveLength(1);
-  } finally { await f.close(); }
+  } finally { Object.assign(f.resume.resumeTiming, timing); await f.close(); }
 });
