@@ -106,6 +106,24 @@ describe('OpenCode API proxy agent wiring', () => {
     }
   });
 
+  it('smarty-code#2367: drops inbound x-smarty-actor and x-smarty-assertion on every proxy, with or without an actor', () => {
+    registerOpenCodeProxy(createStubApp(), {
+      ...createStubDeps(managedState()), getOpenCodeAuthHeaders: () => ({ Authorization: 'Bearer managed' }),
+    });
+    const actor = { version: 2, issuer: 'https://code.smartypants.ai', subject: 'opaque_user', name: 'Person', sessionRef: 'sess_1' };
+    for (const [options] of createProxyMiddlewareMock.mock.calls) for (const humanIdentity of [actor, undefined]) {
+      const headers = new Map([['x-smarty-actor', 'forged'], ['x-smarty-assertion', 'forged'], ['x-smarty-human-identity', 'forged']]);
+      const proxyReq = {
+        removeHeader: key => headers.delete(key.toLowerCase()),
+        setHeader: (key, value) => headers.set(key.toLowerCase(), value),
+        getHeader: key => headers.get(key.toLowerCase()),
+      };
+      options.on.proxyReq(proxyReq, { method: 'GET', headers: Object.fromEntries(headers), ...(humanIdentity ? { humanIdentity } : {}) });
+      expect([headers.has('x-smarty-actor'), headers.has('x-smarty-assertion')]).toEqual([false, false]);
+      expect(headers.get('x-smarty-human-identity')).toBe(humanIdentity ? Buffer.from(JSON.stringify(actor)).toString('base64url') : undefined);
+    }
+  });
+
   it('constructs every proxy with a keep-alive agent', () => {
     registerOpenCodeProxy(createStubApp(), createStubDeps(managedState()));
 
