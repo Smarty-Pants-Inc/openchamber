@@ -10,10 +10,14 @@ afterEach(() => vi.restoreAllMocks());
 // round trip that lands back on an in-scope URL, and leave a session cookie the app keeps after it is killed:
 // HttpOnly, Secure, SameSite=Lax, with a persistent Max-Age (not a session-only cookie). Real Better Auth routes;
 // synthetic Google token/JWKS endpoints only.
-test('Google sign-in over HTTPS returns in scope with a persistent Lax Secure session cookie', async () => {
+test.each([
+  { basePath: '', cookiePath: '/' },
+  { basePath: '/code', cookiePath: '/code' },
+])('Google sign-in over HTTPS keeps auth cookies scoped to $basePath', async ({ basePath, cookiePath }) => {
   const database = new DatabaseSync(':memory:');
   const origin = 'https://code.example.test';
-  const human = await createHumanAuth({ database, baseURL: origin, secret: 'fixture-only-secret-thirty-two-characters',
+  const publicBase = origin + basePath;
+  const human = await createHumanAuth({ database, baseURL: publicBase, secret: 'fixture-only-secret-thirty-two-characters',
     googleClientId: 'fixture-client', googleClientSecret: 'fixture-secret', allowedDomains: ['example.test'] });
   const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = { ...keys.publicKey.export({ format: 'jwk' }), kid: 'fixture-key', alg: 'RS256', use: 'sig' };
@@ -34,7 +38,7 @@ test('Google sign-in over HTTPS returns in scope with a persistent Lax Secure se
     const headers = { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), origin };
     const options = { headers };
     if (body) Object.assign(options, { method: 'POST', body: JSON.stringify(body) }, { headers: { ...headers, 'content-type': 'application/json' } });
-    const response = await human.auth.handler(new Request(origin + path, options));
+    const response = await human.auth.handler(new Request(publicBase + path, options));
     for (const cookie of response.headers.getSetCookie()) {
       setCookies.push(cookie);
       const [pair] = cookie.split(';'), index = pair.indexOf('=');
@@ -45,12 +49,12 @@ test('Google sign-in over HTTPS returns in scope with a persistent Lax Secure se
   const attributes = cookie => Object.fromEntries(cookie.split(';').slice(1)
     .map(part => part.trim().split('=')).map(([k, v = true]) => [k.toLowerCase(), v]));
   try {
-    const inScope = `${origin}/?session=abc`;
+    const inScope = publicBase + '/?session=abc';
     const start = await request('/api/auth/sign-in/social', { provider: 'google', callbackURL: inScope, disableRedirect: true });
     assert.equal(start.status, 200);
     const google = new URL((await start.json()).url);
     assert.equal(google.origin, 'https://accounts.google.com');
-    assert.equal(google.searchParams.get('redirect_uri'), `${origin}/api/auth/callback/google`);
+    assert.equal(google.searchParams.get('redirect_uri'), publicBase + '/api/auth/callback/google');
     // The OAuth state cookie must come back on Google's top-level GET redirect: Lax, not Strict.
     const state = setCookies.find(cookie => /state/i.test(cookie.split('=')[0]));
     if (state) assert.equal(String(attributes(state).samesite).toLowerCase(), 'lax');
@@ -65,8 +69,18 @@ test('Google sign-in over HTTPS returns in scope with a persistent Lax Secure se
     assert.equal(attrs.httponly, true);
     assert.equal(attrs.secure, true);
     assert.equal(String(attrs.samesite).toLowerCase(), 'lax');
-    assert.equal(attrs.path, '/');
+    assert.equal(attrs.path, cookiePath);
+    assert.equal(Object.hasOwn(attrs, 'domain'), false, 'cookie remains host-only');
     assert.ok(Number(attrs['max-age']) >= 7 * 24 * 3600, `persistent Max-Age, got ${attrs['max-age']}`);
+    for (const cookie of setCookies) {
+      const authCookie = attributes(cookie);
+      assert.equal(authCookie.path, cookiePath, cookie.split('=')[0] + ' path');
+      assert.equal(Object.hasOwn(authCookie, 'domain'), false, cookie.split('=')[0] + ' has no Domain');
+      assert.equal(authCookie.httponly, true, cookie.split('=')[0] + ' is HttpOnly');
+      assert.equal(authCookie.secure, true, cookie.split('=')[0] + ' is Secure');
+      assert.equal(String(authCookie.samesite).toLowerCase(), 'lax', cookie.split('=')[0] + ' is SameSite=Lax');
+    }
+    if (basePath) assert.equal(session.startsWith('__Host-'), false);
     assert.equal((await (await request('/api/auth/get-session')).json()).user.email, 'ada@example.test');
   } finally { human.dispose(); database.close(); }
 });

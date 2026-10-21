@@ -1,4 +1,5 @@
 import { getLocalRuntimeUrlAuthTokenSync, getRuntimeExtraHeadersSync, getRuntimeUrlAuthTokenSync } from '@/lib/runtime-auth';
+import { APP_BASE_PATH } from './app-base-path';
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -8,6 +9,7 @@ export interface RuntimeUrlConfig {
   apiBaseUrl?: string | null;
   realtimeBaseUrl?: string | null;
   currentHref?: () => string;
+  basePath?: string | null;
 }
 
 export interface RuntimeUrlResolver {
@@ -123,7 +125,9 @@ const toRealtimeProxyUrl = (kind: 'sse' | 'ws', targetUrl: string, config: Runti
   const localOrigin = readInjectedLocalOrigin();
   if (!localOrigin) return null;
   try {
-    const proxy = new URL(`/api/openchamber/realtime-proxy/${kind === 'sse' ? 'sse' : 'ws'}`, `${localOrigin}/`);
+    const basePath = config.basePath === undefined ? APP_BASE_PATH : normalizeBaseUrl(config.basePath);
+    const proxyPath = `${basePath}/api/openchamber/realtime-proxy/${kind === 'sse' ? 'sse' : 'ws'}`;
+    const proxy = new URL(proxyPath, `${localOrigin}/`);
     proxy.searchParams.set('url', targetUrl);
     const localToken = getLocalRuntimeUrlAuthTokenSync(localOrigin);
     if (localToken) proxy.searchParams.set('oc_url_token', localToken);
@@ -140,12 +144,25 @@ const toRealtimeProxyUrl = (kind: 'sse' | 'ws', targetUrl: string, config: Runti
 export const createRuntimeUrlResolver = (config: RuntimeUrlConfig = {}): RuntimeUrlResolver => {
   const configuredApiBaseUrl = normalizeBaseUrl(config.apiBaseUrl);
   const configuredRealtimeBaseUrl = normalizeBaseUrl(config.realtimeBaseUrl);
+  const basePath = config.basePath === undefined ? APP_BASE_PATH : normalizeBaseUrl(config.basePath);
 
   const apiBaseUrl = (): string => configuredApiBaseUrl || readInjectedApiBaseUrl();
   const realtimeBaseUrl = (): string => configuredRealtimeBaseUrl || apiBaseUrl();
+  const mountedPath = (path: string, baseUrl: string): string => {
+    if (!basePath || baseUrl || ABSOLUTE_URL_PATTERN.test(path)) return path;
+    const normalized = normalizePath(path);
+    if (normalized === basePath || normalized.startsWith(`${basePath}/`)) return path;
+    return `${basePath}${normalized}`;
+  };
 
-  const http = (path: string, query?: RuntimeUrlQuery): string => buildHttpUrl(apiBaseUrl(), path, query);
-  const realtime = (path: string, query?: RuntimeUrlQuery): string => buildHttpUrl(realtimeBaseUrl(), path, query);
+  const http = (path: string, query?: RuntimeUrlQuery): string => {
+    const base = apiBaseUrl();
+    return buildHttpUrl(base, mountedPath(path, base), query);
+  };
+  const realtime = (path: string, query?: RuntimeUrlQuery): string => {
+    const base = realtimeBaseUrl();
+    return buildHttpUrl(base, mountedPath(path, base), query);
+  };
 
   return {
     api: http,

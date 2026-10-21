@@ -1,4 +1,5 @@
 import type { ContextPartMetadata } from '@/lib/messages/contextParts';
+import { appPath } from '@/lib/app-base-path';
 import { trackPrompt } from '@/sync/prompts-in-flight';
 import { createOpencodeClient, OpencodeClient } from "@opencode-ai/sdk/v2";
 import { noteSessionReadFailed } from "@/lib/openSessionReadFailure";
@@ -60,7 +61,7 @@ const NATIVE_CREATION_FIELDS = { 'x-smarty-creation-fields': 'stoppedBy,waitingF
 
 // Use relative path by default (works with both dev and nginx proxy server)
 // Can be overridden with VITE_OPENCODE_URL for absolute URLs in special deployments
-const DEFAULT_BASE_URL = import.meta.env.VITE_OPENCODE_URL || "/api";
+const DEFAULT_BASE_URL = import.meta.env.VITE_OPENCODE_URL || appPath('/api');
 const CONFIG_CACHE_TTL_MS = 10_000;
 // A loaded server answered the probe in 1.2-2 s and beyond 4 s under load (smarty-code#126 F9): allow 15 s.
 const OPENCODE_HEALTH_TIMEOUT_MS = 15_000;
