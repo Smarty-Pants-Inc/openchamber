@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { ChildStoreManager } from "./child-store"
 import { SessionMessageLoader } from "./session-message-loader"
 import { fakeMessagesClient, record, target } from "./session-message-loader-replace.fixture"
@@ -38,6 +39,45 @@ function gateway(size: number, cursors = true) {
   return { g, loader, shown, done: () => { loader.dispose(); childStores.disposeAll() } }
 }
 
+// issue #1176: a real SDK client over a fake gateway. A window read (?at=) is refused with 413 when its `limit` is listed in
+// `reject.limits`, at every size when `reject.all`, or when its JSON body is over `reject.maxBytes` (the gateway's cap).
+const MAX_WINDOW_BYTES = 8 * 1024 * 1024
+function oversizedGateway(reject: { limits?: number[]; all?: boolean; maxBytes?: number } = {}, wide = false) {
+  const branch = Array.from({ length: 1_000 }, (_, i) => `m${String(i + 1).padStart(5, "0")}`)
+  const reads: number[] = []
+  // The first 180 entries carry 200 wide declarations each; their combined JSON exceeds the response bound.
+  const body = (id: string) => {
+    const base = record(id)
+    if (!wide || Number(id.slice(1)) > 180) return base
+    const declarations = Array.from({ length: 200 }, (_, j) => ({ name: `${id}_decl${j}`, kind: "interface", signature: "x".repeat(250) }))
+    return { ...base, parts: base.parts.map((part) => ({ ...part, metadata: { declarations } })) }
+  }
+  const client = createOpencodeClient({
+    baseUrl: "http://gateway.test",
+    fetch: async (request) => {
+      const url = new URL(new Request(request).url)
+      const limit = Number(url.searchParams.get("limit") ?? 50)
+      const position = Number(url.searchParams.get("at") ?? -limit)
+      reads.push(limit)
+      const refused = Response.json({ message: "window too large" }, { status: 413 })
+      if (position >= 0 && (reject.all || reject.limits?.includes(limit))) return refused
+      const at = Math.max(0, position < 0 ? branch.length + position : position)
+      const json = JSON.stringify(branch.slice(at, at + limit).map(body))
+      if (position >= 0 && reject.maxBytes !== undefined && new TextEncoder().encode(json).byteLength > reject.maxBytes) return refused
+      return new Response(json, { headers: {
+        "content-type": "application/json",
+        "x-smarty-at": String(at),
+        "x-smarty-total": String(branch.length),
+        "x-smarty-index-epoch": "e1",
+      } })
+    },
+  })
+  const childStores = new ChildStoreManager()
+  const loader = new SessionMessageLoader(childStores, { sdk: client, runtimeKey: "runtime-a" })
+  const shown = () => (childStores.getChild(target.directory)?.getState().message[target.sessionID] ?? []).map((m) => m.id)
+  return { branch, reads, reject, loader, shown, done: () => { loader.dispose(); childStores.disposeAll() } }
+}
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 test("the first page tells the session's size and where the page sits in it", async () => {
@@ -74,6 +114,74 @@ test("one read per window: the same window asked twice while it loads is read on
     const before = s.g.reads.length
     await Promise.all([s.loader.loadAt(target, 0, 100), s.loader.loadAt(target, 0, 100)])
     expect(s.g.reads.length - before).toBe(1)
+  } finally { s.done() }
+})
+
+test("a 413 window retries with half-size pages, records exact positions, and can continue forward", async () => {
+  const s = oversizedGateway({ limits: [500] })
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    await s.loader.loadAt(target, 0, 500)
+    expect(s.reads).toEqual([50, 500, 250])
+    expect(s.shown().slice(0, 250)).toEqual(s.branch.slice(0, 250))
+    expect(s.loader.positionOf(target, "m00250")).toBe(249)
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 250 }, { start: 950, end: 1_000 }])
+    expect(s.loader.getSnapshot(target).complete).toBe(false)
+
+    await s.loader.loadAt(target, 250, 500)
+    expect(s.reads).toEqual([50, 500, 250, 500, 250])
+    expect(s.shown().slice(0, 500)).toEqual(s.branch.slice(0, 500))
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 500 }, { start: 950, end: 1_000 }])
+    expect(s.loader.getSnapshot(target)).toMatchObject({ status: "ready", error: null })
+  } finally { s.done() }
+})
+
+test("control: a window the gateway accepts is read once at the requested size", async () => {
+  const s = oversizedGateway()
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    await s.loader.loadAt(target, 0, 500)
+    expect(s.reads).toEqual([50, 500])
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 500 }, { start: 950, end: 1_000 }])
+  } finally { s.done() }
+})
+
+test("a 413 at the floor surfaces an error without retrying forever; the shown tail stays and a later window clears it", async () => {
+  const s = oversizedGateway({ all: true })
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    const tail = s.shown()
+    expect(tail).toEqual(s.branch.slice(950))
+    await expect(s.loader.loadAt(target, 0, 500)).rejects.toThrow("session.messages failed (413)")
+    expect(s.reads).toEqual([50, 500, 250, 125, 62, 31, 25])
+    await settle()
+    expect(s.reads).toHaveLength(7) // No further read after the floor.
+    expect(s.shown()).toEqual(tail)
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 950, end: 1_000 }])
+    expect(s.loader.getSnapshot(target).status).toBe("error")
+    expect(s.loader.getSnapshot(target).error?.message).toContain("session.messages failed (413)")
+
+    s.reject.all = false
+    await s.loader.loadAt(target, 900, 50)
+    expect(s.shown()).toEqual(s.branch.slice(900))
+    expect(s.loader.getSnapshot(target)).toMatchObject({ status: "ready", error: null })
+  } finally { s.done() }
+})
+
+test("wide records: a window whose JSON is over the gateway's 8 MiB cap is refused by size; smaller pages load it and its continuation", async () => {
+  const s = oversizedGateway({ maxBytes: MAX_WINDOW_BYTES }, true)
+  try {
+    await s.loader.ensure(target, { reason: "navigation" })
+    await s.loader.loadAt(target, 0, 500)
+    expect(s.reads).toEqual([50, 500, 250, 125]) // The first 180 wide entries exceed 8 MiB; 125 fit.
+    expect(s.shown().slice(0, 125)).toEqual(s.branch.slice(0, 125))
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 125 }, { start: 950, end: 1_000 }])
+
+    await s.loader.loadAt(target, 125, 500)
+    expect(s.reads).toEqual([50, 500, 250, 125, 500]) // Only 55 wide entries remain, so the next normal window fits.
+    expect(s.shown().slice(0, 625)).toEqual(s.branch.slice(0, 625))
+    expect(s.loader.getSnapshot(target).positions!.ranges).toEqual([{ start: 0, end: 625 }, { start: 950, end: 1_000 }])
+    expect(s.loader.getSnapshot(target)).toMatchObject({ status: "ready", error: null })
   } finally { s.done() }
 })
 
