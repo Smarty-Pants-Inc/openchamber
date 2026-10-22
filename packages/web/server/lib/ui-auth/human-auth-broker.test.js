@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { betterAuth } from 'better-auth';
 import { testUtils } from 'better-auth/plugins';
+import { APIError } from 'better-auth/api';
 import { createHumanAuth } from './human-auth.js';
 import { createConfiguredHumanAuth } from './human-auth-config.js';
 
@@ -27,6 +28,9 @@ async function fixture({ claims = {}, discovery = {}, discoveryStatus = 200, omi
   const secretPath = join(root, 'client-secret');
   const codes = new Map(), calls = [];
   let issuer, human;
+  const app = createServer((req, res) => human.handler(req, res));
+  await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
+  const appURL = `http://127.0.0.1:${app.address().port}`;
   const database = new DatabaseSync(':memory:');
   await writeFile(orgPath, JSON.stringify(policy));
   await writeFile(secretPath, 'fixture-client-secret\n', { mode: 0o600 });
@@ -48,7 +52,7 @@ async function fixture({ claims = {}, discovery = {}, discoveryStatus = 200, omi
         assert.ok(url.searchParams.get('nonce'));
         assert.deepEqual(new Set(url.searchParams.get('scope').split(' ')), new Set(['openid', 'email', 'profile', 'groups', 'federated:id']));
         const code = randomUUID();
-        codes.set(code, url.searchParams);
+        codes.set(code, { params: url.searchParams, claims: structuredClone(claims) });
         const callback = new URL(url.searchParams.get('redirect_uri'));
         callback.searchParams.set('code', code);
         callback.searchParams.set('state', url.searchParams.get('state'));
@@ -63,15 +67,16 @@ async function fixture({ claims = {}, discovery = {}, discoveryStatus = 200, omi
         assert.equal(basic?.[0] ?? params.get('client_id'), 'code-example');
         assert.equal(basic?.[1] ?? params.get('client_secret'), 'fixture-client-secret');
         assert.equal(params.get('grant_type'), 'authorization_code');
-        const transaction = codes.get(params.get('code'));
-        if (!transaction) return json({ error: 'invalid_grant' }, 400);
+        const exchange = codes.get(params.get('code'));
+        if (!exchange) return json({ error: 'invalid_grant' }, 400);
+        const transaction = exchange.params;
         codes.delete(params.get('code')); // One-use, client/redirect/verifier-bound code, not a reusable token mock.
         assert.equal(params.get('redirect_uri'), transaction.get('redirect_uri'));
         assert.equal(createHash('sha256').update(params.get('code_verifier')).digest('base64url'), transaction.get('code_challenge'));
         const now = Math.floor(Date.now() / 1000);
         const unsigned = `${enc({ alg: 'RS256', kid: jwk.kid })}.${enc({ iss: issuer, aud: 'code-example', sub: 'dex-opaque-sub',
           iat: now, exp: now + 300, nonce: transaction.get('nonce'), name: 'Ada', email: 'ada@smartypants.ai',
-          email_verified: true, groups: ['hd:smartypants.ai'], federated_claims: { connector_id: 'google', user_id: googleSub }, ...claims })}`;
+          email_verified: true, groups: ['hd:smartypants.ai'], federated_claims: { connector_id: 'google', user_id: googleSub }, ...exchange.claims })}`;
         const signingKey = wrongSignature ? generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey : keys.privateKey;
         const token = `${unsigned}.${sign('RSA-SHA256', Buffer.from(unsigned), signingKey).toString('base64url')}`;
         const result = { access_token: 'fixture-access', token_type: 'Bearer', expires_in: 300 };
@@ -88,11 +93,12 @@ async function fixture({ claims = {}, discovery = {}, discoveryStatus = 200, omi
   const options = { database, baseURL: publicBase, secret, allowedDomains: ['smartypants.ai'], env, broker };
   const jar = new Map();
   const cookie = () => [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
-  const request = async (path, body) => {
-    const headers = { cookie: cookie(), origin: new URL(publicBase).origin };
-    const init = { headers };
+  const request = async (path, body, retainedCookie = cookie()) => {
+    const headers = { cookie: retainedCookie, origin: new URL(publicBase).origin };
+    const init = { headers, redirect: 'manual' };
     if (body !== undefined) { headers['content-type'] = 'application/json'; init.method = 'POST'; init.body = JSON.stringify(body); }
-    const response = await human.auth.handler(new Request(publicBase + path, init));
+    // This is the Node handler the server mounts, not just auth.handler or auth.api.
+    const response = await fetch(appURL + '/code' + path, init);
     for (const setCookie of response.headers.getSetCookie()) {
       const pair = setCookie.split(';')[0], index = pair.indexOf('=');
       jar.set(pair.slice(0, index), pair.slice(index + 1));
@@ -102,18 +108,21 @@ async function fixture({ claims = {}, discovery = {}, discoveryStatus = 200, omi
   return { database, calls, env, broker, root, secretPath, orgPath, options, cookie, request,
     get human() { return human; },
     async start(overrides = {}) { human = await createHumanAuth({ ...options, ...overrides }); return human; },
-    async login() {
+    async beginLogin() {
       const start = await request('/api/auth/sign-in/social', { provider: 'google', callbackURL: publicBase + '/' });
       assert.equal(start.status, 200);
       const authorization = await fetch((await start.json()).url, { redirect: 'manual' });
       assert.equal(authorization.status, 302, 'issuer accepts the actual PKCE/nonce/redirect contract');
-      const callback = new URL(authorization.headers.get('location'));
+      return new URL(authorization.headers.get('location'));
+    },
+    async login() {
+      const callback = await this.beginLogin();
       const response = await request('/api/auth/callback/google' + callback.search);
       return { response, callback };
     },
     async outage() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); },
     async publish(value) { await writeFile(orgPath + '.next', JSON.stringify(value)); await rename(orgPath + '.next', orgPath); },
-    async close() { human?.dispose(); database.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true }); },
+    async close() { human?.dispose(); app.closeAllConnections(); await new Promise(resolve => app.close(resolve)); database.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true }); },
   };
 }
 const count = (f, table) => f.database.prepare(`SELECT count(*) AS n FROM ${table}`).get().n;
@@ -222,7 +231,7 @@ test('member removal refuses returning callback, session creation, resolution an
     assert.equal(await f.human.authorizeUiSession(`human:${admitted.session.id}`), false);
     await assert.rejects(helper.getAuthHeaders({ userId: admitted.user.id }), error => error.status === 'FORBIDDEN');
     const { response } = await f.login(); noSessionCookie(response);
-    assert.equal(count(f, 'session'), 1, 'no new session; existing row is preserved for owner-controlled revocation');
+    assert.equal(count(f, 'session'), 0, 'the refused session read revokes the existing row; callback creates none');
     assert.equal(count(f, 'account'), 1); assert.equal(count(f, 'user'), 1);
     await rm(f.orgPath);
     assert.equal(await f.human.resolve({ headers: { cookie: f.cookie() } }), null);
@@ -268,6 +277,17 @@ test.each([
   const f = await fixture(config);
   try { await assert.rejects(f.start(), /broker discovery/); assert.equal(f.human, undefined); assert.ok(f.calls.every(path => path === '/.well-known/openid-configuration')); }
   finally { await f.close(); }
+});
+
+// Security pass (P2): the upstream connector is pinned in code to Dex's Google connector; a configured non-Google
+// connector (another IdP, a local/password connector) refuses at startup, before any discovery or row.
+test.each([['ldap'], ['local'], ['github'], ['Google'], [' google'], ['']])('a non-Google broker connector %j refuses at startup', async (connector) => {
+  const f = await fixture();
+  try {
+    await assert.rejects(f.start({ broker: { ...f.broker, connector } }), /configuration is incomplete/);
+    assert.equal(f.human, undefined);
+    assert.deepEqual(f.calls, []);
+  } finally { await f.close(); }
 });
 
 test('running broker controller resolves existing sessions during an issuer outage', async () => {
@@ -325,6 +345,245 @@ test('configured broker reads only mounted client-secret file and rejects mixed 
     assert.equal((await human.auth.$context).socialProviders.find(p => p.id === 'google').issuer, f.broker.issuer);
     assert.equal(env.SMARTY_HUMAN_AUTH_BROKER_CLIENT_SECRET, undefined);
   } finally { human?.dispose(); await f.close(); }
+});
+
+// Data safety: exercise the exposed auth API with the actual retained browser credential.
+test.each([
+  ['get-session', 'removed'], ['update-user', 'removed'],
+  ['get-session', 'unreadable'], ['update-user', 'unreadable'],
+])('raw broker API revokes member when %s is first and policy is %s', async (first, change) => {
+  const f = await fixture();
+  try {
+    await f.start(); await f.login();
+    assert.equal((await f.request('/api/auth/update-user', { name: 'Allowed edit' })).status, 200);
+    const before = f.database.prepare('SELECT * FROM user').all();
+    const retained = f.cookie();
+    if (change === 'removed') await f.publish({ principals: [] });
+    else await rm(f.orgPath);
+    const read = async () => {
+      const response = await f.request('/api/auth/get-session', undefined, retained);
+      assert.equal(response.status, 200);
+      assert.equal(await response.json(), null);
+    };
+    const write = async () => {
+      const response = await f.request('/api/auth/update-user', { name: 'Forbidden edit' }, retained);
+      assert.ok([401, 403].includes(response.status));
+      assert.deepEqual(f.database.prepare('SELECT * FROM user').all(), before);
+    };
+    if (first === 'get-session') { await read(); await write(); }
+    else { await write(); await read(); }
+    assert.equal(count(f, 'session'), 0, 'refusal revokes the retained session');
+    assert.equal((await f.request('/api/auth/sign-out', {}, retained)).status, 200);
+  } finally { await f.close(); }
+});
+
+test.each(['removed', 'unreadable'])('raw broker sign-out still revokes when policy is %s without a prior refusal', async change => {
+  const f = await fixture();
+  try {
+    await f.start(); await f.login();
+    if (change === 'removed') await f.publish({ principals: [] });
+    else await rm(f.orgPath);
+    assert.equal((await f.request('/api/auth/sign-out', {})).status, 200);
+    assert.equal(count(f, 'session'), 0);
+  } finally { await f.close(); }
+});
+
+test.each([
+  ['/list-sessions', undefined], ['/list-accounts', undefined],
+  ['/get-access-token', { providerId: 'google' }], ['/revoke-sessions', {}],
+])('raw broker API also refuses removed members at %s', async (path, body) => {
+  const f = await fixture();
+  try {
+    await f.start(); await f.login();
+    const before = storedRows(f);
+    await f.publish({ principals: [] });
+    const response = await f.request('/api/auth' + path, body);
+    assert.equal(response.status, 403);
+    noSessionCookie(response);
+    assert.deepEqual(f.database.prepare('SELECT * FROM user ORDER BY id').all(), before.user);
+    assert.deepEqual(f.database.prepare('SELECT * FROM account ORDER BY id').all(), before.account);
+    assert.equal(count(f, 'session'), 0);
+  } finally { await f.close(); }
+});
+
+const storedRows = f => Object.fromEntries(['user', 'account', 'session'].map(table =>
+  [table, f.database.prepare(`SELECT * FROM ${table} ORDER BY id`).all()]));
+
+test.each([
+  ['new account', 'removed'], ['new account', 'unreadable'],
+  ['returning account', 'removed'], ['returning account', 'unreadable'],
+])('broker rolls back %s if org policy becomes %s after profile admission', async (kind, change) => {
+  const claims = {};
+  const f = await fixture({ claims });
+  try {
+    await f.start();
+    // Keep real, pre-existing rows in every case, including another person's session.
+    await f.publish({ principals: [...policy.principals, { name: 'Grace', email: 'grace@smartypants.ai' }] });
+    claims.email = 'grace@smartypants.ai';
+    claims.federated_claims = { connector_id: 'google', user_id: 'sentinel-sub' };
+    await f.login();
+    delete claims.email; delete claims.federated_claims;
+    if (kind === 'returning account') await f.login();
+    const before = storedRows(f);
+    const createSession = f.human.auth.options.databaseHooks.session.create.before;
+    let reachedSession = false, insertedSession = false;
+    f.human.auth.options.databaseHooks.session.create.after = async () => {
+      insertedSession = true;
+      assert.equal(count(f, 'session'), before.session.length + 1, 'the session insert is inside the rollback boundary too');
+    };
+    f.human.auth.options.databaseHooks.session.create.before = async (...args) => {
+      reachedSession = true;
+      const added = kind === 'new account' ? 1 : 0;
+      assert.equal(count(f, 'user'), before.user.length + added);
+      assert.equal(count(f, 'account'), before.account.length + added);
+      return createSession(...args);
+    };
+    const validate = f.human.auth.options.user.validateUserInfo;
+    let admissions = 0;
+    f.human.auth.options.user.validateUserInfo = async (...args) => {
+      const result = await validate(...args);
+      if (!result?.error) {
+        admissions++;
+        assert.equal(count(f, 'user'), before.user.length, 'interleave before provisioning writes');
+        if (change === 'removed') await f.publish({ principals: [] });
+        else await rm(f.orgPath);
+      }
+      return result;
+    };
+    const { response } = await f.login();
+    assert.equal(admissions, 1, 'one admission snapshot per callback');
+    assert.equal(reachedSession, true, 'policy changed between admission and actual session creation');
+    assert.equal(insertedSession, true, 'session admission uses the original snapshot, then the publication check refuses commit');
+    noSessionCookie(response);
+    assert.notEqual(response.headers.get('location'), publicBase + '/');
+    assert.deepEqual(storedRows(f), before, 'zero new rows and byte-for-byte unchanged existing rows');
+  } finally { await f.close(); }
+});
+
+test.each([
+  ['account.before', 'throw'], ['session.before', 'throw'], ['session.after', 'throw'],
+  ['user.before', 'false'], ['account.before', 'false'], ['session.before', 'false'],
+])('broker rolls back all provisioning writes on a late %s denial (%s)', async (stage, refusal) => {
+  const claims = { email: 'grace@smartypants.ai', federated_claims: { connector_id: 'google', user_id: 'sentinel-sub' } };
+  const f = await fixture({ claims });
+  try {
+    await f.publish({ principals: [...policy.principals, { name: 'Grace', email: 'grace@smartypants.ai' }] });
+    await f.start(); await f.login();
+    const before = storedRows(f);
+    delete claims.email; delete claims.federated_claims;
+    const [model, when] = stage.split('.');
+    const hook = f.human.auth.options.databaseHooks[model].create;
+    const original = hook[when];
+    let reached = false;
+    hook[when] = async (...args) => {
+      if (original) await original(...args);
+      reached = true;
+      assert.equal(count(f, 'user'), before.user.length + (model === 'user' ? 0 : 1));
+      assert.equal(count(f, 'account'), before.account.length + (model === 'session' ? 1 : 0));
+      assert.equal(count(f, 'session'), before.session.length + (when === 'after' ? 1 : 0));
+      if (refusal === 'false') return false;
+      throw new APIError('FORBIDDEN', { code: 'fixture_denial', message: 'Fixture denial' });
+    };
+    const { response } = await f.login();
+    assert.equal(reached, true);
+    noSessionCookie(response);
+    assert.notEqual(response.headers.get('location'), publicBase + '/');
+    assert.deepEqual(storedRows(f), before);
+  } finally { await f.close(); }
+});
+
+test('returning broker account removed before callback cannot update existing rows', async () => {
+  const f = await fixture();
+  try {
+    await f.start(); await f.login();
+    const before = storedRows(f);
+    await f.publish({ principals: [] });
+    const { response } = await f.login();
+    noSessionCookie(response);
+    assert.notEqual(response.headers.get('location'), publicBase + '/');
+    assert.deepEqual(storedRows(f), before);
+  } finally { await f.close(); }
+});
+
+test.each(['changed email collides with another user', 'different subject presents an existing email'])(
+  'broker refuses identity collision: %s', async scenario => {
+    const claims = {};
+    const f = await fixture({ claims });
+    try {
+      await f.publish({ principals: [...policy.principals, { name: 'Grace', email: 'grace@smartypants.ai' }] });
+      await f.start(); await f.login();
+      claims.email = 'grace@smartypants.ai';
+      claims.federated_claims = { connector_id: 'google', user_id: 'grace-sub' };
+      await f.login();
+      const before = storedRows(f);
+      if (scenario === 'changed email collides with another user') {
+        delete claims.federated_claims; // Ada's existing subject now claims Grace's email.
+      } else {
+        claims.email = 'ada@smartypants.ai';
+        claims.federated_claims.user_id = 'unlinked-sub';
+      }
+      const { response } = await f.login();
+      noSessionCookie(response);
+      assert.notEqual(response.headers.get('location'), publicBase + '/');
+      assert.deepEqual(storedRows(f), before, 'no relinking, profile mutation or token update');
+    } finally { await f.close(); }
+  });
+
+test.each(['tampered', 'missing'])('broker refuses %s state through the exposed handler before exchange', async change => {
+  const f = await fixture();
+  try {
+    await f.start();
+    const callback = await f.beginLogin();
+    if (change === 'tampered') callback.searchParams.set('state', callback.searchParams.get('state') + '-tampered');
+    else callback.searchParams.delete('state');
+    const exchanges = f.calls.filter(path => path === '/token').length;
+    const response = await f.request('/api/auth/callback/google' + callback.search);
+    noSessionCookie(response);
+    assert.notEqual(response.headers.get('location'), publicBase + '/');
+    for (const table of ['user', 'account', 'session']) assert.equal(count(f, table), 0);
+    assert.equal(f.calls.filter(path => path === '/token').length, exchanges);
+  } finally { await f.close(); }
+});
+
+test.each(['same callback', 'consumed code in a fresh state'])('broker refuses replay of %s through the exposed handler', async replay => {
+  const f = await fixture();
+  try {
+    await f.start();
+    const { callback } = await f.login();
+    const before = storedRows(f);
+    const exchanges = f.calls.filter(path => path === '/token').length;
+    let repeated = callback;
+    if (replay === 'consumed code in a fresh state') {
+      repeated = await f.beginLogin();
+      repeated.searchParams.set('code', callback.searchParams.get('code'));
+    }
+    const response = await f.request('/api/auth/callback/google' + repeated.search);
+    noSessionCookie(response);
+    assert.notEqual(response.headers.get('location'), publicBase + '/');
+    assert.deepEqual(storedRows(f), before);
+    assert.equal(f.calls.filter(path => path === '/token').length, exchanges + (replay === 'same callback' ? 0 : 1));
+  } finally { await f.close(); }
+});
+
+test('simultaneous broker callbacks keep admission and transactions request-local', async () => {
+  const claims = {};
+  const f = await fixture({ claims });
+  try {
+    await f.publish({ principals: [...policy.principals, { name: 'Grace', email: 'grace@smartypants.ai' }] });
+    await f.start();
+    const first = await f.beginLogin(), firstCookie = f.cookie();
+    claims.email = 'grace@smartypants.ai';
+    claims.federated_claims = { connector_id: 'google', user_id: 'grace-sub' };
+    const second = await f.beginLogin(), secondCookie = f.cookie();
+    const responses = await Promise.all([
+      f.request('/api/auth/callback/google' + first.search, undefined, firstCookie),
+      f.request('/api/auth/callback/google' + second.search, undefined, secondCookie),
+    ]);
+    for (const response of responses) assert.equal(response.headers.get('location'), publicBase + '/');
+    assert.equal(count(f, 'user'), 2); assert.equal(count(f, 'account'), 2); assert.equal(count(f, 'session'), 2);
+    assert.deepEqual(f.database.prepare('SELECT account.accountId, user.email FROM account JOIN user ON account.userId = user.id ORDER BY account.accountId').all().map(row => ({ ...row })),
+      [{ accountId: googleSub, email: 'ada@smartypants.ai' }, { accountId: 'grace-sub', email: 'grace@smartypants.ai' }]);
+  } finally { await f.close(); }
 });
 
 test('broker OFF retains direct Google configuration even with an org policy path or stray broker keys', async () => {

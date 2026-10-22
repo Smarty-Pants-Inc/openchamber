@@ -31,7 +31,7 @@ a request `hd` hint or email suffix alone never grants access. The current autho
 exact hosted domain `smartypants.ai`.
 
 `createHumanAuth({database, baseURL, secret, googleClientId, googleClientSecret,
-allowedDomains, env})` uses official Better Auth 1.7.5. `baseURL` is the exact public app HTTPS URL and may include the canonical app mount prefix (for example `https://code.example.test/code`). The factory passes `<baseURL>/api/auth` to Better Auth as its public API URL and keeps the internal `basePath` at `/api/auth` because the server strips the app prefix before routing. The callback is therefore public at `<baseURL>/api/auth/callback/google` while CSRF checks use only the HTTPS origin. With a prefix, every Better Auth cookie uses that exact `Path` and remains host-only; root deployments keep `Path=/`. Auth redirect destinations must stay beneath the configured public URL, because same-origin siblings are not part of this app mount. `env` defaults to the existing
+allowedDomains, broker = null, env})` uses official Better Auth 1.7.5. `baseURL` is the exact public app HTTPS URL and may include the canonical app mount prefix (for example `https://code.example.test/code`). The factory passes `<baseURL>/api/auth` to Better Auth as its public API URL and keeps the internal `basePath` at `/api/auth` because the server strips the app prefix before routing. The callback is therefore public at `<baseURL>/api/auth/callback/google` while CSRF checks use only the HTTPS origin. With a prefix, every Better Auth cookie uses that exact `Path` and remains host-only; root deployments keep `Path=/`. Auth redirect destinations must stay beneath the configured public URL, because same-origin siblings are not part of this app mount. `env` defaults to the existing
 process environment; the configured factory passes its injected environment. The caller supplies a private
 SQLite connection and complete configuration. It runs the library's supported
 `better-auth/db/migration` migration API; no parallel account schema is maintained.
@@ -92,16 +92,42 @@ absent, with whitespace trimmed and case ignored. Principals require a string
 unreadable files and malformed JSON refuse admission. No display name or domain
 alone grants membership.
 
-Membership is reread at profile admission, session creation, request resolution
-and UI authorization. Stream admission uses the same resolution path. There is no
-new watcher or polling loop. The owner must revoke removed people's sessions to
-close already-open idle streams through the existing session-deletion lifecycle.
-A file read and SQLite insert are not one atomic transaction.
+Each broker callback decides admission once from a fresh org-policy snapshot.
+The user, account and session create hooks require that request-local admission
+and bind it to the admitted email and upstream Google subject. The private SQLite
+adapter wraps the whole callback in one transaction, including returning-account
+token updates. Before commit, the policy must still be readable, valid and have
+the same content fingerprint. A changed or unavailable publication invalidates
+the snapshot and rolls back every callback write. A late hook refusal or failed
+callback also rolls back, even after a session insert. No pre-existing user,
+account or session is deleted or changed by that rollback. Startup refuses an
+adapter without transaction support. Direct Google mode does not install this
+boundary.
+
+Every cookie-authenticated Better Auth API operation checks current org membership
+before its effect. Only fresh sign-in/callback routes and deliberate sign-out
+bypass that session-use gate. On refusal, the current session is deleted and its
+cookie expired. The session API returns null; other authenticated operations return
+403 without performing their mutation. Sign-out remains available after removal
+or a policy-file failure. Product request resolution and UI authorization still
+check current membership. Stream admission uses the same resolution path. There
+is no new watcher or polling loop. Refused session use closes that session's
+registered connections through the existing deletion lifecycle. The owner must
+still revoke removed people's sessions to close already-open idle streams before
+their next use.
+
+Org-file publication and SQLite commit are not a shared filesystem/database
+transaction. A policy change after the final fingerprint check is caught on the
+next authenticated operation. The callback's provisioning writes themselves are
+transactional, rather than a sequence of cleanup deletes.
 
 The account key stays `google/<federated_claims.user_id>`, not the broker's outer
 subject. The `google-hd:<domain>` session stamp, local user ID and actor issuer stay
 unchanged, so direct-to-broker cutover and rollback do not require DB rewinds.
-Historical direct-mode token rows are not erased by this adapter.
+Historical direct-mode token rows are not erased by this adapter. A returning
+subject whose upstream email no longer matches its local user is refused, not
+rebound to another user. A different subject presenting an existing email cannot
+automatically link that account.
 
 Initialization throws before the controller is returned if discovery fails, the
 initialized `google` provider is absent, its issuer differs, or ID-token/nonce
@@ -110,7 +136,10 @@ controllers resolve valid local sessions without broker reachability. A restart
 during an outage cannot serve requests until initialization succeeds.
 
 `human-auth-broker.test.js` uses a loopback OIDC issuer and the real Better Auth
-callback and SQLite paths. It is local protocol proof, not pinned-Dex, Google,
+callback and SQLite paths through the same Node handler the server mounts. It
+checks raw-API revocation, deterministic policy replacement during provisioning,
+late hook denials, preservation of existing rows, identity collisions, state/code
+replay and request-local concurrent callbacks. It is local protocol proof, not pinned-Dex, Google,
 edge, deployed-browser or rollout acceptance. Keep broker mode disabled until those
 separate release gates pass.
 
