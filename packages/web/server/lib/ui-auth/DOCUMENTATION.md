@@ -13,12 +13,12 @@ Pairing v2 is implemented by `packages/web/server/lib/client-auth/pairing.js`. I
 pin, unset, empty or `off` `OPENCHAMBER_HUMAN_AUTH` returns `null` and leaves legacy
 mode unchanged. A present `SMARTY_CODE_NODE_ID` requires exact `google` mode before
 any database or server effects; it cannot fall back to legacy credentials.
-Any other mode except `google` fails. Google mode requires all of
+Any other mode except `google` fails. Direct Google mode requires all of
 `OPENCHAMBER_HUMAN_AUTH_DB` (absolute private SQLite path), exact `BETTER_AUTH_URL`,
 `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a nonempty
 `SMARTY_HUMAN_AUTH_ALLOWED_DOMAINS` list. It creates/validates only a private
-0700 parent and 0600 regular database file, and does not load secrets itself.
-Integration supplies the already resolved environment and owns DB lifetime.
+0700 parent and 0600 regular database file. Direct mode receives resolved Google
+credentials in the environment. Integration owns credential delivery and DB lifetime.
 
 The synchronous `setupBaseRoutes` caller receives the prebuilt `humanAuth` option;
 startup assembles it with `await createConfiguredHumanAuth(process.env)` before
@@ -51,6 +51,68 @@ withdrawal. It registers each response before an authoritative recheck to close
 the revocation/admission race.
 `status` is the existing
 `/auth/session` seam. `dispose` closes registered responses, not the caller's DB.
+
+### Optional central sign-in broker
+
+The broker is off unless `SMARTY_HUMAN_AUTH_BROKER_ISSUER` is explicitly set in
+Google human-auth mode. An unset issuer keeps the direct Google provider and its
+existing admission behavior, even when an org policy path is present. An empty
+issuer fails configuration rather than selecting direct mode.
+
+Broker mode requires these additional settings instead of `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`. Configuring both credential sets is an error.
+
+- `SMARTY_HUMAN_AUTH_BROKER_ISSUER`, an exact HTTPS issuer such as
+  `https://auth.smartypants.ai`. HTTP is allowed only on loopback for tests.
+- `SMARTY_HUMAN_AUTH_BROKER_CLIENT_ID`, the org's own `code-<slug>` audience.
+- `SMARTY_HUMAN_AUTH_BROKER_CONNECTOR`, the pinned Google connector ID, `google`.
+- `SMARTY_HUMAN_AUTH_BROKER_CLIENT_SECRET_FILE`, an absolute mounted credential
+  path. The adapter reads a nonempty regular file of at most 16 KiB into memory.
+  Projected-secret symlinks are supported. No secret value is read from a broker
+  environment variable or logged.
+- `SMARTY_CODE_ORG_CONFIG`, the absolute path to the atomically published org.json.
+  Broker mode cannot use the `SMARTY_CODE_PERSON_SCOPE=0` opt-out.
+
+Better Auth genericOAuth registers provider `google` and discovers the configured
+issuer. The callback remains `<BETTER_AUTH_URL>/api/auth/callback/google`, including
+`/code` when configured. The existing prefix redirect guard and cookie scope remain
+in force. The code flow requires S256 PKCE and a bound nonce. RS256 discovery-JWKS
+verification is mandatory. Browser-supplied ID tokens at `/sign-in/social` and
+`/link-social` are refused. A token response without an ID token cannot fall back
+to userinfo.
+
+Before provisioning a user or account, the fresh verified profile must have the
+exact issuer, a single string audience equal to the client ID, no `azp` or an equal
+`azp`, the pinned `federated_claims.connector_id`, a valid upstream Google subject,
+the signed `hd:<configured-domain>` group and a verified email in that domain.
+Admission also requires exactly one email match across `principals` and
+`services.smartyCode.members`. Each entry uses `email`, or `calendar` if email is
+absent, with whitespace trimmed and case ignored. Principals require a string
+`name`; service members may omit it. Duplicate matches, invalid membership shapes,
+unreadable files and malformed JSON refuse admission. No display name or domain
+alone grants membership.
+
+Membership is reread at profile admission, session creation, request resolution
+and UI authorization. Stream admission uses the same resolution path. There is no
+new watcher or polling loop. The owner must revoke removed people's sessions to
+close already-open idle streams through the existing session-deletion lifecycle.
+A file read and SQLite insert are not one atomic transaction.
+
+The account key stays `google/<federated_claims.user_id>`, not the broker's outer
+subject. The `google-hd:<domain>` session stamp, local user ID and actor issuer stay
+unchanged, so direct-to-broker cutover and rollback do not require DB rewinds.
+Historical direct-mode token rows are not erased by this adapter.
+
+Initialization throws before the controller is returned if discovery fails, the
+initialized `google` provider is absent, its issuer differs, or ID-token/nonce
+verification is missing. There is no fallback or discovery polling. Already-running
+controllers resolve valid local sessions without broker reachability. A restart
+during an outage cannot serve requests until initialization succeeds.
+
+`human-auth-broker.test.js` uses a loopback OIDC issuer and the real Better Auth
+callback and SQLite paths. It is local protocol proof, not pinned-Dex, Google,
+edge, deployed-browser or rollout acceptance. Keep broker mode disabled until those
+separate release gates pass.
 
 ### Explicit Node member admission
 
