@@ -107,6 +107,11 @@ describe.runIf(Boolean(realGit))('a project with 10,000+ untracked files', () =>
     expect(counted.peak).toBeLessThanOrEqual(MAX_GIT_PER_PROJECT);
     expect(first.value.sections[0].patch).toContain('scratch/note-00000.txt');
     expect(first.value.sections[0].patch).not.toContain(`note-${String(MAX_LISTED_UNTRACKED).padStart(5, '0')}`);
+    // Left out, and said (openchamber#649 P1-2): big.bin (first in git's order) is over the size cap; the rest are
+    // past the listing cap.
+    expect(first.value.meta.untrackedOmitted.count).toBe(UNTRACKED + 1 - MAX_LISTED_UNTRACKED + 1);
+    expect(first.value.meta.untrackedOmitted.paths[0]).toEqual({ path: 'big.bin', reason: 'too-large' });
+    expect(first.value.meta.untrackedOmitted.paths[1].reason).toBe('cap');
     const again = await timed(() => loadSourceSections(repo, { kind: 'working-tree', scope: 'working' }));
     expect(again.value).toEqual(first.value);
     expect(spawns().started).toBeLessThanOrEqual(10); // The untracked diffs come from the cache.

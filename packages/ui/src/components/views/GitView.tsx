@@ -60,6 +60,7 @@ import { HistorySection } from './git/HistorySection';
 import { ConflictDialog } from './git/ConflictDialog';
 import { StashDialog } from './git/StashDialog';
 import { DirtyBranchSwitchDialog } from './git/DirtyBranchSwitchDialog';
+import { changedFileTotal } from '@/lib/git/changedFileTotal';
 import { InProgressOperationBanner } from './git/InProgressOperationBanner';
 import { BranchIntegrationSection, type OperationLogEntry } from './git/BranchIntegrationSection';
 import { deriveBaseBranch } from './git/baseBranch';
@@ -2716,7 +2717,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         directory={gitDirectory}
         hasUncommittedChanges={(status?.files?.length ?? 0) > 0}
         hasStagedChanges={stagedChangeEntries.length > 0}
-        uncommittedFileCount={status?.files?.length ?? 0}
+        uncommittedFileCount={changedFileTotal(status)}
         onChanged={async (change) => {
           if (gitDirectory && change?.affectsIndex) {
             bumpIndexRevision(gitDirectory);
@@ -2773,7 +2774,7 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
         open={pendingDirtySwitchBranch !== null}
         onOpenChange={(open) => { if (!open) setPendingDirtySwitchBranch(null); }}
         targetBranch={pendingDirtySwitchBranch ?? ''}
-        changedFileCount={status?.files?.length ?? 0}
+        changedFileCount={changedFileTotal(status)}
         onCommitAndSwitch={async (message, pushAfter) => {
           const branch = pendingDirtySwitchBranch;
           if (!branch || !gitDirectory) return;

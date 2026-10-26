@@ -177,9 +177,10 @@ export const __testing = { generationTimeoutMs, walkthroughOutputTokens };
  * Current diff for a source, parsed into files and hunks.
  */
 async function loadCurrentDiff(directory, source, deps) {
-  const { sections } = await loadSourceSections(directory, source, deps);
+  const { sections, meta } = await loadSourceSections(directory, source, deps);
   const built = buildDigest(sections);
-  return built;
+  // Untracked files the source left out (past its cap, or too large): the reader is told, never left to assume.
+  return { ...built, untrackedOmitted: meta?.untrackedOmitted ?? null };
 }
 
 const stopHunkIds = (walkthrough) =>
@@ -255,6 +256,7 @@ export async function getWalkthrough({ directory, source: rawSource, model: expl
     source,
     hunks: serializeHunks(files),
     hunkCount: hunkIndex.size,
+    ...(built.untrackedOmitted ? { untrackedOmitted: built.untrackedOmitted } : {}),
     readiness,
     generating: isGenerating(repoRoot, key),
   };
@@ -405,7 +407,8 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
     );
   }
 
-  const { digest, files, idByAlias, fileCount, hunkCount, generatedFileCount } = await loadCurrentDiff(directory, source, deps);
+  const { digest, files, idByAlias, fileCount, hunkCount, generatedFileCount, untrackedOmitted } = await loadCurrentDiff(directory, source, deps);
+  const omittedField = untrackedOmitted ? { untrackedOmitted } : {};
   setStage(repoRoot, key, 'asking');
   if (hunkCount === 0) {
     if (files.length > 0 && generatedFileCount === files.length) {
@@ -443,6 +446,7 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
         fromCache: true,
         hunks: serializeHunks(files),
         hunkCount,
+        ...omittedField,
         ...resolveAgainstCurrent(cached.walkthrough, hunkIndex),
       };
     }
@@ -595,6 +599,7 @@ async function runGeneration({ directory, source, repoRoot, key, force, explicit
     fromCache: false,
     hunks: serializeHunks(files),
     hunkCount,
+    ...omittedField,
     ...resolveAgainstCurrent(walkthrough, hunkIndex),
   };
 }

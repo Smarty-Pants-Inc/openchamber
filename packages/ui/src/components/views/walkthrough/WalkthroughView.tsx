@@ -802,6 +802,29 @@ export const WalkthroughView = ({ directory: rootDirectory, visible = true }: Wa
         </div>
       )}
 
+      {(entry.result?.untrackedOmitted?.count ?? 0) > 0 && entry.result?.untrackedOmitted && (
+        <details className="shrink-0 border-b border-border/60 bg-status-warning/10 px-3 py-2" data-testid="walkthrough-untracked-omitted">
+          <summary className="typography-meta cursor-pointer text-foreground">
+            {t('walkthrough.untrackedOmitted.banner', {
+              count: entry.result.untrackedOmitted.count,
+              limit: entry.result.untrackedOmitted.limit,
+            })}
+          </summary>
+          <ul className="typography-meta mt-1 max-h-40 overflow-y-auto text-muted-foreground">
+            {entry.result.untrackedOmitted.paths.map((file) => (
+              <li key={file.path} className="truncate" title={file.path}>
+                {file.reason === 'too-large' ? `${file.path} (> 1 MB)` : file.path}
+              </li>
+            ))}
+            {entry.result.untrackedOmitted.count > entry.result.untrackedOmitted.paths.length && (
+              <li>{t('walkthrough.untrackedOmitted.more', {
+                count: entry.result.untrackedOmitted.count - entry.result.untrackedOmitted.paths.length,
+              })}</li>
+            )}
+          </ul>
+        </details>
+      )}
+
       {entry.error && !blockedReason && entry.error.code !== 'no-provider-login' && (
         <div className="flex shrink-0 items-start gap-2 border-b border-border/60 bg-status-error/10 px-3 py-2">
           <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-status-error" />

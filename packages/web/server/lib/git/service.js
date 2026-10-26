@@ -2596,7 +2596,7 @@ export async function listUntrackedPaths(directory) {
  * Returns one entry per input path, in order; unreadable paths yield `''`
  * rather than failing the batch.
  */
-export async function getUntrackedDiffs(directory, filePaths = [], { concurrency = MAX_GIT_PER_PROJECT, contextLines = 3 } = {}) {
+export async function getUntrackedDiffs(directory, filePaths = [], { concurrency = MAX_GIT_PER_PROJECT, contextLines = 3, onSkip } = {}) {
   const paths = (Array.isArray(filePaths) ? filePaths : []).filter((value) => typeof value === 'string' && value);
   if (paths.length === 0) return [];
 
@@ -2611,7 +2611,10 @@ export async function getUntrackedDiffs(directory, filePaths = [], { concurrency
         const fileContext = await resolveGitFileContext(directoryPath, directoryGit, paths[index], repoRoot);
         // Too large to read as a diff: none. Unchanged since the last read: the same diff, no git process.
         const stat = await fsp.lstat(fileContext.absolutePath);
-        if (stat.isFile() && stat.size > MAX_UNTRACKED_DIFF_BYTES) continue;
+        if (stat.isFile() && stat.size > MAX_UNTRACKED_DIFF_BYTES) {
+          onSkip?.(paths[index], 'too-large'); // Said, never silently dropped (walkthrough meta).
+          continue;
+        }
         const key = untrackedDiffKey(repoRoot, fileContext.repoPath, stat, contextLines);
         const cached = cachedUntrackedDiff(key);
         if (cached !== undefined) {

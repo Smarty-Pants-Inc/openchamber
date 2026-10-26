@@ -8,6 +8,7 @@ import { ChangesPanel, type ChangesGroupConfig } from '@/components/views/git/Ch
 import { BranchSelector } from '@/components/views/git/BranchSelector';
 import { CommitSection } from '@/components/views/git/CommitSection';
 import { DirtyBranchSwitchDialog } from '@/components/views/git/DirtyBranchSwitchDialog';
+import { changedFileTotal } from '@/lib/git/changedFileTotal';
 import { SyncActions } from '@/components/views/git/SyncActions';
 import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -662,7 +663,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         open={pendingDirtySwitchBranch !== null}
         onOpenChange={(open) => { if (!open) setPendingDirtySwitchBranch(null); }}
         targetBranch={pendingDirtySwitchBranch ?? ''}
-        changedFileCount={status?.files?.length ?? 0}
+        changedFileCount={changedFileTotal(status)}
         onCommitAndSwitch={async (message, pushAfter) => {
           const branch = pendingDirtySwitchBranch;
           if (!branch || !currentDirectory) return;

@@ -77,6 +77,11 @@ export interface WalkthroughResult {
   staleStopIds?: string[];
   /** Hunks in the current diff that no stop covers. Rendered as a tail. */
   uncoveredHunkIds?: string[];
+  /**
+   * Untracked files the working-tree source left out: past the server's limit (`cap`) or too large to diff
+   * (`too-large`). `count` is all of them; `paths` the first few. Shown, never silently dropped.
+   */
+  untrackedOmitted?: { count: number; limit: number; paths: Array<{ path: string; reason: 'cap' | 'too-large' }> };
   /** Whether generating is possible at all, computed from the same diff. */
   readiness?: WalkthroughReadiness;
   /** A generation is already running on the server for this source. */
