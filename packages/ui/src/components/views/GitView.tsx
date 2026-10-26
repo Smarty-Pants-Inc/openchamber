@@ -2546,6 +2546,11 @@ export const GitView: React.FC<GitViewProps> = ({ isActive }) => {
                           headerBackgroundClassName="bg-background"
                         />
                       </div>
+                      {(status?.untrackedOmitted ?? 0) > 0 ? (
+                        <p className="typography-meta px-2 text-muted-foreground" data-testid="git-untracked-omitted">
+                          {t('gitView.changes.untrackedOmitted', { count: status?.untrackedOmitted ?? 0 })}
+                        </p>
+                      ) : null}
 
                       <CommitSection
                         stagedCount={stagedCount}

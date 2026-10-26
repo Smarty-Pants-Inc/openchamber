@@ -1,4 +1,5 @@
 import { getDiff, getRangeDiff, getUntrackedDiffs, listUntrackedPaths } from '../git/service.js';
+import { MAX_LISTED_UNTRACKED } from '../git/untracked-limits.js';
 
 // A walkthrough source resolves to one or more diff *sections*. A section is a
 // patch plus the scope its hunk ids live in; keeping staged and working-tree
@@ -63,9 +64,11 @@ export function sourceKey(source) {
 
 // `git diff` never reports untracked files, so a brand-new file would be
 // invisible in a walkthrough of local work. The batch helper resolves the
-// repository once and bounds how many diff processes run at a time.
+// repository once and bounds how many diff processes run at a time. Only the
+// first untracked files are read (as the Changes list): a scratch folder of
+// thousands must not cost a git process per file on every read.
 const untrackedSections = async (directory) => {
-  const untracked = await listUntrackedPaths(directory);
+  const untracked = (await listUntrackedPaths(directory)).slice(0, MAX_LISTED_UNTRACKED);
   if (untracked.length === 0) return [];
 
   const patches = await getUntrackedDiffs(directory, untracked);

@@ -7,6 +7,15 @@ import { promisify } from 'util';
 import { createRequire } from 'module';
 import { PRODUCT_NAME } from '../../../brand.generated.js';
 import { isSharedWorktreeRoot, managedWorktreeRoot } from './worktree-root.js';
+import {
+  MAX_GIT_PER_PROJECT,
+  MAX_UNTRACKED_DIFF_BYTES,
+  cacheUntrackedDiff,
+  cachedUntrackedDiff,
+  capUntracked,
+  untrackedDiffKey,
+  withGitSlot,
+} from './untracked-limits.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -527,6 +536,10 @@ const resolveGitFileContext = async (directoryPath, git, filePath, repoRootOverr
     const worktreeEntry = await fsp.lstat(absolutePath).catch(() => null);
     const isSymbolicLink = worktreeEntry?.isSymbolicLink() ?? false;
     const existsInWorktree = worktreeEntry?.isFile() || isSymbolicLink;
+    // A file on disk needs no git lookup: the index and HEAD only matter for a deleted one.
+    if (existsInWorktree) {
+      return { absolutePath, repoPath, repoRoot, isSymbolicLink };
+    }
     const existsInIndex = await git.raw(['cat-file', '-e', `:${repoPath}`]).then(() => true).catch(() => false);
     const existsInHead = await git.raw(['cat-file', '-e', `HEAD:${repoPath}`]).then(() => true).catch(() => false);
 
@@ -2206,6 +2219,8 @@ export async function getStatus(directory, options = {}) {
 
     // Use -uall to show all untracked files individually, not just directories
     const status = await git.status(['-uall']);
+    // Only the first untracked files are listed; a scratch folder of thousands is counted, never diffed per file.
+    const { files: listedFiles, omitted: untrackedOmitted } = capUntracked(status.files);
 
     // Light mode: skip numstat + new-file line counting for faster response
     const [stagedStatsRaw, workingStatsRaw] = lightMode
@@ -2254,7 +2269,7 @@ export async function getStatus(directory, options = {}) {
     const newFileStats = [];
 
     if (!lightMode) {
-      for (const file of status.files) {
+      for (const file of listedFiles) {
         if (newFileStats.length >= MAX_NEW_FILE_STATS) {
           break;
         }
@@ -2445,11 +2460,12 @@ export async function getStatus(directory, options = {}) {
       ahead,
       behind,
       upstreamComparison,
-      files: status.files.map((f) => ({
+      files: listedFiles.map((f) => ({
         path: f.path,
         index: f.index,
         working_dir: f.working_dir,
       })),
+      ...(untrackedOmitted > 0 ? { untrackedOmitted } : {}),
       isClean: status.isClean(),
       diffStats: lightMode ? undefined : diffStats,
       mergeInProgress,
@@ -2466,7 +2482,12 @@ export async function getStatus(directory, options = {}) {
   }
 }
 
-export async function getDiff(directory, { path: filePath, staged = false, contextLines = 3 } = {}) {
+export async function getDiff(directory, options = {}) {
+  // One file's diff takes one of the project's git slots (untracked-limits.js); the whole-tree diff runs once.
+  return options?.path ? withGitSlot(directory, () => diffOf(directory, options)) : diffOf(directory, options);
+}
+
+async function diffOf(directory, { path: filePath, staged = false, contextLines = 3 } = {}) {
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
 
   try {
@@ -2575,7 +2596,7 @@ export async function listUntrackedPaths(directory) {
  * Returns one entry per input path, in order; unreadable paths yield `''`
  * rather than failing the batch.
  */
-export async function getUntrackedDiffs(directory, filePaths = [], { concurrency = 8, contextLines = 3 } = {}) {
+export async function getUntrackedDiffs(directory, filePaths = [], { concurrency = MAX_GIT_PER_PROJECT, contextLines = 3 } = {}) {
   const paths = (Array.isArray(filePaths) ? filePaths : []).filter((value) => typeof value === 'string' && value);
   if (paths.length === 0) return [];
 
@@ -2588,17 +2609,28 @@ export async function getUntrackedDiffs(directory, filePaths = [], { concurrency
       const index = cursor++;
       try {
         const fileContext = await resolveGitFileContext(directoryPath, directoryGit, paths[index], repoRoot);
+        // Too large to read as a diff: none. Unchanged since the last read: the same diff, no git process.
+        const stat = await fsp.lstat(fileContext.absolutePath);
+        if (stat.isFile() && stat.size > MAX_UNTRACKED_DIFF_BYTES) continue;
+        const key = untrackedDiffKey(repoRoot, fileContext.repoPath, stat, contextLines);
+        const cached = cachedUntrackedDiff(key);
+        if (cached !== undefined) {
+          results[index] = cached;
+          continue;
+        }
         const args = ['diff', '--no-color'];
         if (typeof contextLines === 'number' && !Number.isNaN(contextLines)) {
           args.push(`-U${Math.max(0, contextLines)}`);
         }
         args.push('--no-index', '--', '/dev/null', fileContext.repoPath);
         try {
-          results[index] = await git.raw(args);
+          results[index] = await withGitSlot(directoryPath, () => git.raw(args));
+          cacheUntrackedDiff(key, results[index]);
         } catch (error) {
           // `git diff --no-index` exits 1 whenever there are differences, which
           // for a new file is always.
           results[index] = error?.exitCode === 1 && error?.message ? error.message : '';
+          if (error?.exitCode === 1) cacheUntrackedDiff(key, results[index]);
         }
       } catch {
         results[index] = '';
@@ -2904,11 +2936,15 @@ const isBinaryDiff = async (directoryPath, filePath, staged) => {
   return false;
 };
 
-export async function getFileDiff(directory, { path: filePath, staged = false } = {}) {
-  if (!directory || !filePath) {
+export async function getFileDiff(directory, options = {}) {
+  if (!directory || !options?.path) {
     throw new Error('directory and path are required for getFileDiff');
   }
+  // Its git processes run one after another in one of the project's slots (untracked-limits.js).
+  return withGitSlot(directory, () => fileDiffOf(directory, options));
+}
 
+async function fileDiffOf(directory, { path: filePath, staged = false } = {}) {
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
   const isImage = isImageFile(filePath);
   const mimeType = isImage ? getImageMimeType(filePath) : null;
