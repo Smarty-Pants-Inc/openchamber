@@ -1,4 +1,5 @@
 import { getDiff, getRangeDiff, getUntrackedDiffs, listUntrackedPaths } from '../git/service.js';
+import { MAX_LISTED_UNTRACKED } from '../git/untracked-limits.js';
 
 // A walkthrough source resolves to one or more diff *sections*. A section is a
 // patch plus the scope its hunk ids live in; keeping staged and working-tree
@@ -63,14 +64,27 @@ export function sourceKey(source) {
 
 // `git diff` never reports untracked files, so a brand-new file would be
 // invisible in a walkthrough of local work. The batch helper resolves the
-// repository once and bounds how many diff processes run at a time.
+// repository once and bounds how many diff processes run at a time. Only the
+// first untracked files are read (as the Changes list): a scratch folder of
+// thousands must not cost a git process per file on every read. What is left
+// out is never silent (digest.js): its count and first paths go in meta, and
+// the walkthrough view says so.
+const OMITTED_PATHS_SHOWN = 50;
 const untrackedSections = async (directory) => {
-  const untracked = await listUntrackedPaths(directory);
-  if (untracked.length === 0) return [];
+  const all = await listUntrackedPaths(directory);
+  const untracked = all.slice(0, MAX_LISTED_UNTRACKED);
+  const omitted = all.slice(MAX_LISTED_UNTRACKED).map((path) => ({ path, reason: 'cap' }));
+  if (untracked.length === 0) return { patches: [], omitted };
 
-  const patches = await getUntrackedDiffs(directory, untracked);
-  return patches.filter((patch) => typeof patch === 'string' && patch.trim());
+  const tooLarge = [];
+  const patches = await getUntrackedDiffs(directory, untracked, { onSkip: (path, reason) => tooLarge.push({ path, reason }) });
+  return { patches: patches.filter((patch) => typeof patch === 'string' && patch.trim()), omitted: [...tooLarge, ...omitted] };
 };
+
+/** meta.untrackedOmitted: how many untracked files the working-tree source left out, and the first of them. */
+const omittedMeta = (omitted) => (omitted.length === 0 ? {} : {
+  untrackedOmitted: { count: omitted.length, paths: omitted.slice(0, OMITTED_PATHS_SHOWN), limit: MAX_LISTED_UNTRACKED },
+});
 
 /**
  * Resolve a source into diff sections.
@@ -80,6 +94,7 @@ const untrackedSections = async (directory) => {
 export async function loadSourceSections(directory, source, { getPullRequestDiff } = {}) {
   if (source.kind === 'working-tree') {
     const sections = [];
+    let omitted = [];
 
     if (source.scope === 'all' || source.scope === 'staged') {
       const patch = await getDiff(directory, { staged: true });
@@ -89,11 +104,12 @@ export async function loadSourceSections(directory, source, { getPullRequestDiff
     if (source.scope === 'all' || source.scope === 'working') {
       const patch = await getDiff(directory, { staged: false });
       const untracked = await untrackedSections(directory);
-      const combined = [patch, ...untracked].filter((value) => value && value.trim()).join('\n');
+      omitted = untracked.omitted;
+      const combined = [patch, ...untracked.patches].filter((value) => value && value.trim()).join('\n');
       if (combined.trim()) sections.push({ scope: 'working', patch: combined });
     }
 
-    return { sections, meta: {} };
+    return { sections, meta: omittedMeta(omitted) };
   }
 
   if (source.kind === 'branch') {

@@ -2,6 +2,7 @@ import type { Session } from '@opencode-ai/sdk/v2';
 import type { I18nKey } from '@/lib/i18n';
 import { toast } from '@/components/ui';
 import { checkIsGitRepository, getGitStatus } from '@/lib/gitApi';
+import { changedFileTotal } from '@/lib/git/changedFileTotal';
 import { normalizePath } from '@/lib/pathNormalization';
 import { createQuickWorktree, resolveProjectRef } from '@/lib/worktreeSessionCreator';
 import { getLatestWorktreeMetadata, removeProjectWorktree, type ProjectRef } from '@/lib/worktrees/worktreeManager';
@@ -473,7 +474,7 @@ export const requestSessionTreeMove = (intent: SessionTreeMoveIntent): void => {
       }).length;
       setSessionMoveConfirmation({
         intent,
-        dirtyFileCount: status.files.length,
+        dirtyFileCount: changedFileTotal(status),
         stagedFileCount,
       });
     } catch {

@@ -8,6 +8,7 @@ import { ChangesPanel, type ChangesGroupConfig } from '@/components/views/git/Ch
 import { BranchSelector } from '@/components/views/git/BranchSelector';
 import { CommitSection } from '@/components/views/git/CommitSection';
 import { DirtyBranchSwitchDialog } from '@/components/views/git/DirtyBranchSwitchDialog';
+import { changedFileTotal } from '@/lib/git/changedFileTotal';
 import { SyncActions } from '@/components/views/git/SyncActions';
 import { PierreDiffViewer } from '@/components/views/PierreDiffViewer';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -636,6 +637,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
               onVisiblePathsChange={setVisibleChangePaths}
             />
           </div>
+          {(status?.untrackedOmitted ?? 0) > 0 ? (
+            <p className="typography-meta shrink-0 px-6 pt-2 text-muted-foreground" data-testid="git-untracked-omitted">
+              {t('gitView.changes.untrackedOmitted', { count: status?.untrackedOmitted ?? 0 })}
+            </p>
+          ) : null}
           <div className="shrink-0 border-t border-border/70 px-4 pb-4 pt-3">
             <CommitSection
               stagedCount={stagedChangeEntries.length}
@@ -662,7 +668,7 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
         open={pendingDirtySwitchBranch !== null}
         onOpenChange={(open) => { if (!open) setPendingDirtySwitchBranch(null); }}
         targetBranch={pendingDirtySwitchBranch ?? ''}
-        changedFileCount={status?.files?.length ?? 0}
+        changedFileCount={changedFileTotal(status)}
         onCommitAndSwitch={async (message, pushAfter) => {
           const branch = pendingDirtySwitchBranch;
           if (!branch || !currentDirectory) return;

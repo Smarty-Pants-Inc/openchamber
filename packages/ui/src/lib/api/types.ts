@@ -161,6 +161,8 @@ export interface GitStatus {
   behind: number;
   upstreamComparison?: GitRemoteComparison | null;
   files: GitStatusFile[];
+  /** Untracked files past the server's listing cap: counted, not listed, never diffed one by one. */
+  untrackedOmitted?: number;
   isClean: boolean;
   diffStats?: Record<string, { insertions: number; deletions: number }>;
   /** Present when a merge is in progress with conflicts */

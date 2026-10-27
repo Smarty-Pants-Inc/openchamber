@@ -499,6 +499,9 @@ const hasStatusChanged = (oldStatus: GitStatus | null, newStatus: GitStatus | nu
   if (oldStatus.current !== newStatus.current) return true;
   if (oldStatus.tracking !== newStatus.tracking) return true;
   if (oldStatus.isClean !== newStatus.isClean) return true;
+  // Untracked files past the server's listing cap change without changing the listed rows (a new file that sorts
+  // after the 200th): the count is part of the status, and the counts beside "Commit and switch" depend on it.
+  if ((oldStatus.untrackedOmitted ?? 0) !== (newStatus.untrackedOmitted ?? 0)) return true;
   if (
     newStatus.upstreamComparison !== undefined
     && haveRemoteComparisonChanged(oldStatus.upstreamComparison, newStatus.upstreamComparison)
