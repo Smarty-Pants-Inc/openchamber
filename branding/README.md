@@ -179,6 +179,19 @@ Unused hosted and Android jobs are disabled only in `Smarty-Pants-Inc/openchambe
 their upstream dispatch inputs and runner selections remain intact. Local checks
 do not replace an exact-head Forge run or native build evidence.
 
+### openchamber#649 successors
+
+Two layers sit above every earlier one, newest first. `hostedRunnerSource`
+(`1ddb52bf`) moves `oc-review.yml`'s `pr checks` job from the Forge runner to
+`ubuntu-latest`, because the self-hosted set is off and the fork is public. It
+changes only `runs-on`; the Forge layer's hashes are kept. `untrackedCapSource`
+(`d09665b2`) binds the untracked-file cap: the eleven ledgered locales import
+`untracked-omitted.i18n.ts`, and `service.js` bounds per-file git work. Each
+entry keeps `pre<Layer>CombinedSha256` and adds `<layer>Sha256` and `<layer>Note`.
+`unwindSuccessorLayers` in `branding-response-policy.mjs` removes both. Both
+historical tests call it first, and a test checks that the result is the exact
+preceding ledger, parsed and in bytes.
+
 ## Small identity/assets boundary
 
 `brand.json`, `logo.svg` and `symbol-template.svg` are the inputs.
