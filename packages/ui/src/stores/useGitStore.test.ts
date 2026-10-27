@@ -163,6 +163,26 @@ describe('useGitStore', () => {
     expect(statusCalls).toBe(1);
   });
 
+  test('a status whose untracked count past the listing cap changed is a change, with the same listed rows', async () => {
+    // openchamber#649: a new untracked file that sorts after the 200th listed one changes only untrackedOmitted. The
+    // store must take it: the counts beside "Commit and switch" (which commits every file) read it.
+    const listed: GitStatus['files'] = [{ path: 'scratch/a.txt', index: '?', working_dir: '?' }];
+    setDirectoryStatus({ ...createStatus(undefined, listed), untrackedOmitted: 10_000 });
+    let next: GitStatus = { ...createStatus(undefined, listed), untrackedOmitted: 10_500 };
+    const git = createGitApi(async () => next);
+
+    expect(await useGitStore.getState().fetchStatus('/repo', git, { silent: true, force: true })).toBe(true);
+    expect(useGitStore.getState().getDirectoryState('/repo')?.status?.untrackedOmitted).toBe(10_500);
+
+    // Counterexample: the same rows and the same count is no change.
+    next = { ...createStatus(undefined, listed), untrackedOmitted: 10_500 };
+    expect(await useGitStore.getState().fetchStatus('/repo', git, { silent: true, force: true })).toBe(false);
+    // Back under the cap (the count goes away): a change.
+    next = createStatus(undefined, listed);
+    expect(await useGitStore.getState().fetchStatus('/repo', git, { silent: true, force: true })).toBe(true);
+    expect(useGitStore.getState().getDirectoryState('/repo')?.status?.untrackedOmitted).toBeUndefined();
+  });
+
   test('a refresh after a mutation does not join the pre-mutation in-flight status request', async () => {
     setDirectoryStatus(createStatus());
     const requests: Deferred<GitStatus>[] = [];

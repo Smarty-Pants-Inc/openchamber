@@ -637,6 +637,11 @@ export const MobileChangesSurface: React.FC<MobileChangesSurfaceProps> = ({ onCl
               onVisiblePathsChange={setVisibleChangePaths}
             />
           </div>
+          {(status?.untrackedOmitted ?? 0) > 0 ? (
+            <p className="typography-meta shrink-0 px-6 pt-2 text-muted-foreground" data-testid="git-untracked-omitted">
+              {t('gitView.changes.untrackedOmitted', { count: status?.untrackedOmitted ?? 0 })}
+            </p>
+          ) : null}
           <div className="shrink-0 border-t border-border/70 px-4 pb-4 pt-3">
             <CommitSection
               stagedCount={stagedChangeEntries.length}

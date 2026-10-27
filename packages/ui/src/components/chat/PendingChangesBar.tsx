@@ -15,6 +15,7 @@ import {
 import { ChangedFilesList } from './ChangedFilesList';
 import { changedFilesPopoverClassName, changedFilesPopoverStyle } from './changedFilesPopover';
 import { useI18n } from '@/lib/i18n';
+import { changedFileTotal } from '@/lib/git/changedFileTotal';
 
 export const PendingChangesBar: React.FC = React.memo(() => {
     const { t } = useI18n();
@@ -92,7 +93,9 @@ export const PendingChangesBar: React.FC = React.memo(() => {
         store.navigateToDiff(file.relativePath, openStagedDiff);
     };
 
-    const fileCount = gitChangedFiles.length;
+    // Every changed file, including untracked files past the server's listing cap (listed rows alone would understate it).
+    const fileCount = changedFileTotal(gitStatus);
+    const untrackedOmitted = gitStatus?.untrackedOmitted ?? 0;
     const labelHead = fileCount === 1
         ? t('chat.pendingChanges.fileCountSingle', { count: fileCount })
         : t('chat.pendingChanges.fileCountPlural', { count: fileCount });
@@ -138,6 +141,11 @@ export const PendingChangesBar: React.FC = React.memo(() => {
                         currentDirectory={currentDirectory}
                         onOpenFile={handleOpenFile}
                     />
+                    {untrackedOmitted > 0 ? (
+                        <p className="typography-meta px-3 py-2 text-muted-foreground" data-testid="pending-changes-untracked-omitted">
+                            {t('gitView.changes.untrackedOmitted', { count: untrackedOmitted })}
+                        </p>
+                    ) : null}
                 </div>
             )}
         </div>
