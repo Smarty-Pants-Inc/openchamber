@@ -1212,7 +1212,7 @@ export class SessionMessageLoader {
     if (added.length) {
       const materialized = materializeSessionSnapshots(current, target.sessionID,
         added.map(info => ({ info, parts: page.partsByMessageID.get(info.id) ?? [] })),
-        { skipPartTypes: SKIP_PARTS, mode: "merge" })
+        { skipPartTypes: SKIP_PARTS, mode: "prepend" }) // A live part may arrive before its message record.
       store.setState({ message: materialized.message, part: materialized.part })
       entry.commits++
     }

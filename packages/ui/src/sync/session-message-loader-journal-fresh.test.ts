@@ -64,9 +64,12 @@ test('journal merge preserves streamed parts, native aliases, and newer live rec
     const store = f.stores.getChild(target.directory)!, current = store.getState()
     const original = current.message[target.sessionID]![1]!
     const alias = { ...original, metadata: { pi: { entryID: 'native-old' } } }
-    const streamedParts = [{ ...record('m0002').parts[0]!, type: 'text' as const, text: 'newer live text' }]
+    const streamedParts = [{ id: 'part_m0002', messageID: 'm0002', sessionID: target.sessionID,
+      type: 'text' as const, text: 'newer live text' }]
+    const orphanParts = [{ id: 'part_m0003', messageID: 'm0003', sessionID: target.sessionID,
+      type: 'text' as const, text: 'live part arrived before its message' }]
     store.setState({ message: { ...current.message, [target.sessionID]: [current.message[target.sessionID]![0]!, alias] },
-      part: { ...current.part, m0002: streamedParts } })
+      part: { ...current.part, m0002: streamedParts, m0003: orphanParts } })
     const disguised = record('m9999')
     const nativeAlias = { ...disguised, info: { ...disguised.info, metadata: { pi: { entryID: 'native-old' } } } }
     f.records([record('m0000'), record('m0002'), nativeAlias, record('m0003')])
@@ -75,6 +78,7 @@ test('journal merge preserves streamed parts, native aliases, and newer live rec
     expect(store.getState().message[target.sessionID]![1]).toBe(alias)
     expect(store.getState().part.m0002).toBe(streamedParts)
     expect(store.getState().part.m9999).toBeUndefined()
+    expect(store.getState().part.m0003).toBe(orphanParts)
     f.fallback([])
     await f.loader.refreshTail(target, 50)
     expect(f.shown()).toEqual(['m0001', 'm0002', 'm0003'])
