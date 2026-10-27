@@ -19,11 +19,11 @@ const NORMAL = ["m0001", "m0002", "m0003"]
 
 /** A gateway answering journal-only while `busy`, else normally (the newest `limit`, x-next-cursor while older remain). */
 function gateway() {
-  const g = { busy: true, reads: 0 }
+  const g = { busy: true, reads: 0, journal: JOURNAL }
   const messages = async ({ limit, before }: { limit?: number; before?: string }) => {
     g.reads++
     const headers = new Headers()
-    if (g.busy) { headers.set("x-smarty-journal-only", "1"); return { data: JOURNAL.map(record), headers } }
+    if (g.busy) { headers.set("x-smarty-journal-only", "1"); return { data: g.journal.map(record), headers } }
     const end = before ? NORMAL.indexOf(before) : NORMAL.length, start = Math.max(0, end - (limit ?? NORMAL.length))
     if (start > 0) headers.set("x-next-cursor", NORMAL[start]!)
     return { data: NORMAL.slice(start, end).map(record), headers }
@@ -89,7 +89,7 @@ test("the live stream's first update re-reads at once", async () => {
   } finally { s.done() }
 })
 
-test("a journal-only answer after a normal one is stale: ignored, the normal records stay", async () => {
+test("after normal history, old journal records stay ignored but newer IDs appear without replacing normal records", async () => {
   const s = gateway()
   try {
     await s.loader.ensure(target, { reason: "navigation" })
@@ -106,6 +106,10 @@ test("a journal-only answer after a normal one is stale: ignored, the normal rec
     expect(after.status).toBe("ready")
     expect(after.cursor).toBe(coverage.cursor)
     expect(after.complete).toBe(coverage.complete)
+    s.g.journal = ['j0001', 'j0003', 'j0004']
+    await s.loader.refreshTail(target, 50)
+    expect(s.shown()).toEqual([...NORMAL, 'j0004']) // Older aliased records are not duplicated or replaced.
+    expect(s.loader.getSnapshot(target).provisional).toBe(false)
   } finally { s.done() }
 })
 
