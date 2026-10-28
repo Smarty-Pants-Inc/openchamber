@@ -2,11 +2,11 @@ import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/i18n';
-import { endActivePiVoiceCall, useActivePiVoiceCall } from '@/lib/voice/piVoiceActiveCall';
+import { endActivePiVoiceCall, unlockActivePiVoiceAudio, useActivePiVoiceCall } from '@/lib/voice/piVoiceActiveCall';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/sync/sync-context';
 
-const PHASES = ['connecting', 'listening', 'working', 'speaking', 'muted'] as const;
+const PHASES = ['connecting', 'reconnecting', 'listening', 'working', 'speaking', 'muted'] as const;
 const knownPhase = (value: string | undefined) => PHASES.find(phase => phase === value);
 
 /**
@@ -37,7 +37,14 @@ export function PiVoiceCallBar() {
       style={{ top: 'calc(max(0.5rem, env(safe-area-inset-top)) + var(--oc-safe-area-top, 0px))' }}>
       {phase ? <span aria-live="polite" className="whitespace-nowrap">{t(`chat.piVoice.phase.${phase}`)}</span> : null}
       {elsewhere ? <span className="min-w-0 truncate">{t('chat.piVoice.inSession', { title: title ?? call.sessionId.slice(0, 8) })}</span> : null}
-      <Button type="button" variant="chip" size="xs" aria-label={t('chat.piVoice.end')} title={t('chat.piVoice.end')}
+      {state.status === 'active' && state.audioBlocked ? (
+        // In the tap itself: iOS plays the agent's voice only from a gesture.
+        <Button type="button" variant="chip" size="xs" className="oc-touch-target" aria-label={t('chat.piVoice.turnOnSoundLabel')}
+          title={t('chat.piVoice.turnOnSoundLabel')} onClick={() => unlockActivePiVoiceAudio()}>
+          <Icon name="volume-up" className="size-3.5" /><span className="whitespace-nowrap">{t('chat.piVoice.turnOnSound')}</span>
+        </Button>
+      ) : null}
+      <Button type="button" variant="chip" size="xs" className="oc-touch-target" aria-label={t('chat.piVoice.end')} title={t('chat.piVoice.end')}
         onClick={() => endActivePiVoiceCall()}>
         <Icon name="mic" className="size-3.5" />
       </Button>
