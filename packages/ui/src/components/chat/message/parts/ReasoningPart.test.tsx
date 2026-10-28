@@ -321,11 +321,13 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
     const root = createRoot(dom.container);
 
     const renderTree = (streamPhase?: StreamPhase) => (
-      <Providers>
-        <I18nProvider>
-          <ReasoningPart part={part} messageId="msg_2020" streamPhase={streamPhase} />
-        </I18nProvider>
-      </Providers>
+      <React.StrictMode>
+        <Providers>
+          <I18nProvider>
+            <ReasoningPart part={part} messageId="msg_2020" streamPhase={streamPhase} />
+          </I18nProvider>
+        </Providers>
+      </React.StrictMode>
     );
 
     try {
@@ -335,6 +337,10 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
       });
       busySeen.push(dom.container.innerHTML.includes(BUSY_INDICATOR));
       expect(dom.container.textContent).toContain(SHORT_REASONING);
+      // #3140: first paint must expose final geometry, not an opening animation.
+      const initialBody = dom.container.querySelector<HTMLElement>('[aria-hidden="false"]');
+      expect(initialBody?.style.height).toBe('auto');
+      expect(initialBody?.style.overflow).toBe('visible');
 
       await act(async () => {
         root.render(null);
@@ -349,10 +355,15 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
       const toggle = dom.container.querySelector<HTMLElement>('[role="button"]');
       if (!toggle) throw new Error('Thinking disclosure is missing');
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      const body = dom.container.querySelector<HTMLElement>(`[id="${toggle.getAttribute('aria-controls')}"]`);
+      expect(body?.style.height).toBe('auto');
+      expect(body?.style.overflow).toBe('visible');
       expect(dom.container.querySelector('[data-message-text-export-source]')?.className)
         .toBe('text-muted-foreground italic');
       await act(async () => toggle.click());
       expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      // User toggles still take the animated, clipped path.
+      expect(body?.style.overflow).toBe('hidden');
       await act(async () => toggle.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
       expect(toggle.getAttribute('aria-expanded')).toBe('true');
       await act(async () => root.render(renderTree('streaming')));
