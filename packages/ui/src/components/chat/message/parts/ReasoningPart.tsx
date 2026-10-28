@@ -120,7 +120,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     const contentId = React.useId();
     const contentRef = React.useRef<HTMLDivElement>(null);
     const contentAnimationRef = React.useRef<AnimationPlaybackControls | null>(null);
-    const contentMountedRef = React.useRef(false);
+    const userTogglePendingRef = React.useRef(false);
 
     const summary = React.useMemo(() => getReasoningSummary(text), [text]);
     const toggleAriaLabel = isExpanded
@@ -128,6 +128,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         : t('chat.reasoningTrace.expandAria');
 
     const handleToggle = React.useCallback(() => {
+        userTogglePendingRef.current = true;
         setShouldRenderExpandedContent(true);
         setExpansion({ expanded: !isExpanded, source: 'user' });
     }, [isExpanded]);
@@ -183,40 +184,16 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
         contentAnimationRef.current?.stop();
 
-        if (!contentMountedRef.current) {
-            contentMountedRef.current = true;
-            if (!isExpanded) {
-                element.style.height = '0px';
-                element.style.overflow = 'hidden';
-                return;
-            }
-
-            element.style.height = '0px';
-            element.style.overflow = 'hidden';
-
-            const animation = animate(
-                element,
-                { height: 'auto' },
-                EXPANDED_CONTENT_TRANSITION,
-            );
-            contentAnimationRef.current = animation;
-
-            void animation.finished.then(() => {
-                if (contentAnimationRef.current !== animation) {
-                    return;
-                }
-                contentAnimationRef.current = null;
-                element.style.overflow = 'visible';
-                element.style.height = 'auto';
-            }).catch(() => undefined);
-
-            return () => {
-                animation.stop();
-                if (contentAnimationRef.current === animation) {
-                    contentAnimationRef.current = null;
-                }
-            };
+        // Mount/remount and automatic streaming changes expose final geometry
+        // immediately. Opening history from zero keeps the timeline reveal gate
+        // waiting on moving heights (#3140). Only a user toggle should animate.
+        if (!userTogglePendingRef.current) {
+            contentAnimationRef.current = null;
+            element.style.height = isExpanded ? 'auto' : '0px';
+            element.style.overflow = isExpanded ? 'visible' : 'hidden';
+            return;
         }
+        userTogglePendingRef.current = false;
 
         element.style.overflow = 'hidden';
 
@@ -271,7 +248,10 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
     const reasoningBody = (
         <>
-            <div data-message-text-export-source="true">
+            <div
+                className={variant === 'thinking' ? 'text-muted-foreground italic' : undefined}
+                data-message-text-export-source="true"
+            >
                 <MarkdownRenderer
                     content={text}
                     messageId={blockId}
@@ -461,6 +441,7 @@ const ReasoningPart = React.memo(({
         <ReasoningTimelineBlock
             text={throttledText}
             variant="thinking"
+            defaultExpanded
             blockId={part.id || `${messageId}-reasoning`}
             time={time}
             isStreaming={isStreaming}
