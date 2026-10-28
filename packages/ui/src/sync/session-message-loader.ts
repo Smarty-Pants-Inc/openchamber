@@ -113,7 +113,7 @@ type LoaderEntry = {
   leaveAttempts?: number
   /** smarty-code#1501: the shown records are a journal-only answer (their ids differ from a normal answer's). */
   journalOnly: boolean
-  /** smarty-code#1501: a normal (not journal-only) newest page committed here: a journal-only answer is stale from now on. */
+  /** A normal newest page was shown: journal fallbacks may add newer IDs, never replace its records or parts. */
   normalShown: boolean
   /** smarty-code#1501: the last newest read answered journal-only; the newest page is read again (backoff, first live update). */
   journalWait: boolean
@@ -537,10 +537,9 @@ export class SessionMessageLoader {
       const page = await this.fetchPage(normalized, Math.max(1, limit), undefined, "refresh", performance, undefined,
         undefined, undefined, demand)
       if (!isCurrent()) return
-      // smarty-code#1501: a journal-only answer after a normal one is stale: nothing is applied, and it is read again.
+      // A busy owner can stay on journal fallback indefinitely. Keep normal records, but show new committed IDs.
       if (page.journalOnly && journalOnlyIsStale(entry)) {
-        this.patchEntry(entry, { status: entry.snapshot.resolved ? "ready" : "idle", loadingKind: null })
-        this.awaitNormalHistory(normalized, entry)
+        this.mergeJournalAfterNormal(normalized, entry, store, page)
         return
       }
       // The first tail page after the session left View only replaces what was shown, as a first open, with its own
@@ -1044,14 +1043,11 @@ export class SessionMessageLoader {
     const storeMessageCount = store.getState().message[target.sessionID]?.length ?? 0
     const firstLimit = entry.ordinary ? getInitialPageSize()
       : Math.max(entry.snapshot.limit, storeMessageCount, getInitialPageSize())
-    let firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
+    const firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
     if (!isCurrent()) return
-    // smarty-code#1501: a journal-only answer after a normal one is stale: the open reads again (backoff) instead.
-    for (let attempt = 0; firstPage.journalOnly && journalOnlyIsStale(entry); attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelay(JOURNAL_ONLY_RETRY_MS, attempt)))
-      if (!isCurrent()) return
-      firstPage = await this.fetchOpenPage(target, firstLimit, isCurrent, performance)
-      if (!isCurrent()) return
+    if (firstPage.journalOnly && journalOnlyIsStale(entry)) {
+      this.mergeJournalAfterNormal(target, entry, store, firstPage)
+      return
     }
     // A journal-only page has no cursor to expand by: it is shown as it is.
     const deferFirstCommit = !firstPage.journalOnly && !firstPage.complete && !hasUserMessage(firstPage.session)
@@ -1199,6 +1195,31 @@ export class SessionMessageLoader {
     } finally {
       if (performance) performance.retryCount += Math.max(0, attempts - 1)
     }
+  }
+
+  /** A fallback is not an authoritative replacement or send view. Only add IDs newer than the shown tail;
+   * existing messages and every existing part win, including live updates applied while this request was out. */
+  private mergeJournalAfterNormal(target: SessionMessageTarget, entry: LoaderEntry,
+    store: { getState: () => DirectoryStore; setState: DirectoryStoreSetter }, page: FetchedPage): void {
+    const current = store.getState(), shown = current.message[target.sessionID] ?? []
+    const ids = new Set(shown.flatMap(message => [message.id, JournalEntry.safeParse(message).data?.metadata.pi.entryID]
+      .filter((id): id is string => id !== undefined)))
+    // Message IDs are identities, not timestamps (Pi IDs are random). Use the transcript's creation order.
+    const newest = shown.reduce((at, message) => Math.max(at, message.time.created), -Infinity)
+    const added = page.session.filter(message => !ids.has(message.id)
+      && !ids.has(JournalEntry.safeParse(message).data?.metadata.pi.entryID ?? message.id)
+      && Number.isFinite(message.time.created) && message.time.created > newest)
+    if (added.length) {
+      const materialized = materializeSessionSnapshots(current, target.sessionID,
+        added.map(info => ({ info, parts: page.partsByMessageID.get(info.id) ?? [] })),
+        { skipPartTypes: SKIP_PARTS, mode: "prepend" }) // A live part may arrive before its message record.
+      store.setState({ message: materialized.message, part: materialized.part })
+      entry.commits++
+    }
+    // Keep normal coverage, ordinary ownership and its existing view policy. Never mint a view from journal data.
+    this.patchEntry(entry, { status: "ready", loadingKind: null, error: null,
+      resolved: entry.snapshot.resolved || shown.length > 0, updatedAt: Date.now() })
+    this.awaitNormalHistory(target, entry)
   }
 
   private commitPage(
@@ -1446,7 +1467,8 @@ export class SessionMessageLoader {
   }
 }
 
-/** smarty-code#1501: a journal-only answer is stale once a normal newest page was shown (or the session is ordinary). */
+/** After normal history, a journal page is additive only; it cannot use the replacement path. */
+const JournalEntry = z.object({ metadata: z.object({ pi: z.object({ entryID: z.string() }) }) })
 const journalOnlyIsStale = (entry: LoaderEntry): boolean => entry.normalShown || entry.ordinary
 
 const retryDelay = (delays: readonly number[], attempt: number): number => delays[Math.min(attempt, delays.length - 1)] ?? 30_000
