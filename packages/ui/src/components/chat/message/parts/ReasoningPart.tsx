@@ -1,6 +1,7 @@
 import React from 'react';
 import { animate, type AnimationPlaybackControls } from 'motion';
 import type { Part } from '@opencode-ai/sdk/v2';
+import { z } from 'zod';
 import { cn } from '@/lib/utils';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Icon } from '@/components/icon/Icon';
@@ -16,12 +17,16 @@ const TOOL_ROW_TEXT_CLASS = '!text-[length:var(--text-meta)] !leading-5 sm:!lead
 const TOOL_ROW_TITLE_CLASS = cn('typography-meta font-medium', TOOL_ROW_TEXT_CLASS);
 const TOOL_ROW_DESCRIPTION_CLASS = cn('typography-meta', TOOL_ROW_TEXT_CLASS);
 
-type PartWithText = Part & { text?: string; content?: string; time?: { start?: number; end?: number } };
+const reasoningTextSchema = z.string().catch('');
+// Preserve the existing numeric-end check, including non-finite JavaScript numbers.
+const endedTimeSchema = z.object({
+    end: z.union([z.number(), z.nan(), z.literal(Infinity), z.literal(-Infinity)]),
+});
 
 type ReasoningVariant = 'thinking' | 'justification';
 
 const cleanReasoningText = (text: string): string => {
-    if (typeof text !== 'string' || text.trim().length === 0) {
+    if (text.trim().length === 0) {
         return '';
     }
 
@@ -35,6 +40,7 @@ const cleanReasoningText = (text: string): string => {
 
 const SUMMARY_MAX_CHARS = 80;
 const EXPANDED_CONTENT_UNMOUNT_DELAY_MS = 200;
+// SAFETY: This fixed easing literal is one of motion's supported easing names.
 const EXPANDED_CONTENT_TRANSITION = { duration: 0.2, ease: 'easeOut' as const };
 
 /** Strip common markdown syntax so the header preview reads as plain text. */
@@ -105,7 +111,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     defaultExpanded,
 }) => {
     const { t } = useI18n();
-    const hasEnded = typeof time?.end === 'number';
+    const hasEnded = endedTimeSchema.safeParse(time).success;
     const canAutoExpand = isStreaming && !hasEnded;
     const [expansion, setExpansion] = React.useState<ExpansionState>(() => {
         if (defaultExpanded === true) {
@@ -162,7 +168,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
             return;
         }
 
-        if (typeof window === 'undefined') {
+        if (globalThis.window === undefined) {
             setShouldRenderExpandedContent(false);
             return;
         }
@@ -410,16 +416,17 @@ const ReasoningPart = React.memo(({
     streamPhase,
 }: ReasoningPartProps) => {
     const chatRenderMode = useUIStore((state) => state.chatRenderMode);
-    const partWithText = part as PartWithText;
-    const rawText = partWithText.text || partWithText.content || '';
+    const rawText = reasoningTextSchema.parse(
+        ('text' in part && part.text) || ('content' in part && part.content) || '',
+    );
     const textContent = React.useMemo(() => cleanReasoningText(rawText), [rawText]);
-    const time = partWithText.time;
+    const time = 'time' in part ? part.time : undefined;
     // Live activity derives from the live stream phase, never from the absence
     // of persisted timing data: cached parts may lack `time.end` even though
     // the message finished long ago (issue #2020). A part that has ended is
     // never streaming, even while the rest of the message still streams.
     const isLiveStreamPhase = streamPhase === 'streaming' || streamPhase === 'cooldown';
-    const isStreaming = chatRenderMode === 'live' && isLiveStreamPhase && typeof time?.end !== 'number';
+    const isStreaming = chatRenderMode === 'live' && isLiveStreamPhase && !endedTimeSchema.safeParse(time).success;
     const throttledTextRaw = useStreamingTextThrottle({
         text: textContent,
         isStreaming,

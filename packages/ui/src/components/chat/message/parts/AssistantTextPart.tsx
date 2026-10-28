@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Part } from '@opencode-ai/sdk/v2';
+import { z } from 'zod';
 import { useI18n } from '@/lib/i18n';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import type { StreamPhase, ToolPopupContent } from '../types';
@@ -9,7 +10,11 @@ import { streamPerfCount, streamPerfObserve } from '@/stores/utils/streamDebug';
 import { GeneratedJsonResultCard } from './GeneratedJsonResultCard';
 import { parseGeneratedJsonResult } from './generatedJsonResult';
 
-type PartWithText = Part & { text?: string; content?: string; value?: string; time?: { start?: number; end?: number } };
+const textFieldsSchema = z.object({
+    text: z.string().catch(''),
+    content: z.string().catch(''),
+    value: z.string().catch(''),
+});
 
 interface AssistantTextPartProps {
     part: Part;
@@ -31,10 +36,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
     const isReasoning = part.type === 'reasoning';
     // Use part directly from props — parent provides the latest version from the store.
     // No store subscription here to avoid re-render cascade from unrelated delta events.
-    const partWithText = part as PartWithText;
-    const rawText = typeof partWithText.text === 'string' ? partWithText.text : '';
-    const contentText = typeof partWithText.content === 'string' ? partWithText.content : '';
-    const valueText = typeof partWithText.value === 'string' ? partWithText.value : '';
+    const { text: rawText, content: contentText, value: valueText } = textFieldsSchema.parse(part);
     const textContent = [rawText, contentText, valueText].reduce((best, candidate) => {
         return candidate.length > best.length ? candidate : best;
     }, '');
@@ -61,8 +63,8 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
 
     streamPerfObserve('ui.assistant_text_part.display_len', displayTextContent.length);
 
-    const time = partWithText.time;
-    const isFinalized = Boolean(time && typeof time.end !== 'undefined');
+    const time = 'time' in part ? part.time : undefined;
+    const isFinalized = Boolean(time && time.end !== undefined);
 
     const isRenderableTextPart = part.type === 'text' || part.type === 'reasoning';
     if (!isRenderableTextPart) {
