@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Part } from '@opencode-ai/sdk/v2';
+import { useI18n } from '@/lib/i18n';
 import { MarkdownRenderer } from '../../MarkdownRenderer';
 import type { StreamPhase, ToolPopupContent } from '../types';
 import { useStreamingTextThrottle } from '../../hooks/useStreamingTextThrottle';
@@ -26,6 +27,8 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
     chatRenderMode = 'live',
     onShowPopup,
 }) => {
+    const { t } = useI18n();
+    const isReasoning = part.type === 'reasoning';
     // Use part directly from props — parent provides the latest version from the store.
     // No store subscription here to avoid re-render cascade from unrelated delta events.
     const partWithText = part as PartWithText;
@@ -73,7 +76,7 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
         return null;
     }
 
-    const generatedResult = !isStreaming && isFinalized ? parseGeneratedJsonResult(displayTextContent) : null;
+    const generatedResult = !isReasoning && !isStreaming && isFinalized ? parseGeneratedJsonResult(displayTextContent) : null;
     if (generatedResult) {
         return (
             <div
@@ -87,9 +90,14 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
 
     return (
         <div
-            className={`group/assistant-text relative break-words ${chatRenderMode === 'live' ? 'my-1' : ''}`}
+            className={`group/assistant-text relative break-words ${chatRenderMode === 'live' ? 'my-1' : ''}${isReasoning ? ' text-muted-foreground italic' : ''}`}
             key={part.id || `${messageId}-text`}
         >
+            {isReasoning ? (
+                <div className="typography-meta font-medium not-italic mb-1">
+                    {t('chat.reasoningTrace.thinking')}
+                </div>
+            ) : null}
             <MarkdownRenderer
                 content={displayTextContent}
                 part={part}

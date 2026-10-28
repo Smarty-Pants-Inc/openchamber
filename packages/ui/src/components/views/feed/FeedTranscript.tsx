@@ -30,7 +30,7 @@ const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
  * writes them, or the owner's id) are the owner's messages: right-aligned, labelled "You" for the owner and the owner's
  * name for anyone else. Any other author is a person, shown by name, never by an id.
  */
-export type BlockText = React.ComponentType<{ content: string }>;
+export type BlockText = React.ComponentType<{ content: string; variant?: 'assistant' | 'reasoning'; className?: string }>;
 
 /** `earlier`: the "Show earlier" control, when older blocks exist. */
 export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
@@ -76,12 +76,16 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
           </li>
         ) : (
           <li key={block.id} data-feed-entry={block.author === 'org' ? 'smarty' : byOwner(block.author) ? 'owner' : 'person'}
+            data-feed-kind={block.kind}
             className={cn('chat-message-column flex min-w-0 flex-col gap-1', byOwner(block.author) && 'items-end')}>
             <div className="flex items-baseline gap-2 typography-ui-label">
               <span className="font-semibold text-foreground">{authorName(block.author)}</span>
               <span className="tabular-nums text-muted-foreground">{block.at}</span>
+              {block.kind === 'thinking' ? <span className="text-muted-foreground">{t('chat.reasoningTrace.thinking')}</span> : null}
             </div>
-            {byOwner(block.author)
+            {block.kind === 'thinking'
+              ? <Text content={block.text} variant="reasoning" className="text-muted-foreground italic" />
+              : byOwner(block.author)
               ? <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2"><Text content={block.text} /></div>
               : <Text content={block.text} />}
           </li>

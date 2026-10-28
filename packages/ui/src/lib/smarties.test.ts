@@ -56,6 +56,15 @@ test('openchamber#611: a person may have only a shared Smarty, with no own row',
   });
 });
 
+test('#3140: feed parsing preserves thinking kind on history and incremental reads', async () => {
+  const blocks = [{ id: 't', author: 'org', at: 'now', text: 'Considering', kind: 'thinking' },
+    { id: 'r', author: 'org', at: 'now', text: 'Reply' }];
+  for (const query of [{}, { after: 10 }]) {
+    const result = await loadSmartyFeed('paul', query, fake(() => json(JSON.stringify({ blocks, offset: 20 }))));
+    expect(result.blocks).toEqual(blocks);
+  }
+});
+
 test('the feed reads the last blocks, or those after an offset; a send posts text and clientId', async () => {
   const feed = { blocks: [{ id: 'b1', author: 'org', at: '11:55 PM ET', text: 'Hi' }], offset: 10 };
   expect(await loadSmartyFeed('paul', {}, fake(() => json(JSON.stringify(feed))))).toEqual(feed);
