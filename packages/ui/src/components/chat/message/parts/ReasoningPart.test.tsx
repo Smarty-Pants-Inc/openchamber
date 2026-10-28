@@ -1,13 +1,38 @@
 import React, { act } from 'react';
-import { describe, expect, test } from 'bun:test';
-import { renderToStaticMarkup } from 'react-dom/server';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { plugin } from 'bun';
+import { renderToStaticMarkup as renderMarkup } from 'react-dom/server';
 import { createRoot } from 'react-dom/client';
 import { Window } from 'happy-dom';
-import type { Part } from '@opencode-ai/sdk/v2';
+import { createOpencodeClient, type Part } from '@opencode-ai/sdk/v2';
+import { SyncProvider } from '@/sync/sync-context';
 
 import { I18nProvider } from '@/lib/i18n';
+import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
+import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+import { createWebAPIs } from '../../../../../../web/src/api';
+import { loadMarkdownRendererModule } from '../../markdownRendererLoader';
 import ReasoningPart, { ReasoningTimelineBlock } from './ReasoningPart';
 import type { StreamPhase } from '../types';
+
+// Bun does not perform Vite's worker-URL transform. Prose needs no worker.
+await plugin({ name: 'reasoning-worker-url', setup(build) {
+  build.onLoad({ filter: /markdown-shiki\.worker\.ts\?worker&url$/ }, () => ({
+    contents: "export default 'data:text/javascript,'", loader: 'js',
+  }));
+} });
+
+const apis = createWebAPIs({ urls: getRuntimeUrlResolver() });
+const sdk = createOpencodeClient({
+  baseUrl: 'http://reasoning.test',
+  fetch: async () => new Response('[]', { headers: { 'content-type': 'application/json' } }),
+});
+const Providers = ({ children }: { children: React.ReactNode }) => (
+  <RuntimeAPIProvider apis={apis}>
+    <SyncProvider sdk={sdk} directory="/fixture">{children}</SyncProvider>
+  </RuntimeAPIProvider>
+);
+const renderToStaticMarkup = (node: React.ReactNode) => renderMarkup(<Providers>{node}</Providers>);
 
 type ReasoningPartFixture = Extract<Part, { type: 'reasoning' }>;
 
@@ -22,14 +47,30 @@ const DOM_GLOBAL_NAMES = [
   'window',
   'document',
   'navigator',
+  'customElements',
   'Node',
+  'NodeList',
   'Element',
   'HTMLElement',
+  'SVGElement',
+  'Document',
+  'Text',
+  'NodeFilter',
+  'MutationObserver',
+  'ResizeObserver',
+  'DOMParser',
+  'XMLSerializer',
+  'HTMLAnchorElement',
+  'HTMLButtonElement',
+  'getComputedStyle',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
   'IS_REACT_ACT_ENVIRONMENT',
 ] as const;
 
 const installDomStub = () => {
   const happyWindow = new Window({ url: 'http://localhost' });
+  happyWindow.document.write('<!doctype html><html><head></head><body></body></html>');
   const previous = DOM_GLOBAL_NAMES.map(
     (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
   );
@@ -37,9 +78,24 @@ const installDomStub = () => {
     window: happyWindow,
     document: happyWindow.document,
     navigator: happyWindow.navigator,
+    customElements: happyWindow.customElements,
     Node: happyWindow.Node,
+    NodeList: happyWindow.NodeList,
     Element: happyWindow.Element,
     HTMLElement: happyWindow.HTMLElement,
+    SVGElement: happyWindow.SVGElement,
+    Document: happyWindow.Document,
+    Text: happyWindow.Text,
+    NodeFilter: happyWindow.NodeFilter,
+    MutationObserver: happyWindow.MutationObserver,
+    ResizeObserver: happyWindow.ResizeObserver,
+    DOMParser: happyWindow.DOMParser,
+    XMLSerializer: happyWindow.XMLSerializer,
+    HTMLAnchorElement: happyWindow.HTMLAnchorElement,
+    HTMLButtonElement: happyWindow.HTMLButtonElement,
+    getComputedStyle: happyWindow.getComputedStyle.bind(happyWindow),
+    requestAnimationFrame: happyWindow.requestAnimationFrame.bind(happyWindow),
+    cancelAnimationFrame: happyWindow.cancelAnimationFrame.bind(happyWindow),
     IS_REACT_ACT_ENVIRONMENT: true,
   };
   for (const name of DOM_GLOBAL_NAMES) {
@@ -61,6 +117,10 @@ const installDomStub = () => {
     },
   };
 };
+
+// Install the browser before lazy Markdown imports initialize DOMPurify.
+const dom = installDomStub();
+afterAll(() => dom.restore());
 
 // A reasoning text whose summary (first 120 chars) fits in the header but
 // whose expanded body content should only appear when the disclosure is open.
@@ -175,8 +235,7 @@ describe('ReasoningTimelineBlock', () => {
 // presented as live streaming just because cached data lacks `time.end` or a
 // stream phase. Live activity derives from the live stream phase only.
 describe('ReasoningPart streaming gating (issue #2020)', () => {
-  // Short enough (< 80 chars) that the collapsed header summary contains the
-  // complete text, letting us assert full content on first paint.
+  // Mounted coverage below checks the full body after the lazy renderer loads.
   const SHORT_REASONING = 'Persisted reasoning text that is already fully available.';
 
   const BUSY_INDICATOR = 'animate-busy-pulse';
@@ -210,24 +269,24 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
     const markup = renderPart(makeReasoningPart({ start: 1_000 }), undefined);
 
     expect(markup).not.toContain(BUSY_INDICATOR);
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain(SHORT_REASONING);
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('data-message-text-export-source="true"');
   });
 
   test('reasoning without time.end in a completed message renders complete, not streaming', () => {
     const markup = renderPart(makeReasoningPart({ start: 1_000 }), 'completed');
 
     expect(markup).not.toContain(BUSY_INDICATOR);
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain(SHORT_REASONING);
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('data-message-text-export-source="true"');
   });
 
   test('reasoning with time.end is never treated as streaming, even when the phase claims streaming', () => {
     const markup = renderPart(makeReasoningPart({ start: 1_000, end: 2_000 }), 'streaming');
 
     expect(markup).not.toContain(BUSY_INDICATOR);
-    expect(markup).toContain('aria-expanded="false"');
-    expect(markup).toContain(SHORT_REASONING);
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup).toContain('data-message-text-export-source="true"');
   });
 
   test('live in-progress reasoning still renders as streaming', () => {
@@ -244,13 +303,11 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
     // reveal commits a first line. The header must read as busy and must not
     // paint an empty summary row.
     const markup = renderPart(makeReasoningPart({ start: 1_000 }, ''), 'streaming');
-    const withText = renderPart(makeReasoningPart({ start: 1_000 }), undefined);
-
     expect(markup).toContain(BUSY_INDICATOR);
     expect(markup).toContain('role="button"');
     // The summary span carries `title="<summary>"`; with no text there must be
     // no summary span at all rather than an empty one.
-    expect(withText).toContain('title="');
+    expect(markup).toContain('Thinking');
     expect(markup).not.toContain('title="');
   });
 
@@ -259,19 +316,20 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
     // comparing two server renders is true by construction. Mount, unmount and
     // remount a real client root instead, watching the busy indicator across
     // every commit.
-    const dom = installDomStub();
     const part = makeReasoningPart({ start: 1_000 });
     const busySeen: boolean[] = [];
     const root = createRoot(dom.container);
 
-    const renderTree = () =>
-      React.createElement(
-        I18nProvider,
-        null,
-        React.createElement(ReasoningPart, { part, messageId: 'msg_2020', streamPhase: undefined }),
-      );
+    const renderTree = (streamPhase?: StreamPhase) => (
+      <Providers>
+        <I18nProvider>
+          <ReasoningPart part={part} messageId="msg_2020" streamPhase={streamPhase} />
+        </I18nProvider>
+      </Providers>
+    );
 
     try {
+      await loadMarkdownRendererModule();
       await act(async () => {
         root.render(renderTree());
       });
@@ -288,11 +346,26 @@ describe('ReasoningPart streaming gating (issue #2020)', () => {
 
       expect(busySeen).toEqual([false, false]);
       expect(dom.container.textContent).toContain(SHORT_REASONING);
+      const toggle = dom.container.querySelector<HTMLElement>('[role="button"]');
+      if (!toggle) throw new Error('Thinking disclosure is missing');
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(dom.container.querySelector('[data-message-text-export-source]')?.className)
+        .toBe('text-muted-foreground italic');
+      await act(async () => toggle.click());
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      await act(async () => toggle.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      await act(async () => root.render(renderTree('streaming')));
+      expect(dom.container.innerHTML).toContain(BUSY_INDICATOR);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      await act(async () => root.render(renderTree('completed')));
+      expect(dom.container.innerHTML).not.toContain(BUSY_INDICATOR);
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(dom.container.textContent).toContain(SHORT_REASONING);
     } finally {
       await act(async () => {
         root.unmount();
       });
-      dom.restore();
     }
   });
 });

@@ -271,7 +271,10 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
     const reasoningBody = (
         <>
-            <div data-message-text-export-source="true">
+            <div
+                className={variant === 'thinking' ? 'text-muted-foreground italic' : undefined}
+                data-message-text-export-source="true"
+            >
                 <MarkdownRenderer
                     content={text}
                     messageId={blockId}
@@ -461,6 +464,7 @@ const ReasoningPart = React.memo(({
         <ReasoningTimelineBlock
             text={throttledText}
             variant="thinking"
+            defaultExpanded
             blockId={part.id || `${messageId}-reasoning`}
             time={time}
             isStreaming={isStreaming}
