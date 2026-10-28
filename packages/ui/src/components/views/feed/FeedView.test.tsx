@@ -36,6 +36,7 @@ await plugin({ name: 'feed-view-vite-transforms', setup(build) {
   });
 } });
 const { FeedView } = await import('./FeedView');
+const { FeedTranscript } = await import('./FeedTranscript');
 const { SmartiesNavSection, ClassicViewToggle } = await import('./FeedNav');
 const { useFeedStore, ensureSmartiesLoaded, refreshSmarties, draftKey, smartyHeaderTitle } = await import('./feedStore');
 const { SidebarNav } = await import('@/components/session/sidebar/shell/SidebarNav');
@@ -76,6 +77,24 @@ const mount = async (node: React.ReactNode) => {
   await act(async () => root.render(<I18nProvider>{node}</I18nProvider>)); await settle();
   return { host, unmount: () => act(async () => root.unmount()) };
 };
+test('#3140: thinking has a marker and reasoning typography; replies stay ordinary at all feed widths', async () => {
+  const Text = ({ content, variant, className }: { content: string; variant?: string; className?: string }) =>
+    <p data-variant={variant} className={className}>{content}</p>;
+  for (const width of [1440, 390]) {
+    const mounted = await mount(<div style={{ width }}><FeedTranscript smartyName="Paul’s Smarty" owner="paul" ownerName="Paul" me="paul" Text={Text}
+      blocks={[{ id: 't', author: 'org', at: 'now', text: 'Considering', kind: 'thinking' }, { id: 'r', author: 'org', at: 'now', text: 'Reply' }]} /></div>);
+    const thinking = mounted.host.querySelector('[data-feed-kind="thinking"]')!;
+    expect(thinking.textContent).toContain('Thinking');
+    expect(thinking.querySelector('p')?.getAttribute('data-variant')).toBe('reasoning');
+    expect(thinking.querySelector('p')?.className).toContain('italic');
+    expect(thinking.querySelector('p')?.className).toContain('text-muted-foreground');
+    const reply = mounted.host.querySelectorAll('[data-feed-entry]')[1]!;
+    expect(reply.textContent).not.toContain('Thinking');
+    expect(reply.querySelector('p')?.className ?? '').not.toContain('italic');
+    await mounted.unmount();
+  }
+});
+
 const view = (compact = false) => <FeedView compact={compact} onClose={() => useFeedStore.getState().setPageOpen(false)} services={services} />;
 const pressEnter = (target: Element) => act(async () => {
   const props = Object.entries(target).find(([key]) => key.startsWith('__reactProps$'))?.[1];
