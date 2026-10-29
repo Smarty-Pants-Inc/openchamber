@@ -15,6 +15,10 @@ export const createNotificationTemplateRuntime = (deps) => {
 
   const sessionTitleCache = new Map();
   const sessionInfoCache = new Map();
+  const assistantMessageReadsInFlight = new Map();
+  const assistantMessageSuppressedUntil = new Map();
+  const TERMINAL_SESSION_READ_BACKOFF_MS = 60_000;
+  const TERMINAL_SESSION_STATUSES = new Set([404, 409, 410]);
 
   const createTimeoutSignal = (timeoutMs) => {
     const controller = new AbortController();
@@ -135,24 +139,47 @@ export const createNotificationTemplateRuntime = (deps) => {
   // With the session's directory when the event named it, so the backend reads that project directly (smarty-code#712).
   const inDirectory = (url, directory) => directory ? `${url}${url.includes('?') ? '&' : '?'}directory=${encodeURIComponent(directory)}` : url;
 
+  const fetchAssistantMessages = (sessionId, directory) => {
+    const key = `${directory || ''}\0${sessionId}`;
+    const inFlight = assistantMessageReadsInFlight.get(key);
+    if (inFlight) return inFlight;
+    if ((assistantMessageSuppressedUntil.get(key) ?? 0) > Date.now()) return Promise.resolve(null);
+    assistantMessageSuppressedUntil.delete(key);
+    const pending = Promise.resolve().then(async () => {
+      try {
+        const url = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}/message`, '');
+        const response = await fetch(inDirectory(`${url}?limit=5`, directory), {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...getOpenCodeAuthHeaders(),
+          },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!response.ok) {
+          if (TERMINAL_SESSION_STATUSES.has(response.status)) {
+            assistantMessageSuppressedUntil.set(key, Date.now() + TERMINAL_SESSION_READ_BACKOFF_MS);
+          }
+          return null;
+        }
+        const messages = await response.json().catch(() => null);
+        return Array.isArray(messages) ? messages : null;
+      } catch {
+        return null;
+      } finally {
+        assistantMessageReadsInFlight.delete(key);
+      }
+    });
+    assistantMessageReadsInFlight.set(key, pending);
+    return pending;
+  };
+
   const fetchLastAssistantMessageText = async (sessionId, messageId, maxLength = NOTIFICATION_BODY_MAX_CHARS, directory) => {
     if (!sessionId) return '';
 
     try {
-      const url = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}/message`, '');
-      const response = await fetch(inDirectory(`${url}?limit=5`, directory), {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          ...getOpenCodeAuthHeaders(),
-        },
-        signal: AbortSignal.timeout(3000),
-      });
-
-      if (!response.ok) return '';
-
-      const messages = await response.json().catch(() => null);
-      if (!Array.isArray(messages)) return '';
+      const messages = await fetchAssistantMessages(sessionId, directory);
+      if (!messages) return '';
 
       let target = null;
       if (messageId) {
@@ -226,12 +253,14 @@ export const createNotificationTemplateRuntime = (deps) => {
     }
   };
 
-  const buildTemplateVariables = async (payload, sessionId, directory) => {
+  const buildTemplateVariables = async (payload, sessionId, directory, readSessionDetail) => {
     const info = payload?.properties?.info || {};
 
     let sessionTitle = payload?.properties?.sessionTitle || payload?.properties?.session?.title || (typeof info.sessionTitle === 'string' ? info.sessionTitle : '') || '';
 
-    if (!sessionTitle && sessionId) {
+    // Trigger enrichment must use its scoped reader, including unknown results;
+    // the standalone title cache cannot bypass its cooldown or mix directories.
+    if (!readSessionDetail && !sessionTitle && sessionId) {
       const cached = getCachedSessionTitle(sessionId);
       if (cached) {
         sessionTitle = cached;
@@ -240,10 +269,10 @@ export const createNotificationTemplateRuntime = (deps) => {
 
     let sessionInfo = null;
     if (!sessionTitle && sessionId) {
-      sessionInfo = await fetchSessionInfo(sessionId, directory);
+      sessionInfo = await (readSessionDetail || fetchSessionInfo)(sessionId, directory);
       if (sessionInfo && typeof sessionInfo.title === 'string') {
         sessionTitle = sessionInfo.title;
-        cacheSessionTitle(sessionId, sessionTitle);
+        if (!readSessionDetail) cacheSessionTitle(sessionId, sessionTitle);
       }
     }
 

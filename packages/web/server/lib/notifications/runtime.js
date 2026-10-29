@@ -111,6 +111,11 @@ export const createNotificationTriggerRuntime = (deps) => {
   const notifiedPermissionRequests = new Set();
   const lastReadyNotificationAt = new Map();
   const lastErrorNotificationAt = new Map();
+  const pendingTriggers = new Map();
+  const sessionDetailReads = new Map();
+  const sessionDetailInFlight = new Map();
+  const TERMINAL_SESSION_READ_BACKOFF_MS = 60_000;
+  const TERMINAL_SESSION_STATUSES = new Set([404, 409, 410]);
 
   const sessionParentIdCache = new Map();
   const SESSION_PARENT_CACHE_TTL_MS = 60 * 1000;
@@ -170,39 +175,59 @@ export const createNotificationTriggerRuntime = (deps) => {
     setCachedSessionParentId(sessionId, directory, parentID);
   };
 
-  const fetchSessionParentId = async (sessionId, directory) => {
-    if (!sessionId) return undefined;
+  // Like the UI terminal-session reader, a refused detail read stays unknown
+  // for 60 seconds. Reserve the normal cooldown before I/O and share slow reads.
+  const fetchSessionDetail = async (sessionId, directory) => {
+    if (!sessionId) return null;
+    const key = getSessionParentCacheKey(sessionId, directory);
+    const inFlight = sessionDetailInFlight.get(key);
+    if (inFlight) return inFlight;
+    const now = Date.now();
+    const cached = sessionDetailReads.get(key);
+    if (cached && cached.until > now) return cached.data;
+    const entry = { until: now + PUSH_READY_COOLDOWN_MS, data: null };
+    sessionDetailReads.set(key, entry);
+    const pending = Promise.resolve().then(async () => {
+      try {
+        const base = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}`, '');
+        const url = directory ? `${base}?directory=${encodeURIComponent(directory)}` : base;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...getOpenCodeAuthHeaders(),
+          },
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!response.ok) {
+          if (TERMINAL_SESSION_STATUSES.has(response.status)) {
+            entry.until = Date.now() + TERMINAL_SESSION_READ_BACKOFF_MS;
+          }
+          return null;
+        }
+        const session = await response.json().catch(() => null);
+        if (!session || typeof session !== 'object' || Array.isArray(session)) return null;
+        entry.data = session;
+        return session;
+      } catch {
+        return null;
+      } finally {
+        sessionDetailInFlight.delete(key);
+      }
+    });
+    sessionDetailInFlight.set(key, pending);
+    return pending;
+  };
 
+  const fetchSessionParentId = async (sessionId, directory, readDetail = fetchSessionDetail) => {
+    if (!sessionId) return undefined;
     const cached = getCachedSessionParentId(sessionId, directory);
     if (cached !== undefined) return cached;
-
-    try {
-      const base = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}`, '');
-      const url = directory ? `${base}?directory=${encodeURIComponent(directory)}` : base;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          ...getOpenCodeAuthHeaders(),
-        },
-        signal: AbortSignal.timeout(2000),
-      });
-      if (!response.ok) {
-        return undefined;
-      }
-      const session = await response.json().catch(() => null);
-      if (!session || typeof session !== 'object') {
-        return undefined;
-      }
-
-      const parentID = typeof session.parentID === 'string' && session.parentID.length > 0
-        ? session.parentID
-        : null;
-      setCachedSessionParentId(sessionId, directory, parentID);
-      return parentID;
-    } catch {
-      return undefined;
-    }
+    const session = await readDetail(sessionId, directory);
+    if (!session) return undefined;
+    const parentID = typeof session.parentID === 'string' && session.parentID.length > 0 ? session.parentID : null;
+    setCachedSessionParentId(sessionId, directory, parentID);
+    return parentID;
   };
 
   // Mirrors client-side autoRespondsPermission: a session auto-accepts if it
@@ -281,26 +306,13 @@ export const createNotificationTriggerRuntime = (deps) => {
   // A session with an ACTIVE goal suppresses per-turn ready notifications;
   // the session-goal runtime sends its own notification when the goal
   // settles. Fetch failures fall through to normal notification behavior.
-  const hasActiveSessionGoal = async (sessionId, directory) => {
-    if (!sessionId) return false;
-    try {
-      const base = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}`, '');
-      const url = directory ? `${base}?directory=${encodeURIComponent(directory)}` : base;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
-        signal: AbortSignal.timeout(2000),
-      });
-      if (!response.ok) return false;
-      const session = await response.json().catch(() => null);
-      const goal = session?.metadata?.openchamber?.goal;
-      return Boolean(goal && typeof goal === 'object' && goal.status === 'active');
-    } catch {
-      return false;
-    }
+  const hasActiveSessionGoal = async (sessionId, directory, readDetail) => {
+    const session = await readDetail(sessionId, directory);
+    const goal = session?.metadata?.openchamber?.goal;
+    return Boolean(goal && typeof goal === 'object' && goal.status === 'active');
   };
 
-  const maybeSendPushForTrigger = async (payload, envelopeDirectory) => {
+  const sendPushForTrigger = async (payload, envelopeDirectory) => {
     if (!payload || typeof payload !== 'object') {
       return;
     }
@@ -332,41 +344,41 @@ export const createNotificationTriggerRuntime = (deps) => {
 
     if (payload.type === 'message.updated') {
       const info = payload.properties?.info;
+      if (info?.role !== 'assistant' || (info?.finish !== 'stop' && info?.finish !== 'error') || !sessionId) return;
+      // Reuse even a failed or >5s detail read for this entire trigger.
+      const details = new Map();
+      const readDetail = (id, directory) => {
+        const key = getSessionParentCacheKey(id, directory);
+        if (!details.has(key)) details.set(key, fetchSessionDetail(id, directory));
+        return details.get(key);
+      };
       if (info?.role === 'assistant' && info?.finish === 'stop' && sessionId) {
         const settings = await readSettingsFromDisk();
+        if (settings.notifyOnCompletion === false) return;
+        if (settings.notificationMode !== 'always' && getIsWindowFocused?.()) return;
+        const key = getSessionParentCacheKey(sessionId, notificationDirectory);
+        const now = Date.now();
+        const lastAt = lastReadyNotificationAt.get(key);
+        if (lastAt !== undefined && now - lastAt < PUSH_READY_COOLDOWN_MS) return;
+        lastReadyNotificationAt.set(key, now);
 
         if (settings.notifyOnSubtasks === false) {
           const parentIDFromPayload = getParentIdFromPayload(payload);
           const parentID = parentIDFromPayload
             ? parentIDFromPayload
-            : await fetchSessionParentId(sessionId, notificationDirectory);
+            : await fetchSessionParentId(sessionId, notificationDirectory, readDetail);
 
           if (parentID !== null) {
             return;
           }
         }
 
-        if (settings.notifyOnCompletion === false) {
-          return;
-        }
-
         // While a goal drives the session, per-turn "ready" notifications are
         // noise produced by the goal loop itself — the goal's own settle
         // notification (complete/blocked/budget) is the final word instead.
-        if (await hasActiveSessionGoal(sessionId, notificationDirectory)) {
+        if (await hasActiveSessionGoal(sessionId, notificationDirectory, readDetail)) {
           return;
         }
-
-        if (settings.notificationMode !== 'always' && getIsWindowFocused?.()) {
-          return;
-        }
-
-        const now = Date.now();
-        const lastAt = lastReadyNotificationAt.get(sessionId) ?? 0;
-        if (now - lastAt < PUSH_READY_COOLDOWN_MS) {
-          return;
-        }
-        lastReadyNotificationAt.set(sessionId, now);
 
         let title = `${formatMode(info?.mode)} agent is ready`;
         let body = `${formatModelId(info?.modelID)} completed the task`;
@@ -374,12 +386,12 @@ export const createNotificationTriggerRuntime = (deps) => {
 
         try {
           const templates = settings.notificationTemplates || {};
-          const isSubtask = await fetchSessionParentId(sessionId, notificationDirectory);
+          const isSubtask = await fetchSessionParentId(sessionId, notificationDirectory, readDetail);
           const completionTemplate = isSubtask && settings.notifyOnSubtasks !== false
             ? (templates.subtask || templates.completion || { title: '{agent_name} is ready', message: '{model_name} completed the task' })
             : (templates.completion || { title: '{agent_name} is ready', message: '{model_name} completed the task' });
 
-          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory, readDetail);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
 
           const messageId = info?.id;
@@ -436,9 +448,10 @@ export const createNotificationTriggerRuntime = (deps) => {
         if (settings.notifyOnError === false) return;
 
         const now = Date.now();
-        const lastAt = lastErrorNotificationAt.get(sessionId) ?? 0;
-        if (now - lastAt < PUSH_READY_COOLDOWN_MS) return;
-        lastErrorNotificationAt.set(sessionId, now);
+        const key = getSessionParentCacheKey(sessionId, notificationDirectory);
+        const lastAt = lastErrorNotificationAt.get(key);
+        if (lastAt !== undefined && now - lastAt < PUSH_READY_COOLDOWN_MS) return;
+        lastErrorNotificationAt.set(key, now);
 
         if (settings.notificationMode !== 'always' && getIsWindowFocused?.()) {
           return;
@@ -449,7 +462,7 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory, readDetail);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           const errorMessageId = info?.id;
           let lastMessage = extractLastMessageText(payload);
@@ -535,7 +548,7 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory, fetchSessionDetail);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           variables.last_message = questionText || header || '';
 
@@ -654,7 +667,7 @@ export const createNotificationTriggerRuntime = (deps) => {
         let sessionName = '';
 
         try {
-          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory);
+          const variables = await buildTemplateVariables(payload, sessionId, notificationDirectory, fetchSessionDetail);
           sessionName = typeof variables.session_name === 'string' ? variables.session_name : sessionName;
           variables.last_message = fallbackMessage;
 
@@ -707,23 +720,29 @@ export const createNotificationTriggerRuntime = (deps) => {
     }
   };
 
+  const maybeSendPushForTrigger = (payload, envelopeDirectory) => {
+    const info = payload?.properties?.info;
+    const sessionId = extractSessionIdFromPayload(payload);
+    if (payload?.type !== 'message.updated' || info?.role !== 'assistant'
+      || (info.finish !== 'stop' && info.finish !== 'error') || !sessionId) {
+      return sendPushForTrigger(payload, envelopeDirectory);
+    }
+    const directory = extractDirectoryFromPayload(payload) ?? envelopeDirectory;
+    const key = `${getSessionParentCacheKey(sessionId, directory)}\0${info.finish}`;
+    if (pendingTriggers.has(key)) return pendingTriggers.get(key);
+    const pending = sendPushForTrigger(payload, envelopeDirectory).finally(() => pendingTriggers.delete(key));
+    pendingTriggers.set(key, pending);
+    return pending;
+  };
+
   // Goal settle push: same fanout as the trigger paths (web-push with the
   // full text; APNs with the generic per-type title and the session name as
   // body, so the relay never sees content).
   const sendGoalSettlePush = async ({ sessionId, directory, status, title, body }) => {
     let sessionName = '';
     try {
-      const base = buildOpenCodeUrl(`/session/${encodeURIComponent(sessionId)}`, '');
-      const url = directory ? `${base}?directory=${encodeURIComponent(directory)}` : base;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json', ...getOpenCodeAuthHeaders() },
-        signal: AbortSignal.timeout(2000),
-      });
-      if (response.ok) {
-        const session = await response.json().catch(() => null);
-        if (typeof session?.title === 'string') sessionName = session.title.trim();
-      }
+      const session = await fetchSessionDetail(sessionId, directory);
+      if (typeof session?.title === 'string') sessionName = session.title.trim();
     } catch {
       // Session name is presentation sugar for the mobile push — never block on it.
     }
