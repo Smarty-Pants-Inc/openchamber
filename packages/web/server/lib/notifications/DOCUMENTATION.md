@@ -43,13 +43,34 @@ This module provides notification message preparation utilities for the web serv
 ### Trigger runtime API (runtime.js)
 - `createNotificationTriggerRuntime(dependencies)`: creates runtime-owned debounced trigger handling for OpenCode events.
 - Returned API:
-  - `maybeSendPushForTrigger(payload)`
+  - `maybeSendPushForTrigger(payload, envelopeDirectory?)`
+  - `sendGoalSettlePush({ sessionId, directory, status, title, body })`
 - Owns:
   - completion/error/question/permission trigger routing; permission suppression consults the authoritative permission-auto-accept runtime
   - session parent cache for subtask suppression
   - template resolution and fallback behavior
   - native notification fanout and web push payload fanout
   - push suppression while any fresh UI visibility heartbeat reports a focused client
+
+Session detail reads share one process-local reader per trigger-runtime instance,
+keyed by directory and session ID. Ready and error delivery each reserve their
+5-second cooldown before detail enrichment. Concurrent triggers of the same kind
+share pending work, even when it takes longer than 5 seconds.
+
+Parent lookup, active-goal checks, template titles, permission ancestry and goal
+settle titles all use that reader. It reserves a 5-second read window before I/O
+and shares in-flight reads across notification kinds. A trigger reuses its first
+detail result throughout enrichment, even after a slow read or failure. HTTP 404,
+409 and 410 suppress further detail reads for 60 seconds from the response. The
+exact expiry permits another read. Other HTTP failures, network failures and
+malformed JSON use only the normal 5-second window. There is no retry timer.
+
+A failed or suppressed read returns unknown, never a fabricated root session or
+goal state. Ready/error notifications keep their fallback text when allowed;
+`notifyOnSubtasks: false` still suppresses ready notifications for an unknown
+parent. Only successful detail can establish an active goal. The existing parent
+cache retains its 60-second lifetime. Read-window entries are replaced lazily on
+later requests for the same key and live only in this runtime instance.
 
 ### Push runtime API (push-runtime.js)
 - `createPushRuntime(dependencies)`: creates runtime for web push and UI visibility state.
@@ -99,8 +120,24 @@ processes that write the same settings file.
   - `extractLastMessageText(payload, maxLength?)`
   - `fetchLastAssistantMessageText(sessionId, messageId, maxLength?)`
   - `maybeCacheSessionInfoFromEvent(payload)`
-  - `buildTemplateVariables(payload, sessionId)`
+  - `buildTemplateVariables(payload, sessionId, directory?, readSessionDetail?)`
   - `getCachedZenModels()`
+
+Trigger callers pass their shared detail reader into `buildTemplateVariables`.
+When supplied, it replaces the template runtime's standalone session/title caches,
+so failed reads cannot fall back to another detail request or another directory's
+cached title. Standalone callers retain the existing lookup behavior.
+
+Last-message enrichment reads `/session/:id/message?limit=5`, not session detail.
+The template runtime independently backs off HTTP 404, 409 and 410 from that
+endpoint for 60 seconds from the response, keyed by directory and session ID.
+It shares pending message-list reads across callers, then selects each caller's
+message ID separately. Successful lists are not cached after completion, and
+nonterminal failures do not gain a new backoff. A detail failure does not suppress
+a readable message tail; a successful detail does not clear a terminal tail
+failure. Suppressed tails return no enrichment text, preserving the notification's
+ordinary fallback. Neither failure implies session deletion. `message.js` only
+normalizes and truncates text and does no I/O.
 
 ## Constants
 
@@ -140,5 +177,6 @@ The `settings` parameter for `prepareNotificationLastMessage` supports `maxLastM
 - Non-string inputs are handled gracefully (return empty string).
 
 ### Testing
+- `runtime-backoff.test.js`, `runtime-backoff-behavior.test.js` and `runtime-message-backoff.test.js` exercise the real trigger, template and message helpers with controlled HTTP responses and time. They cover read budgets, concurrent slow reads, exact detail/tail backoff expiry, isolated directories/sessions, recovery, goal/subtask suppression and ready/error fallback fanout. Tail tests include both detail-404/message-404 and detail-200/message-404 sequences.
 - Run `bun run type-check`, `bun run lint`, and `bun run build` before finalizing changes.
 - Unit tests should cover truncation behavior and edge cases (empty strings, invalid inputs).
