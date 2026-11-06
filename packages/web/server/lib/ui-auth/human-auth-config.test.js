@@ -34,6 +34,19 @@ test('human mode is explicit and missing enabled configuration never falls back'
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('invalid email policy fails preflight before creating the database directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'human-email-config-'));
+  const parent = join(root, 'not-created');
+  try {
+    for (const policy of ['', ' ', ',', '*@example.test', 'person@other.test', 'person@@example.test',
+      'person@example.test,', 'person@example.test\n']) {
+      await assert.rejects(createConfiguredHumanAuth({ ...config(parent), SMARTY_HUMAN_AUTH_ALLOWED_EMAILS: policy }),
+        /Invalid allowed email list/);
+      await assert.rejects(stat(parent), { code: 'ENOENT' });
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('private persistent official database preserves a human session across factory restart', async () => {
   const root = await mkdtemp(join(tmpdir(), 'human-config-'));
   let human;

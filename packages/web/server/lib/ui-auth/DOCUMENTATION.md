@@ -108,9 +108,19 @@ wildcard. Proposed secret consumer variables are `GOOGLE_CLIENT_ID`,
 `SMARTY_HUMAN_AUTH_ALLOWED_DOMAINS=smartypants.ai`. These are a caller contract,
 not new environment loading or authorization to register a client.
 
-The audience must be nonempty and explicit. The supported `user.validateUserInfo` gate checks fresh Google claims on both new
-and returning OAuth callbacks. Account/session creation and request resolution
-also require a verified email in an exact normalized allowed domain.
+The audience must be nonempty and explicit. Optional
+`SMARTY_HUMAN_AUTH_ALLOWED_EMAILS` narrows that domain policy to a comma-separated
+list of exact email addresses. Configuration and verified user addresses match in
+lowercase, with no alias, suffix or wildcard expansion. Each configured address
+must be a valid ASCII dot-atom address in an allowed domain. Empty lists, empty
+entries, control characters, malformed addresses and wildcards fail startup before
+the database directory is created. Without the variable, domain admission is
+unchanged. The supported `user.validateUserInfo` gate checks fresh Google claims on
+both new and returning OAuth callbacks. Account/session creation, request
+resolution and UI-session group admission use the same audience. Existing listed
+cookies, opaque user IDs, sidebar ownership and session rows are preserved. An
+unlisted account's otherwise-valid cookie is refused without deleting its rows.
+This filter does not enable Node membership or alter forwarded actor fields.
 Lookalike suffixes, unverified emails, Google domain hints and browser labels do not
 grant access. Keep the existing Cloudflare edge policy. Stable identity uses the
 opaque library user ID scoped by issuer, not a mutable email/name. Account linking,

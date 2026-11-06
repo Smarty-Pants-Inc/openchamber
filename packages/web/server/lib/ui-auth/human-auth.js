@@ -13,7 +13,7 @@ import { createHumanAuthBasePathOptions } from './human-auth-base-path.js';
 /** Better Auth owns accounts and sessions. The caller owns the private database and activation. */
 export async function createHumanAuth({ database, baseURL, secret, googleClientId, googleClientSecret, allowedDomains,
   env = process.env }) {
-  const admits = createHumanAudience(allowedDomains);
+  const admits = createHumanAudience(allowedDomains, env.SMARTY_HUMAN_AUTH_ALLOWED_EMAILS);
   const members = createHumanMemberBinding(env);
   const hostedDomain = allowedDomains.length === 1 && typeof allowedDomains[0] === 'string'
     ? allowedDomains[0].toLowerCase() : null;
