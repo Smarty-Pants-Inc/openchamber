@@ -51,12 +51,22 @@ export function browserPiVoiceMedia(): PiVoiceMedia {
   const context = new AudioContext();
   let stream: MediaStream | undefined, peer: RTCPeerConnection | undefined, lost: (reason: string) => void = () => undefined;
   let meters: { mic: ReturnType<typeof meter>; speaker: ReturnType<typeof meter> } | undefined;
+  let blocked = false, reportBlocked: (blocked: boolean) => void = () => undefined;
+  const setBlocked = (next: boolean) => { if (blocked !== next) { blocked = next; reportBlocked(next); } };
+  // The agent's voice arrives after the Call tap's awaits, so iOS Safari may refuse to play it (NotAllowedError)
+  // until the person taps again: report that instead of a silent call.
+  const play = () => audio.play().then(() => setBlocked(false), () => setBlocked(true));
   // Backgrounding is not consent revocation: keep media, and resume audio the platform suspended.
-  const resumeWhenVisible = () => { if (document.visibilityState === 'visible' && context.state !== 'running') void context.resume().catch(() => undefined); };
+  const resumeWhenVisible = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (context.state !== 'running') void context.resume().catch(() => undefined);
+    if (audio.srcObject && audio.paused) void play();
+  };
   const hangup = () => {
     meters?.mic.stop(); meters?.speaker.stop(); meters = undefined;
     peer?.close(); peer = undefined;
     audio.srcObject = null;
+    setBlocked(false); // Nothing left to play; a new peer's voice reports again.
   };
   return {
     async prepare() {
@@ -82,7 +92,7 @@ export function browserPiVoiceMedia(): PiVoiceMedia {
         const remote = event.streams[0];
         if (!remote || peer !== connection) return;
         audio.srcObject = remote;
-        void audio.play().catch(() => undefined);
+        void play();
         meters = { mic: meter(context, microphone), speaker: meter(context, remote) };
       };
       connection.onconnectionstatechange = () => {
@@ -95,6 +105,11 @@ export function browserPiVoiceMedia(): PiVoiceMedia {
     },
     async answer(sdp) { await peer?.setRemoteDescription({ type: 'answer', sdp }); },
     onLost(listener) { lost = listener; },
+    onAudioBlocked(listener) { reportBlocked = listener; },
+    unlockAudio() {
+      void context.resume().catch(() => undefined); // Both inside the person's tap, before any await.
+      if (audio.srcObject) void play();
+    },
     setMuted(muted) { for (const track of stream?.getAudioTracks() ?? []) track.enabled = !muted; },
     levels: () => meters && { input: meters.mic.level(), output: meters.speaker.level() },
     hangup,

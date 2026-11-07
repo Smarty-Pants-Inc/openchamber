@@ -247,3 +247,12 @@ test('unmount drops a pending real-client unknown answer without scheduling more
   expect(fixture.reads()).toBe(2);
   expectNoCall();
 });
+
+test('Call, enabled or disabled with its reason, is a 44 px touch target on a phone (smarty-code#1192)', async () => {
+  const enabled = await mount([answer({ available: true })]);
+  expect(enabled.container.querySelector('button')?.classList.contains('oc-touch-target')).toBe(true);
+  enabled.unmount();
+  const disabled = await mount([answer({ available: false, reason: 'No engine.' })]);
+  expect(disabled.container.querySelector('button')?.classList.contains('oc-touch-target')).toBe(true);
+  expectNoCall();
+});

@@ -26,12 +26,12 @@ export type PiVoiceCallDriver = {
   media(): PiVoiceMedia;
   load(): Promise<{
     beginPiVoiceCall(prepared: Promise<void>, media: PiVoiceMedia, openSocket: () => PiVoiceSocket,
-      onState: (state: PiVoiceState) => void, wanted: () => boolean): Promise<{ hangup(): void } | undefined>;
+      onState: (state: PiVoiceState) => void, wanted: () => boolean): Promise<{ hangup(): void; unlockAudio(): void } | undefined>;
     openPiVoiceSocket(sessionId: string, directory: string): PiVoiceSocket;
   }>;
 };
 
-let active: (ActivePiVoiceCall & { hangup?: () => void; generation: number; hooks: PiVoiceCallHooks }) | undefined;
+let active: (ActivePiVoiceCall & { hangup?: () => void; unlockAudio?: () => void; generation: number; hooks: PiVoiceCallHooks }) | undefined;
 let generation = 0, snapshot: ActivePiVoiceCall | undefined;
 const listeners = new Set<() => void>();
 const publish = () => {
@@ -58,6 +58,9 @@ export function endActivePiVoiceCall(reason?: string) {
   publish();
   if (reason) current.hooks.onEnded(reason);
 }
+
+/** In the person's tap: plays the call's voice the browser refused to play on its own. */
+export function unlockActivePiVoiceAudio() { active?.unlockAudio?.(); }
 
 /** Any runtime change: the call and a start still preparing both end; neither reaches the new runtime. */
 export const endPiVoiceCallForRuntimeChange = () => endActivePiVoiceCall(RUNTIME_CHANGED);
@@ -105,7 +108,7 @@ export async function startPiVoiceCallFor(sessionId: string, directory: string, 
       }
       active.state = next; publish();
     }, () => active?.generation === owner && scope.current());
-    if (active?.generation === owner && call) active.hangup = () => call.hangup();
+    if (active?.generation === owner && call) { active.hangup = () => call.hangup(); active.unlockAudio = () => call.unlockAudio(); }
     else call?.hangup();
   } catch (error) {
     if (active?.generation === owner) { active = undefined; publish(); }

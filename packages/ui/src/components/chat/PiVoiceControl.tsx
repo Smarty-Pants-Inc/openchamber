@@ -79,7 +79,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
         <TooltipTrigger asChild closeOnClick={false}>
           <span tabIndex={0} aria-label={label} className="inline-flex rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onMouseEnter={showReason} onFocus={showReason} onClick={showReason}>
-            <Button type="button" variant="chip" size="xs" disabled aria-label={label}>
+            <Button type="button" variant="chip" size="xs" className="oc-touch-target" disabled aria-label={label}>
               <Icon name="phone" className="size-3.5" /><span>{t('chat.piVoice.call')}</span>
             </Button>
           </span>
@@ -94,7 +94,7 @@ export function PiVoiceControl({ sessionId, directory }: { sessionId: string; di
   };
   const label = current ? t('chat.piVoice.moveHere') : t('chat.piVoice.start');
   return (
-    <Button type="button" variant="chip" size="xs" aria-label={label} title={label}
+    <Button type="button" variant="chip" size="xs" className="oc-touch-target" aria-label={label} title={label}
       onClick={() => { void startPiVoiceCallFor(sessionId, directory, driver, hooks); }}>
       <Icon name="phone" className="size-3.5" />
       <span>{current ? label : t('chat.piVoice.call')}</span>

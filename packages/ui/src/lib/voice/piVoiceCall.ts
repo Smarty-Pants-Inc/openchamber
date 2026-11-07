@@ -21,7 +21,7 @@ export type PiVoiceUp = { type: 'start' } | { type: 'stop' } | { type: 'offer'; 
   | { type: 'levels'; input: number; output: number } | { type: 'failure'; message: string };
 export type PiVoiceTranscript = { role: 'user' | 'agent'; text: string };
 export type PiVoiceState =
-  | { status: 'active'; phase: string; muted: boolean; transcript: PiVoiceTranscript | null }
+  | { status: 'active'; phase: string; muted: boolean; transcript: PiVoiceTranscript | null; audioBlocked: boolean }
   | { status: 'ended'; error: string | null };
 
 /** The call's socket: the runtime WebSocket shape (browser or relay tunnel), injectable for tests. */
@@ -33,6 +33,10 @@ export interface PiVoiceMedia {
   prepare(): Promise<void>;
   /** Reports a microphone that went away (unplugged, revoked). */
   onLost(listener: (reason: string) => void): void;
+  /** Reports whether the browser refused to play the agent's voice without a tap (iOS autoplay policy). */
+  onAudioBlocked(listener: (blocked: boolean) => void): void;
+  /** In the person's tap: resume audio and play the agent's voice. */
+  unlockAudio(): void;
   /** Opens a new peer on the prepared microphone and returns its complete SDP offer. */
   offer(events: { open(): void; failed(message: string): void }): Promise<string>;
   answer(sdp: string): Promise<void>;
@@ -51,22 +55,34 @@ export function openPiVoiceSocket(sessionId: string, directory: string): PiVoice
 }
 
 const OPEN = 1, LEVEL_MS = 100;
+/** Waits before each reconnect of a call whose socket dropped; the call ends when they run out. */
+const RETRY_DELAYS_MS = [1000, 3000, 6000];
 // The engine's LivePhase values, and its transcript roles as the shared `you:`/`agent:` labels.
 const PHASES = new Set(['standby', 'connecting', 'listening', 'working', 'speaking', 'muted', 'error']);
 
-/** Starts one call with a prepared microphone and owns `media` from here on. Every ending path releases the microphone first. */
-export function startPiVoiceCall(socket: PiVoiceSocket, media: PiVoiceMedia, onState: (state: PiVoiceState) => void) {
-  let ended = false;
-  let state: Extract<PiVoiceState, { status: 'active' }> = { status: 'active', phase: 'connecting', muted: false, transcript: null };
-  const send = (message: PiVoiceUp) => { if (socket.readyState === OPEN) socket.send(JSON.stringify(message)); };
+/**
+ * Starts one call with a prepared microphone and owns `media` from here on. Every ending path releases the microphone first.
+ * A socket that drops after it opened (a phone changing network, Safari parking the tab) is reopened on the same
+ * microphone and the call starts again; one that never opened, or an engine `ended`, ends the call.
+ */
+export function startPiVoiceCall(openSocket: () => PiVoiceSocket, media: PiVoiceMedia, onState: (state: PiVoiceState) => void,
+  options: { retryDelays?: number[] } = {}) {
+  const retryDelays = options.retryDelays ?? RETRY_DELAYS_MS;
+  const first = openSocket(); // A refused first open throws to the caller: the call never started.
+  let ended = false, retries = 0, everOpened = false;
+  let socket: PiVoiceSocket | undefined, retry: ReturnType<typeof setTimeout> | undefined;
+  let state: Extract<PiVoiceState, { status: 'active' }> = { status: 'active', phase: 'connecting', muted: false, transcript: null, audioBlocked: false };
+  const send = (message: PiVoiceUp) => { if (socket?.readyState === OPEN) socket.send(JSON.stringify(message)); };
   const update = (next: Partial<typeof state>) => { state = { ...state, ...next }; if (!ended) onState(state); };
   const finish = (error: string | null) => {
     if (ended) return;
     ended = true;
     clearInterval(timer);
+    clearTimeout(retry);
     media.close();
     send({ type: 'stop' });
-    socket.close(1000, 'Voice call ended');
+    socket?.close(1000, 'Voice call ended');
+    socket = undefined;
     onState({ status: 'ended', error });
   };
   const timer = setInterval(() => { const level = media.levels(); if (level) send({ type: 'levels', ...level }); }, LEVEL_MS);
@@ -83,19 +99,42 @@ export function startPiVoiceCall(socket: PiVoiceSocket, media: PiVoiceMedia, onS
     else if (message.type === 'status') { if (PHASES.has(message.status)) update({ phase: message.status }); }
     else update({ transcript: { role: message.role === 'user' ? 'user' : 'agent', text: message.text } });
   };
-  media.onLost(reason => finish(reason));
-  socket.onopen = () => send({ type: 'start' });
-  socket.onmessage = event => {
-    if (ended || event.data instanceof ArrayBuffer) return; // No audio crosses this socket.
-    let parsed: unknown;
-    try { parsed = JSON.parse(event.data); } catch { parsed = undefined; }
-    const message = downSchema.safeParse(parsed);
-    if (message.success) receive(message.data);
+  const connect = (opened?: PiVoiceSocket) => {
+    let current: PiVoiceSocket;
+    try { current = socket = opened ?? openSocket(); } catch (error) { finish(error instanceof Error ? error.message : String(error)); return; }
+    // A browser fires error and then close for one drop; only the first one counts.
+    const dropped = (reason: string) => {
+      if (ended || socket !== current) return;
+      socket = undefined;
+      const delay = retryDelays[retries];
+      if (!everOpened || delay === undefined) { finish(reason); return; }
+      retries++;
+      media.hangup(); // The engine's peer went with the socket; the microphone stays for the new start.
+      update({ phase: 'reconnecting', transcript: null });
+      retry = setTimeout(() => connect(), delay);
+    };
+    current.onopen = () => { if (socket === current) { everOpened = true; send({ type: 'start' }); } };
+    current.onmessage = event => {
+      if (ended || socket !== current || event.data instanceof ArrayBuffer) return; // No audio crosses this socket.
+      let parsed: unknown;
+      try { parsed = JSON.parse(event.data); } catch { parsed = undefined; }
+      const message = downSchema.safeParse(parsed);
+      if (!message.success) return;
+      retries = 0; // The engine answered: the connection is back, with its whole retry budget.
+      receive(message.data);
+    };
+    current.onerror = () => dropped('Voice connection failed');
+    current.onclose = () => dropped('Voice connection closed');
   };
-  socket.onerror = () => finish('Voice connection failed');
-  socket.onclose = () => finish('Voice connection closed');
+  media.onLost(reason => finish(reason));
+  media.onAudioBlocked(audioBlocked => update({ audioBlocked }));
+  connect(first);
   onState(state);
-  return { hangup: () => finish(null) };
+  return {
+    hangup: () => finish(null),
+    /** Call inside the person's tap: the browser plays the agent's voice only from a gesture. */
+    unlockAudio: () => { if (!ended) media.unlockAudio(); },
+  };
 }
 
 /**
@@ -106,5 +145,5 @@ export async function beginPiVoiceCall(prepared: Promise<void>, media: PiVoiceMe
   onState: (state: PiVoiceState) => void, wanted: () => boolean) {
   try { await prepared; } catch (error) { media.close(); throw error; }
   if (!wanted()) { media.close(); return undefined; }
-  return startPiVoiceCall(openSocket(), media, onState);
+  return startPiVoiceCall(openSocket, media, onState);
 }

@@ -1,5 +1,12 @@
 /* Mobile Adaptations - All Devices */
 
+/* Voice call controls (Call, End, Turn on sound) are used one-handed on a phone: Apple's 44 px
+   touch target, on any touch-pointer width. !important outranks the 36 px button floor below. */
+:root.mobile-pointer:not(.desktop-runtime) .oc-touch-target {
+  min-height: 44px !important;
+  min-width: 44px !important;
+}
+
 /* General mobile improvements for all mobile devices */
 @media (max-width: 1024px) {
   /* Override CSS custom properties for mobile */
