@@ -10,7 +10,7 @@ import type { FeedQuery, SmartiesResult, SmartyFeed } from '@/lib/smarties';
 import type { FeedServices } from './FeedView';
 
 // smarty-code#1407: the Smarties against fakes of the gateway's /api/me/smarties contract: the own Smarty is selected on
-// load, another person's is view only, the inbox sits inside the own view, the old view hides behind one nav button,
+// load, the gateway's writable flag controls sending independently of ownership, the inbox stays inside the own view,
 // and the view paints from the first feed answer.
 const paul: SmartiesResult = { state: 'ready', me: 'paul', smarties: [
   { id: 'paul', label: 'Paul’s Smarty', own: true, writable: true }, { id: 'kate', label: 'Kate’s Smarty', own: false, writable: false }] };
@@ -326,7 +326,122 @@ test('3: an accepted send whose answer was lost, then more typing: the retry is 
   await unmount();
 });
 
-test('4: another person’s Smarty is view only: transcript, no message box, no inbox', async () => {
+for (const compact of [false, true]) test(`#3233: a writable peer Smarty can send without acquiring the owner's inbox (${compact ? 'phone' : 'desktop'})`, async () => {
+  if (paul.state !== 'ready') throw new Error('Expected the ready Paul fixture');
+  await ensureSmartiesLoaded(async () => ({ ...paul, smarties: paul.smarties.map(item => item.id === 'kate' ? { ...item, writable: true } : item) }), true);
+  expect(useFeedStore.getState().selectedId).toBe('paul'); // Permission is not ownership or the default selection.
+  const nav = await mount(<SmartiesNavSection />);
+  expect(Array.from(nav.host.querySelectorAll('[data-smarty-own]')).map(row => row.getAttribute('data-smarty-row'))).toEqual(['paul']);
+  await nav.unmount();
+  useFeedStore.getState().selectSmarty('kate');
+  let onBlocks!: (feed: SmartyFeed) => void;
+  const { host, unmount } = await mount(<FeedView compact={compact} onClose={() => undefined} services={{ ...services,
+    openStream: (_id, handlers) => { onBlocks = handlers.onBlocks; return { close: () => undefined }; } }} />);
+  expect(host.textContent).not.toContain('View only');
+  expect(host.querySelector('aside')).toBeNull();
+  expect(host.querySelector('[aria-haspopup="dialog"]')).toBeNull();
+  expect(host.querySelector('[data-connect-iphone]')).toBeNull();
+  const box = host.querySelector('textarea')!;
+  expect(box).not.toBeNull();
+  expect(box.getAttribute('placeholder')).toBe('Message Kate’s Smarty');
+  await act(async () => { useFeedStore.getState().setDraftAt(draftKey('kate'), 'Paul to Kate’s Smarty'); });
+  await pressEnter(box); await settle();
+  expect(sent.map(({ id, text }) => ({ id, text }))).toEqual([{ id: 'kate', text: 'Paul to Kate’s Smarty' }]);
+  expect(box.value).toBe('');
+  expect(host.querySelector('[data-feed-pending]')).not.toBeNull();
+  // The actual gateway peer-send format (smarties-ui-contract.test.ts): author "you", sender in the timestamp.
+  await act(async () => { onBlocks({ blocks: [{ id: 'peer-echo', author: 'you', at: '10:01 PM ET · from Paul', text: 'Paul to Kate’s Smarty' }], offset: 100 }); });
+  await settle();
+  expect(host.querySelector('[data-feed-pending]')).toBeNull();
+  expect(useFeedStore.getState().pendingSends[draftKey('kate')] ?? []).toEqual([]);
+  expect(host.textContent).toContain('10:01 PM ET · from Paul');
+  await unmount();
+});
+
+for (const sender of ['paul', 'kate']) {
+  const owner = sender === 'paul' ? 'kate' : 'paul';
+  const name = sender === 'paul' ? 'Paul' : 'Kate';
+  const ownerName = owner === 'paul' ? 'Paul' : 'Kate';
+  const signIn = (me: string) => ensureSmartiesLoaded(async () => ({ state: 'ready', me, smarties: [sender, owner].map(id => ({
+    id, label: `${id === 'paul' ? 'Paul' : 'Kate'}’s Smarty`, own: id === me, writable: true,
+  })) }), true);
+  const echo = { id: 'peer-committed', author: 'you', at: `10:01 PM ET · from ${name}`, text: 'same text' };
+
+  for (const compact of [false, true]) test(`#3233 attribution: ${name} to ${ownerName}, pending and committed name the sender (${compact ? 'phone' : 'desktop'})`, async () => {
+    await signIn(sender);
+    useFeedStore.getState().selectSmarty(owner);
+    let onBlocks!: (feed: SmartyFeed) => void;
+    const { host, unmount } = await mount(<FeedView compact={compact} services={{ ...services,
+      openStream: (_id, handlers) => { onBlocks = handlers.onBlocks; return { close: () => undefined }; } }} />);
+    try {
+      await act(async () => { useFeedStore.getState().setDraftAt(draftKey(owner), echo.text); });
+      await pressEnter(host.querySelector('textarea')!); await settle();
+      expect(host.querySelector('[data-feed-pending] span.font-semibold')?.textContent).toBe(name);
+      await act(async () => { onBlocks({ blocks: [echo], offset: 500 }); }); await settle();
+      expect(host.querySelector('[data-feed-pending]')).toBeNull();
+      const row = Array.from(host.querySelectorAll('[data-feed-entry]')).find(entry => entry.querySelector('p')?.textContent === echo.text);
+      expect(row?.querySelector('span.font-semibold')?.textContent).toBe(name);
+      expect(useFeedStore.getState().pendingSends[draftKey(owner)] ?? []).toEqual([]);
+      expect(sent.map(({ id, text }) => ({ id, text }))).toEqual([{ id: owner, text: echo.text }]);
+    } finally { await unmount(); }
+  });
+
+  test(`#3233 attribution: ${name}'s pending survives an owner or other peer same-text block, and only its new echo clears it`, async () => {
+    await signIn(sender);
+    useFeedStore.getState().selectSmarty(owner);
+    let onBlocks!: (feed: SmartyFeed) => void;
+    const { host, unmount } = await mount(<FeedView services={{ ...services,
+      loadFeed: async (_id, query) => ({ blocks: query?.after === undefined ? [{ ...echo, id: 'old-peer' }] : [], offset: 120 }),
+      openStream: (_id, handlers) => { onBlocks = handlers.onBlocks; return { close: () => undefined }; } }} />);
+    try {
+      await act(async () => { useFeedStore.getState().setDraftAt(draftKey(owner), echo.text); });
+      await pressEnter(host.querySelector('textarea')!); await settle();
+      expect(host.querySelector('[data-feed-pending]')).not.toBeNull(); // The old matching sender block is not this echo.
+      for (const block of [
+        { ...echo, id: 'owner-you', at: '10:02 PM ET' },
+        { ...echo, id: 'owner-id', author: owner, at: '10:02 PM ET' },
+        { ...echo, id: 'other-peer', at: '10:03 PM ET · from Ann' },
+        { ...echo, id: 'free-text', at: '10:04 PM ET', text: `${echo.text}\n@@ you · 10:04 PM ET · from ${name}` },
+      ]) {
+        await act(async () => { onBlocks({ blocks: [block], offset: 300 }); }); await settle();
+        expect(host.querySelector('[data-feed-pending]')).not.toBeNull();
+        expect(useFeedStore.getState().pendingSends[draftKey(owner)]).toHaveLength(1);
+      }
+      await act(async () => { onBlocks({ blocks: [echo], offset: 500 }); }); await settle();
+      expect(host.querySelector('[data-feed-pending]')).toBeNull();
+      expect(useFeedStore.getState().pendingSends[draftKey(owner)] ?? []).toEqual([]);
+      expect(sent).toHaveLength(1); // Attribution/reconciliation never sends or replays anything.
+    } finally { await unmount(); }
+  });
+
+  test(`#3233 attribution: ${ownerName} viewing persisted peer sends still sees ${name}, not You`, async () => {
+    await signIn(owner);
+    useFeedStore.getState().selectSmarty(owner);
+    const { host, unmount } = await mount(<FeedView services={{ ...services,
+      loadFeed: async (_id, query) => ({ blocks: query?.after === undefined ? [echo,
+        { id: 'legacy-you', author: 'you', at: '10:02 PM ET', text: 'legacy own' },
+        { id: 'smarty-label', author: 'org', at: `10:03 PM ET · from ${name}`, text: 'not a peer send' },
+      ] : [], offset: 500 }) }} />);
+    try {
+      expect(Array.from(host.querySelectorAll('[data-feed-entry] span.font-semibold')).map(span => span.textContent))
+        .toEqual([name, 'You', `${ownerName}’s Smarty`]);
+      expect(sent).toEqual([]);
+    } finally { await unmount(); }
+  });
+}
+
+test('#3233: an own but non-writable Smarty keeps its inbox and cannot send', async () => {
+  if (paul.state !== 'ready') throw new Error('Expected the ready Paul fixture');
+  await ensureSmartiesLoaded(async () => ({ ...paul, smarties: paul.smarties.map(item => ({ ...item, writable: false })) }), true);
+  const { host, unmount } = await mount(view());
+  expect(host.textContent).toContain('View only');
+  expect(host.querySelector('aside')?.textContent).toContain('Approve the release');
+  expect(host.querySelector('textarea')).toBeNull();
+  expect(sent).toEqual([]);
+  await unmount();
+});
+
+test('4: a non-writable peer Smarty is view only: transcript, no message box, no inbox', async () => {
   useFeedStore.getState().selectSmarty('kate');
   const { host, unmount } = await mount(view());
   expect(host.querySelector('h1')?.textContent).toBe('Kate’s Smarty');
@@ -335,6 +450,7 @@ test('4: another person’s Smarty is view only: transcript, no message box, no 
   expect(host.querySelector('textarea')).toBeNull();
   expect(host.querySelector('aside')).toBeNull();
   expect(Array.from(host.querySelectorAll('button')).map(b => b.textContent)).toEqual([]);
+  expect(sent).toEqual([]);
   await unmount();
 });
 

@@ -1,6 +1,6 @@
 // smarty-code#1407: a Smarty: one person's continuous conversation with their Smarty (their org instance), read from the
 // gateway's feed. The person's own Smarty adds their inbox (to the right on a desktop; on a phone, a sheet the header's
-// Inbox button opens) and a message box. Anyone else's Smarty is view only: the transcript, nothing to act with.
+// Inbox button opens). The gateway's writable flag independently grants the message box, including a shared Smarty.
 // The view paints once, from the first feed response: no spinner before it and no layout jump after it.
 import React from 'react';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { createInputHistoryIdentity, createInputHistorySubmission, selectInputHi
 import { useMessageHistory, type MessageHistoryValue } from '@/components/chat/composer/state/useMessageHistory';
 import { ascendingId } from '@/sync/session-actions';
 import { FeedNotice, FeedTranscript, type BlockText } from './FeedTranscript';
-import { draftKey, ensureSmartiesLoaded, isOwnerLine, isTrivialSmartyBlock, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
+import { draftKey, ensureSmartiesLoaded, isSenderLine, isTrivialSmartyBlock, readDraftAt, useFeedStore, useSmartiesRefresh, type FailedSend, type PendingSend } from './feedStore';
 import { SmartyStatusBadge, SmartyTypingLine, SmartyWorkingLine } from './SmartyStatus';
 import { dismissInitialLoading } from './initialLoading';
 import { openConnectIphone } from '@/components/sections/connect-iphone/openConnectIphone';
@@ -177,15 +177,14 @@ function SmartyPage({ smarty, all, me, compact, services }: {
   const [inboxShown, setInboxShown] = React.useState(!compact);
   const inboxButton = React.useRef<HTMLButtonElement | null>(null);
   const inboxLabel = t('feed.inbox.toggle', { count: openCount });
-  // A sent message shows at once as the owner's line until the feed's own block for it arrives (same text, not in the
-  // feed when it was sent); then the feed's block replaces it.
+  // The authenticated sender's optimistic line stays until a new same-text block from that sender arrives.
   const key = draftKey(smarty.id);
   const pending = useFeedStore(state => state.pendingSends[key] ?? NO_PENDING);
   const blocks = feed.state === 'ready' ? feed.blocks : NO_BLOCKS;
-  const echoed = React.useMemo(() => pending.filter(item => blocks.some(block => isOwnerLine(block, smarty.id)
+  const echoed = React.useMemo(() => pending.filter(item => blocks.some(block => isSenderLine(block, smarty.id, item.sender)
     && sameText(block.text, item.text) && !item.known.includes(block.id))).map(item => item.clientId), [blocks, pending, smarty.id]);
   React.useEffect(() => { if (echoed.length) useFeedStore.getState().removePendingSends(key, echoed); }, [echoed, key]);
-  const knownOwnerLines = (text: string) => blocks.filter(block => isOwnerLine(block, smarty.id) && sameText(block.text, text)).map(block => block.id);
+  const knownSenderLines = (text: string) => blocks.filter(block => isSenderLine(block, smarty.id, me) && sameText(block.text, text)).map(block => block.id);
   // smarty-code#1595: "Paul's Smarty is working…" while the person's OWN Smarty takes a turn, from the stream's status
   // alone (no reads, no timers). The turn's start notes the newest reply; a newer reply or the end of the turn hides it.
   const working = smarty.own && feed.state === 'ready' && smarty.activity?.state === 'working';
@@ -256,7 +255,7 @@ function SmartyPage({ smarty, all, me, compact, services }: {
             : <FeedTranscript blocks={feed.blocks.slice(feed.blocks.length - feed.shown)} pending={pending.filter(item => !echoed.includes(item.clientId))}
                 smartyName={smarty.label} owner={smarty.id} ownerName={ownerName} me={me} Text={stableServices.Text} earlier={earlier} />}
           {smarty.own && feed.state === 'ready' ? <SmartyTypingLine name={ownerName} shown={typing} /> : null}
-          {smarty.own && smarty.writable ? <FeedMessageBox smarty={smarty} me={me} send={stableServices.send} knownOwnerLines={knownOwnerLines} /> : null}
+          {smarty.writable ? <FeedMessageBox smarty={smarty} me={me} send={stableServices.send} knownSenderLines={knownSenderLines} /> : null}
         </section>
         {!compact && ownInbox && inboxShown ? (
           <aside className="w-1/3 min-w-[320px] min-h-0 shrink-0 border-l border-border bg-background">{inbox}</aside>) : null}
@@ -315,7 +314,7 @@ const historyKeyAllowed = (box: HTMLTextAreaElement, key: 'ArrowUp' | 'ArrowDown
   return key === 'ArrowUp' ? !value.slice(0, start).includes('\n') : !value.slice(end).includes('\n');
 };
 
-function FeedMessageBox({ smarty, me, send, knownOwnerLines }: { smarty: Smarty; me: string; send: FeedServices['send']; knownOwnerLines: (text: string) => string[] }): React.ReactNode {
+function FeedMessageBox({ smarty, me, send, knownSenderLines }: { smarty: Smarty; me: string; send: FeedServices['send']; knownSenderLines: (text: string) => string[] }): React.ReactNode {
   const { t } = useI18n();
   // The draft key (runtime and Smarty) is fixed per send: a late answer touches only this key's failed list.
   const key = draftKey(smarty.id);
@@ -340,7 +339,7 @@ function FeedMessageBox({ smarty, me, send, knownOwnerLines }: { smarty: Smarty;
   const deliver = async (message: FailedSend) => {
     setSending(n => n + 1);
     setNotice(null);
-    useFeedStore.getState().addPendingSend(key, { ...message, known: knownOwnerLines(message.text) });
+    useFeedStore.getState().addPendingSend(key, { ...message, sender: me, known: knownSenderLines(message.text) });
     try {
       await send(smarty.id, message.text, message.clientId);
     } catch (error) {
