@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { loadSmarties, loadSmartyFeed, sendSmartyMessage, SmartiesRequestError } from './smarties';
+import { loadSmarties, loadSmartyFeed, parseSmartiesSnapshot, sendSmartyMessage, SmartiesRequestError } from './smarties';
 
 // smarty-code#1407, #1484: the client parses the gateway's /api/me/smarties answers once; only a missing route is
 // "unavailable". A complete 200 may be empty; authorization refusals, partial answers and malformed bodies throw.
@@ -42,13 +42,35 @@ for (const [name, body] of [
   ['own true on another person', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":true,"writable":true}]}'],
   ['own false on the signed-in person', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":false,"writable":false}]}'],
   ['two own rows with the same self id', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":true,"writable":true},{"id":"ann","label":"Ann’s other Smarty","own":true,"writable":true}]}'],
-  ['own true but writable false', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":true,"writable":false}]}'],
-  ['own false but writable true', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false,"writable":true}]}'],
+  ['missing writable on own row', '{"me":"ann","smarties":[{"id":"ann","label":"Ann’s Smarty","own":true}]}'],
+  ['missing writable on shared row', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false}]}'],
+  ['non-boolean writable', '{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false,"writable":"true"}]}'],
 ] as const) {
   test(`openchamber#611: the list rejects ${name}`, async () => {
     await expect(loadSmarties(fake(() => json(body)))).rejects.toThrow();
   });
 }
+
+test('#3233: the exported parser and loader accept gateway write grants independently of ownership, own first', async () => {
+  const body = { me: 'ann', smarties: [
+    { id: 'kate', label: 'Kate’s Smarty', own: false, writable: true },
+    { id: 'ann', label: 'Ann’s Smarty', own: true, writable: false },
+  ] };
+  const expected = { state: 'ready', me: 'ann', smarties: [...body.smarties].reverse() };
+  expect(parseSmartiesSnapshot(body)).toEqual(expected);
+  expect(await loadSmarties(fake(() => json(JSON.stringify(body))))).toEqual(expected);
+  expect(parseSmartiesSnapshot({ me: 'ann', smarties: [body.smarties[0]] })).toEqual({ state: 'ready', me: 'ann', smarties: [body.smarties[0]] });
+});
+
+test('#3233: the exported parser fails closed on absent/non-boolean write grants and ownership spoofing', () => {
+  const row = { id: 'kate', label: 'Kate’s Smarty', own: false };
+  for (const writable of [undefined, null, 0, 1, 'false', 'true', {}, []]) {
+    expect(() => parseSmartiesSnapshot({ me: 'ann', smarties: [{ ...row, writable }] })).toThrow();
+  }
+  expect(() => parseSmartiesSnapshot({ me: 'ann', smarties: [{ ...row, own: true, writable: true }] })).toThrow();
+  expect(() => parseSmartiesSnapshot({ me: null, smarties: [{ ...row, writable: true }] })).toThrow();
+  expect(parseSmartiesSnapshot({ me: null, smarties: [] })).toEqual({ state: 'empty' });
+});
 
 test('openchamber#611: a person may have only a shared Smarty, with no own row', async () => {
   expect(await loadSmarties(fake(() => json('{"me":"ann","smarties":[{"id":"kate","label":"Kate’s Smarty","own":false,"writable":false}]}')))).toEqual({

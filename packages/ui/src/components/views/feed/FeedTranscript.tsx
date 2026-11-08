@@ -7,7 +7,7 @@ import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { SmartyBlock } from '@/lib/smarties';
-import { isOwnerLine, isTrivialSmartyBlock } from './feedStore';
+import { isOwnerLine, isTrivialSmartyBlock, peerSenderName, type PendingSend } from './feedStore';
 
 export function FeedNotice({ children, alert, action }: { children: React.ReactNode; alert?: boolean; action?: React.ReactNode }): React.ReactNode {
   return (
@@ -27,14 +27,14 @@ const isDividerBlock = (block: SmartyBlock) => DIVIDER.test(block.text);
 
 /**
  * `smartyName` names the Smarty's own blocks (author "org"). The owner's own lines (author "you", as the backfill
- * writes them, or the owner's id) are the owner's messages: right-aligned, labelled "You" for the owner and the owner's
- * name for anyone else. Any other author is a person, shown by name, never by an id.
+ * writes them, or the owner's id) stay right-aligned. An explicit gateway peer suffix names that sender for every
+ * viewer; unlabelled lines keep "You" for the owner and the owner's name for others. Other authors are shown by name.
  */
 export type BlockText = React.ComponentType<{ content: string }>;
 
 /** `earlier`: the "Show earlier" control, when older blocks exist. */
 export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, ownerName, me, Text = SimpleMarkdownRenderer, earlier = null }: {
-  blocks: readonly SmartyBlock[]; pending?: readonly { clientId: string; text: string }[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
+  blocks: readonly SmartyBlock[]; pending?: readonly Pick<PendingSend, 'clientId' | 'text' | 'sender'>[]; smartyName: string; owner: string; ownerName: string; me: string; Text?: BlockText;
   earlier?: { state: 'idle' | 'loading' | 'failed'; show: () => void } | null;
 }): React.ReactNode {
   const { t } = useI18n();
@@ -52,10 +52,13 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
     before.current = { height: element.scrollHeight, oldest: oldest?.id };
   }, [blocks.length, newest?.id, oldest?.id, pending.length]);
   const byOwner = (author: string) => isOwnerLine({ author }, owner);
-  const authorName = (author: string) => {
-    if (author === 'org') return smartyName;
-    if (byOwner(author)) return owner === me ? t('feed.you') : ownerName;
-    return author === me ? t('feed.you') : author.charAt(0).toUpperCase() + author.slice(1);
+  const personName = (id: string) => id.charAt(0).toUpperCase() + id.slice(1);
+  const authorName = (block: SmartyBlock) => {
+    const peer = peerSenderName(block);
+    if (peer) return peer;
+    if (block.author === 'org') return smartyName;
+    if (byOwner(block.author)) return owner === me ? t('feed.you') : ownerName;
+    return block.author === me ? t('feed.you') : personName(block.author);
   };
   return (
     <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto"
@@ -78,7 +81,7 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
           <li key={block.id} data-feed-entry={block.author === 'org' ? 'smarty' : byOwner(block.author) ? 'owner' : 'person'}
             className={cn('chat-message-column flex min-w-0 flex-col gap-1', byOwner(block.author) && 'items-end')}>
             <div className="flex items-baseline gap-2 typography-ui-label">
-              <span className="font-semibold text-foreground">{authorName(block.author)}</span>
+              <span className="font-semibold text-foreground">{authorName(block)}</span>
               <span className="tabular-nums text-muted-foreground">{block.at}</span>
             </div>
             {byOwner(block.author)
@@ -89,7 +92,7 @@ export function FeedTranscript({ blocks: held, pending = [], smartyName, owner, 
         {pending.map(item => (
           <li key={item.clientId} data-feed-entry="owner" data-feed-pending className="chat-message-column flex min-w-0 flex-col items-end gap-1">
             <div className="flex items-baseline gap-2 typography-ui-label">
-              <span className="font-semibold text-foreground">{owner === me ? t('feed.you') : ownerName}</span>
+              <span className="font-semibold text-foreground">{item.sender === owner ? (owner === me ? t('feed.you') : ownerName) : personName(item.sender)}</span>
               <span className="text-muted-foreground">{t('feed.reply.sending')}</span>
             </div>
             <div className="max-w-[85%] rounded-lg bg-muted/40 px-3 py-2 opacity-80"><Text content={item.text} /></div>

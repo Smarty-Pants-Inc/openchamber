@@ -25,8 +25,8 @@ type FeedStore = {
    */
   failedSends: Readonly<Record<string, readonly FailedSend[]>>;
   /**
-   * Sent messages shown at once as the owner's lines, marked as sending, per draft key. Each stays until the feed's own
-   * block for it arrives (the owner's line with the same text that was not in the feed at send time), or until it fails.
+   * Sent messages shown at once with their authenticated sender, marked as sending, per draft key. Each stays until a
+   * new block from that sender with the same text arrives, or until it fails.
    */
   pendingSends: Readonly<Record<string, readonly PendingSend[]>>;
   /**
@@ -46,12 +46,20 @@ type FeedStore = {
   removePendingSends: (key: string, clientIds: readonly string[]) => void;
 };
 export type FailedSend = { text: string; clientId: string; at: number };
-/** `known`: ids of the owner's blocks with this text already in the feed when it was sent (they are not its echo). */
-export type PendingSend = FailedSend & { known: readonly string[] };
+/** `sender`: the list's authenticated `me`; `known`: its existing same-text blocks (not this send's echo). */
+export type PendingSend = FailedSend & { sender: string; known: readonly string[] };
 
 const isPageOpen = (view: View, smarties: SmartiesState) => view === 'smarty' && smarties.state !== 'unavailable';
 /** The owner's own feed line: "you", as the backfill and the gateway write it, or the owner's id. */
 export const isOwnerLine = (block: { author: string }, owner: string) => block.author === 'you' || block.author === owner;
+/** Only appendOwn's explicit peer suffix attributes a `you` block to someone other than the feed owner. */
+export const peerSenderName = (block: { author: string; at: string }) => block.author === 'you'
+  ? /^\d{1,2}:\d{2} [AP]M ET · from ([^·\r\n]+)$/.exec(block.at)?.[1] : undefined;
+/** Gateway principal ids are their configured names lowercased; unlabelled `you` remains the owner's backfill. */
+export const isSenderLine = (block: { author: string; at: string }, owner: string, sender: string) => {
+  const peer = peerSenderName(block);
+  return peer ? peer.toLowerCase() === sender : sender === owner && isOwnerLine(block, owner);
+};
 /**
  * smarty-code#1595: a Smarty block with nothing to read is not shown: with whitespace removed, its text is only "." and
  * "…" (or empty), the server's rule (smarty-dev#8029). "?", "!", an emoji or "ok" are replies.

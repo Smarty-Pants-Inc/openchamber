@@ -1,5 +1,5 @@
 // smarty-code#1407: the Smarties a signed-in person may see (their own and those Paul shares), each one's feed, and
-// messages to their own Smarty, through the gateway's /me/smarties routes. The gateway decides who the person is and
+// messages to writable Smarties, through the gateway's /me/smarties routes. The gateway decides who the person is and
 // what they may see or send; this module only parses its answers.
 import { z } from 'zod';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -14,8 +14,8 @@ const smartySchema = z.object({ id: z.string().min(1), label: z.string().min(1),
 // `me` is null for a signed-in member the gateway maps to no person (smarty-code#1456): valid only with no Smarties.
 const listSchema = z.object({ me: z.string().min(1).nullable(), smarties: z.array(smartySchema) })
   .refine(body => body.me !== null || body.smarties.length === 0)
-  // Shared-only lists are valid; ownership and write permission must still agree with the signed-in person.
-  .refine(body => body.smarties.every(smarty => smarty.own === (smarty.id === body.me) && smarty.writable === smarty.own))
+  // Ownership must agree with the signed-in person; the gateway grants write permission independently (transparency).
+  .refine(body => body.smarties.every(smarty => smarty.own === (smarty.id === body.me)))
   .refine(body => body.smarties.filter(smarty => smarty.own).length <= 1);
 const blockSchema = z.object({ id: z.string().min(1), author: z.string().min(1), at: z.string(), text: z.string() });
 // `earlier` (the gateway's paging cursor): the `before` for the page above this one; null at the top of the feed. A read
@@ -36,7 +36,8 @@ export type SmartyFeed = z.infer<typeof feedSchema>;
  * `unavailable`: this server has no Smarties (no gateway route). `empty`: it has, but none this person may see (they are
  * not a principal, smarty-code#1456): the view says so and keeps its button to the old view. Neither is a failure.
  */
-export type SmartiesResult = { state: 'ready'; me: string; smarties: Smarty[] } | { state: 'empty' } | { state: 'unavailable' };
+export type SmartiesSnapshot = { state: 'ready'; me: string; smarties: Smarty[] } | { state: 'empty' };
+export type SmartiesResult = SmartiesSnapshot | { state: 'unavailable' };
 type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 export class SmartiesRequestError extends Error {
@@ -88,12 +89,16 @@ export async function loadSmarties(fetcher: Fetcher = runtimeFetch): Promise<Sma
   // ponytail: only a 404 means no Smarties route (VS Code, a plain OpenChamber); a refusal or partial answer is a failure.
   if (response.status === 404) return { state: 'unavailable' };
   if (response.status !== 200) throw new SmartiesRequestError(response.status);
-  const body = listSchema.parse(await response.json());
+  return parseSmartiesSnapshot(await response.json());
+}
+
+/** Parses the gateway's complete list, preserving identity checks and its explicit write permission. */
+export const parseSmartiesSnapshot = listSchema.transform((body): SmartiesSnapshot => {
   if (body.smarties.length === 0 || body.me === null) return { state: 'empty' };
   // Own first, whatever order the server sent.
   const now = Date.now(), smarties = body.smarties.map(({ activity, ...smarty }) => activity ? { ...smarty, activity: toActivity(activity, now) } : smarty);
   return { state: 'ready', me: body.me, smarties: smarties.sort((a, b) => Number(b.own) - Number(a.own)) };
-}
+}).parse;
 
 /** The newest blocks (no `after`/`before`), the blocks appended after a byte offset, or a page that ends before one. */
 export type FeedQuery = { after?: number; before?: number; limit?: number };
